@@ -521,17 +521,36 @@ function initializeUI() {
     testAccountBtn.addEventListener('click', signInWithTestAccount);
   }
 }
+
+// ===== FUNÇÃO SHOWSCREEN (CORRIGIDA) =====
 function showScreen(screenId) {
   console.log('Mostrando tela:', screenId);
+  
+  // Primeiro, ocultar todas as telas
   document.querySelectorAll('.screen').forEach(screen => {
     screen.classList.remove('active');
+    screen.style.display = 'none'; // Garantir que está oculto
   });
   
+  // Mostrar a tela solicitada
   const screen = document.getElementById(screenId);
   if (screen) {
     screen.classList.add('active');
+    screen.style.display = 'block'; // Garantir que está visível
+    console.log('Tela', screenId, 'mostrada com sucesso');
+  } else {
+    console.error('Tela não encontrada:', screenId);
+    
+    // Fallback: tentar encontrar a tela de jogo por classe ou outro seletor
+    const gameScreen = document.querySelector('.game-screen') || document.querySelector('[data-screen="game"]');
+    if (gameScreen) {
+      gameScreen.classList.add('active');
+      gameScreen.style.display = 'block';
+      console.log('Fallback: Tela de jogo encontrada por seletor alternativo');
+    }
   }
 }
+
 
 function switchTab(tabName) {
   console.log('Mudando para aba:', tabName);
@@ -748,21 +767,68 @@ function convertFirestoreFormatToBoard(firestoreBoard) {
   return board;
 }
 
+// ===== INICIALIZAÇÃO DO TABULEIRO (CORREÇÃO DEFINITIVA) =====
+function initializeBrazilianCheckersBoard() {
+  const board = Array(8).fill().map(() => Array(8).fill(null));
+  
+  console.log('Inicializando tabuleiro brasileiro...');
+  
+  // PEÇAS PRETAS (jogador 1) - TOPO (linhas 0,1,2)
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 8; col++) {
+      // Colocar peças apenas nas casas escuras (row + col) % 2 !== 0
+      if ((row + col) % 2 !== 0) {
+        board[row][col] = { color: 'black', king: false };
+        console.log(`Peça preta colocada em: ${row},${col}`);
+      }
+    }
+  }
+  
+  // PEÇAS VERMELHAS (jogador 2) - BASE (linhas 5,6,7) 
+  for (let row = 5; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      // Colocar peças apenas nas casas escuras (row + col) % 2 !== 0
+      if ((row + col) % 2 !== 0) {
+        board[row][col] = { color: 'red', king: false };
+        console.log(`Peça vermelha colocada em: ${row},${col}`);
+      }
+    }
+  }
+  
+  // DEBUG: Mostrar tabuleiro completo
+  console.log('=== TABULEIRO INICIALIZADO ===');
+  for (let row = 0; row < 8; row++) {
+    let rowStr = `${row}: `;
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (piece) {
+        rowStr += piece.color === 'black' ? 'B ' : 'R ';
+      } else {
+        rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
+      }
+    }
+    console.log(rowStr);
+  }
+  
+  return board;
+}
 
-// ===== FUNÇÃO PARA CRIAR MESA (VERSÃO MELHORADA) =====
+// ===== VERIFICAÇÃO EXTRA NA CRIAÇÃO DA MESA =====
 async function createNewTable() {
+    console.log('CRIANDO NOVA MESA - Inicializando tabuleiro...');
+  const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+  
   const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
   const timeLimit = parseInt(document.getElementById('table-time').value);
   const bet = parseInt(document.getElementById('table-bet').value) || 0;
   
-  // Verificar se tem moedas suficientes para a aposta
   if (bet > 0 && userData.coins < bet) {
     showNotification('Você não tem moedas suficientes para esta aposta', 'error');
     return;
   }
   
   try {
-    // Converter o tabuleiro para formato Firestore-compatível
+    // Inicializar e verificar tabuleiro
     const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
     
     const tableRef = await db.collection('tables').add({
@@ -774,37 +840,37 @@ async function createNewTable() {
         uid: currentUser.uid,
         displayName: userData.displayName,
         rating: userData.rating,
-        color: 'red' // Primeiro jogador é sempre vermelho
+        color: 'black' // Jogador 1 = PRETAS (começam no topo)
       }],
       createdBy: currentUser.uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      currentTurn: 'red', // Vermelho começa
+      currentTurn: 'black', // Pretas começam
       board: boardData,
-      waitingForOpponent: true // Nova flag para indicar que está aguardando adversário
+      waitingForOpponent: true
     });
     
-    // Se houver aposta, deduzir as moedas
     if (bet > 0) {
       await db.collection('users').doc(currentUser.uid).update({
         coins: firebase.firestore.FieldValue.increment(-bet)
       });
-      
       userData.coins -= bet;
     }
     
     closeAllModals();
-    showNotification('Mesa criada com sucesso! Aguardando adversário...', 'success');
+    showNotification('Mesa criada com sucesso!', 'success');
     
-    // Entrar na mesa que acabou de criar
-    joinTable(tableRef.id);
+    // Entrar na mesa
+    setupGameListener(tableRef.id);
+    showScreen('game-screen');
+    showNotification('Aguardando adversário...', 'info');
     
   } catch (error) {
-    console.error('Erro detalhado ao criar mesa:', error);
+    console.error('Erro ao criar mesa:', error);
     showNotification('Erro ao criar mesa: ' + error.message, 'error');
   }
 }
 
-// ===== FUNÇÃO JOIN TABLE (ATUALIZADA) =====
+// ===== CORRIGIR JOIN TABLE =====
 async function joinTable(tableId) {
   try {
     const tableRef = db.collection('tables').doc(tableId);
@@ -817,55 +883,60 @@ async function joinTable(tableId) {
     
     const table = tableDoc.data();
     
-    // Verificar se a mesa está cheia
+    // Se usuário já está na mesa, apenas entrar
+    if (table.players.some(p => p.uid === currentUser.uid)) {
+      setupGameListener(tableId);
+      showScreen('game-screen');
+      
+      if (table.players.length === 1) {
+        showNotification('Aguardando adversário...', 'info');
+      } else {
+        showNotification('Jogo em andamento', 'info');
+      }
+      return;
+    }
+    
+    // Verificar se mesa está cheia
     if (table.players.length >= 2) {
       showNotification('Esta mesa já está cheia', 'error');
       return;
     }
     
-    // Verificar se o usuário já está na mesa
-    if (table.players.some(p => p.uid === currentUser.uid)) {
-      showNotification('Você já está nesta mesa', 'error');
-      return;
-    }
-    
-    // Verificar se há aposta e se o usuário tem moedas suficientes
+    // Verificar aposta
     if (table.bet > 0 && userData.coins < table.bet) {
       showNotification('Você não tem moedas suficientes para entrar nesta mesa', 'error');
       return;
     }
     
-    // Adicionar jogador à mesa (segundo jogador sempre será preto)
+    // CORREÇÃO: Segundo jogador é VERMELHO (base)
     await tableRef.update({
       players: firebase.firestore.FieldValue.arrayUnion({
         uid: currentUser.uid,
         displayName: userData.displayName,
         rating: userData.rating,
-        color: 'black'
+        color: 'red' // Segundo jogador é vermelho
       }),
-      status: 'playing', // Mudar status para playing quando o segundo jogador entrar
-      waitingForOpponent: false // Remover flag de espera
+      status: 'playing',
+      waitingForOpponent: false
     });
     
-    // Se houver aposta, deduzir as moedas
+    // Deduzir aposta se houver
     if (table.bet > 0) {
       await db.collection('users').doc(currentUser.uid).update({
         coins: firebase.firestore.FieldValue.increment(-table.bet)
       });
-      
       userData.coins -= table.bet;
     }
     
     // Entrar no jogo
     setupGameListener(tableId);
     showScreen('game-screen');
-    showNotification('Jogo iniciado! As peças vermelhas começam.', 'success');
+    showNotification('Jogo iniciado! As peças pretas começam.', 'success');
     
   } catch (error) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
-
 // ===== FUNÇÃO RENDER TABLE (ATUALIZADA) =====
 function renderTable(table, container) {
   const tableEl = document.createElement('div');
@@ -906,7 +977,8 @@ function renderTable(table, container) {
   container.appendChild(tableEl);
 }
 
-// ===== FUNÇÃO SETUP GAME LISTENER (ATUALIZADA) =====
+
+// ===== FUNÇÃO SETUP GAME LISTENER (COM VERIFICAÇÃO DE TELA) =====
 function setupGameListener(tableId) {
   // Remover listener anterior se existir
   if (gameListener) gameListener();
@@ -917,33 +989,32 @@ function setupGameListener(tableId) {
     if (doc.exists) {
       gameState = doc.data();
       
-      // Converter o tabuleiro do formato Firestore para array bidimensional
+      // Garantir que estamos na tela de jogo
+      const currentScreen = document.querySelector('.screen.active');
+      if (!currentScreen || currentScreen.id !== 'game-screen') {
+        showScreen('game-screen');
+      }
+      
+      // Resto do código permanece o mesmo...
       if (gameState.board && typeof gameState.board === 'object') {
         gameState.board = convertFirestoreFormatToBoard(gameState.board);
       }
       
-      // Verificar se o jogo terminou
       if (gameState.status === 'finished') {
         endGame(gameState.winner);
         return;
       }
       
-      // Verificar se é a vez do jogador atual
       const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
       const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
       
-      // Renderizar o tabuleiro
       renderBoard(gameState.board);
-      
-      // Atualizar informações dos jogadores
       updatePlayerInfo();
       
-      // Mostrar mensagem de quem começa
       if (gameState.players.length === 2 && gameState.currentTurn === 'red') {
         showNotification('Jogo iniciado! As peças vermelhas começam.', 'info');
       }
       
-      // Se for a vez do jogador, verificar capturas obrigatórias
       if (isMyTurn) {
         checkForMandatoryCaptures(currentPlayer.color);
       }
@@ -954,7 +1025,7 @@ function setupGameListener(tableId) {
 }
 
 
-// ===== FUNÇÃO RENDERBOARD =====
+// ===== FUNÇÃO RENDER BOARD (CORRIGIDA) =====
 function renderBoard(boardState) {
   const board = document.getElementById('checkers-board');
   if (!board) {
@@ -964,6 +1035,12 @@ function renderBoard(boardState) {
   
   // Limpar o tabuleiro
   board.innerHTML = '';
+  
+  // Verificar de quem é a vez
+  const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+  const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+  
+  console.log('Renderizando tabuleiro - Jogador atual:', currentPlayer?.color, 'Vez de:', gameState.currentTurn, 'Pode jogar:', isMyTurn);
   
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
@@ -985,12 +1062,15 @@ function renderBoard(boardState) {
         pieceEl.dataset.row = row;
         pieceEl.dataset.col = col;
         
-        // Adicionar evento de clique apenas para peças do jogador atual
-        if (gameState && piece.color === (gameState.currentTurn === 'red' ? 'red' : 'black')) {
+        // Adicionar evento de clique APENAS para peças do jogador atual E se for a vez dele
+        if (isMyTurn && piece.color === currentPlayer.color) {
           pieceEl.addEventListener('click', (e) => {
             e.stopPropagation();
             handlePieceClick(row, col);
           });
+          pieceEl.style.cursor = 'pointer';
+        } else {
+          pieceEl.style.cursor = 'not-allowed';
         }
         
         cell.appendChild(pieceEl);
@@ -1000,7 +1080,7 @@ function renderBoard(boardState) {
     }
   }
   
-  // Atualizar informação de turno se disponível
+  // Atualizar informação de turno
   if (gameState) {
     const turnEl = document.getElementById('game-turn');
     if (turnEl) {
@@ -1008,6 +1088,168 @@ function renderBoard(boardState) {
       turnEl.style.backgroundColor = gameState.currentTurn === 'red' ? '#e74c3c' : '#2c3e50';
     }
   }
+}
+
+// ===== FUNÇÃO GET POSSIBLE MOVES (CORREÇÃO DA DIREÇÃO) =====
+function getPossibleMoves(fromRow, fromCol) {
+  console.log('Obtendo movimentos para peça em:', fromRow, fromCol);
+  
+  if (!gameState || !gameState.board) {
+    console.error('Estado do jogo não disponível');
+    return [];
+  }
+  
+  const piece = gameState.board[fromRow][fromCol];
+  if (!piece) {
+    console.error('Nenhuma peça na posição:', fromRow, fromCol);
+    return [];
+  }
+  
+  console.log('Peça encontrada:', piece.color, 'king:', piece.king);
+  
+  // Primeiro verificar capturas obrigatórias
+  const captures = getCaptureMoves(fromRow, fromCol, piece);
+  if (captures.length > 0) {
+    console.log('Capturas obrigatórias encontradas:', captures);
+    return captures;
+  }
+  
+  // Movimentos normais
+  const moves = [];
+  const directions = [];
+  
+  if (piece.king) {
+    // Dama: todas as 4 direções
+    directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+  } else {
+    // Peça normal: direção depende da cor
+    if (piece.color === 'red') {
+      // Vermelhas movem para CIMA (linhas menores)
+      directions.push([-1, -1], [-1, 1]);
+    } else {
+      // Pretas movem para BAIXO (linhas maiores)
+      directions.push([1, -1], [1, 1]);
+    }
+  }
+  
+  // Verificar cada direção
+  for (const [rowDir, colDir] of directions) {
+    const toRow = fromRow + rowDir;
+    const toCol = fromCol + colDir;
+    
+    // Verificar se está dentro do tabuleiro
+    if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
+    
+    // Verificar se a célula de destino está vazia e é escura
+    if (gameState.board[toRow][toCol] === null && (toRow + toCol) % 2 !== 0) {
+      moves.push({
+        fromRow,
+        fromCol,
+        toRow,
+        toCol,
+        captures: []
+      });
+      console.log('Movimento normal válido para:', toRow, toCol);
+    }
+  }
+  
+  console.log('Movimentos normais encontrados:', moves);
+  return moves;
+}
+
+
+// ===== FUNÇÃO GET CAPTURE MOVES (VERSÃO FINAL SIMPLIFICADA) =====
+function getCaptureMoves(fromRow, fromCol, piece) {
+  const captures = [];
+  const directions = [];
+  
+  if (piece.king) {
+    // Dama: todas as 4 direções
+    directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+  } else {
+    // Peça normal: apenas para frente
+    const direction = piece.color === 'red' ? -1 : 1;
+    directions.push([direction, -1], [direction, 1]);
+  }
+  
+  // Verificar cada direção para capturas
+  for (const [rowDir, colDir] of directions) {
+    const jumpRow = fromRow + rowDir;
+    const jumpCol = fromCol + colDir;
+    const landRow = fromRow + 2 * rowDir;
+    const landCol = fromCol + 2 * colDir;
+    
+    // Verificar limites do tabuleiro
+    if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
+    
+    const jumpedPiece = gameState.board[jumpRow][jumpCol];
+    const landingCell = gameState.board[landRow][landCol];
+    
+    // Verificar se pode capturar
+    if (jumpedPiece && 
+        jumpedPiece.color !== piece.color && 
+        landingCell === null &&
+        (landRow + landCol) % 2 !== 0) {
+      
+      captures.push({
+        fromRow,
+        fromCol,
+        toRow: landRow,
+        toCol: landCol,
+        captures: [{ row: jumpRow, col: jumpCol }]
+      });
+      console.log('Captura encontrada para:', landRow, landCol);
+    }
+  }
+  
+  return captures;
+}
+
+// ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
+function debugShowBoard() {
+  if (gameState && gameState.board) {
+    console.log('=== TABULEIRO ATUAL (DEBUG) ===');
+    for (let row = 0; row < 8; row++) {
+      let rowStr = `${row}: `;
+      for (let col = 0; col < 8; col++) {
+        const piece = gameState.board[row][col];
+        if (piece) {
+          rowStr += piece.color === 'black' ? 'B ' : 'R ';
+        } else {
+          rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
+        }
+      }
+      console.log(rowStr);
+    }
+  }
+}
+// ===== FUNÇÃO HANDLE CELL CLICK (COM MAIS LOGS PARA DEBUG) =====
+function handleCellClick(row, col) {
+  console.log('Célula clicada:', row, col);
+  console.log('Peça selecionada:', selectedPiece);
+  
+  if (!selectedPiece) {
+    console.log('Nenhuma peça selecionada');
+    return;
+  }
+  
+  const moves = getPossibleMoves(selectedPiece.row, selectedPiece.col);
+  console.log('Movimentos possíveis:', moves);
+  
+  const validMove = moves.find(m => m.toRow === row && m.toCol === col);
+  
+  if (validMove) {
+    console.log('Movimento válido encontrado:', validMove);
+    makeMove(selectedPiece.row, selectedPiece.col, row, col, validMove.captures);
+  } else {
+    console.log('Movimento inválido - motivo:');
+    console.log('Posição destino:', row, col);
+    console.log('Movimentos disponíveis:', moves);
+    showNotification('Movimento inválido!', 'error');
+  }
+  
+  // Limpar seleção
+  clearSelection();
 }
 
 // ===== FUNÇÃO LEAVE GAME =====
@@ -1032,33 +1274,12 @@ function leaveGame() {
   loadTables();
 }
 
-// ===== FUNÇÃO HANDLE CELL CLICK =====
-function handleCellClick(row, col) {
-  console.log('Célula clicada:', row, col);
-  
-  if (!selectedPiece) {
-    console.log('Nenhuma peça selecionada');
-    return;
-  }
-  
-  const moves = getPossibleMoves(selectedPiece.row, selectedPiece.col);
-  const validMove = moves.find(m => m.toRow === row && m.toCol === col);
-  
-  if (validMove) {
-    console.log('Movimento válido encontrado:', validMove);
-    makeMove(selectedPiece.row, selectedPiece.col, row, col, validMove.captures);
-  } else {
-    console.log('Movimento inválido');
-    showNotification('Movimento inválido!', 'error');
-  }
-  
-  // Limpar seleção
-  clearSelection();
-}
 
 // ===== FUNÇÃO HANDLE PIECE CLICK =====
 function handlePieceClick(row, col) {
   console.log('Peça clicada:', row, col);
+    debugBoard(); // DEBUG
+
   
   // Desselecionar peça anterior se houver
   if (selectedPiece) {
@@ -1450,11 +1671,10 @@ async function loadFriends() {
     friendsContainer.innerHTML = '<p class="text-center">Funcionalidade de amigos em desenvolvimento</p>';
   }
 }
-
-// ===== FUNÇÃO MAKE MOVE (ATUALIZADA) =====
+// ===== FUNÇÃO MAKE MOVE (CORRIGIDA) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
   try {
-    // Criar uma cópia do tabuleiro
+    // Criar uma cópia profunda do tabuleiro
     const newBoard = JSON.parse(JSON.stringify(gameState.board));
     const movingPiece = newBoard[fromRow][fromCol];
     
@@ -1478,7 +1698,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     // Determinar próximo turno
     let nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
     
-    // Se houve captura, verificar se há mais capturas possíveis
+    // Se houve captura, verificar se há mais capturas possíveis a partir da nova posição
     if (captures && captures.length > 0) {
       const moreCaptures = getCaptureMoves(toRow, toCol, movingPiece);
       if (moreCaptures.length > 0) {
@@ -1488,7 +1708,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
       }
     }
     
-    // Converter o tabuleiro para formato Firestore antes de salvar
+    // Converter o tabuleiro para formato Firestore
     const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
     
     // Atualizar o estado do jogo
@@ -1508,6 +1728,43 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     showNotification('Erro ao realizar movimento: ' + error.message, 'error');
   }
 }
+// ===== FUNÇÃO CHECK GAME END (NOVA - PARA VERIFICAR FIM DE JOGO) =====
+function checkGameEnd(board, currentTurn) {
+  // Verificar se algum jogador não tem mais peças
+  let redPieces = 0;
+  let blackPieces = 0;
+  let redCanMove = false;
+  let blackCanMove = false;
+  
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (piece) {
+        if (piece.color === 'red') {
+          redPieces++;
+          // Verificar se tem movimentos possíveis
+          if (getPossibleMoves(row, col).length > 0) {
+            redCanMove = true;
+          }
+        } else {
+          blackPieces++;
+          // Verificar se tem movimentos possíveis
+          if (getPossibleMoves(row, col).length > 0) {
+            blackCanMove = true;
+          }
+        }
+      }
+    }
+  }
+  
+  // Verificar condições de vitória
+  if (redPieces === 0 || !redCanMove) {
+    endGame('black');
+  } else if (blackPieces === 0 || !blackCanMove) {
+    endGame('red');
+  }
+}
+
 
 // ===== FUNÇÃO CHECK FOR MANDATORY CAPTURES =====
 function checkForMandatoryCaptures(color) {
@@ -1543,168 +1800,27 @@ function checkForMandatoryCaptures(color) {
   return hasCaptures;
 }
 
-// ===== FUNÇÃO GET CAPTURE MOVES =====
-function getCaptureMoves(fromRow, fromCol, piece) {
-  const captures = [];
-  const direction = piece.color === 'red' ? -1 : 1;
-  
-  // Verificar capturas em todas as direções (para damas)
-  checkCaptureInDirection(captures, fromRow, fromCol, -1, -1, piece); // Diagonal superior esquerda
-  checkCaptureInDirection(captures, fromRow, fromCol, -1, 1, piece);  // Diagonal superior direita
-  checkCaptureInDirection(captures, fromRow, fromCol, 1, -1, piece);  // Diagonal inferior esquerda
-  checkCaptureInDirection(captures, fromRow, fromCol, 1, 1, piece);   // Diagonal inferior direita
-  
-  return captures;
-}
 
-// ===== FUNÇÃO CHECK CAPTURE IN DIRECTION =====
-function checkCaptureInDirection(captures, fromRow, fromCol, rowDir, colDir, piece) {
-  // Para peças normais, só podem capturar para frente
-  if (!piece.king) {
-    const direction = piece.color === 'red' ? -1 : 1;
-    if (rowDir !== direction) return;
-  }
-  
-  const jumpRow = fromRow + rowDir;
-  const jumpCol = fromCol + colDir;
-  const landRow = fromRow + 2 * rowDir;
-  const landCol = fromCol + 2 * colDir;
-  
-  // Verificar se está dentro do tabuleiro
-  if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) return;
-  
-  const jumpedPiece = gameState.board[jumpRow][jumpCol];
-  const landingCell = gameState.board[landRow][landCol];
-  
-  // Verificar se há uma peça para capturar e se a célula de destino está vazia
-  if (jumpedPiece && jumpedPiece.color !== piece.color && !landingCell) {
-    captures.push({
-      fromRow,
-      fromCol,
-      toRow: landRow,
-      toCol: landCol,
-      captures: [{ row: jumpRow, col: jumpCol }]
-    });
-    
-    // Verificar capturas múltiplas
-    checkMultipleCaptures(captures, landRow, landCol, rowDir, colDir, piece, [{ row: jumpRow, col: jumpCol }]);
-  }
-}
-
-// ===== FUNÇÃO CHECK MULTIPLE CAPTURES =====
-function checkMultipleCaptures(captures, fromRow, fromCol, rowDir, colDir, piece, capturedSoFar) {
-  // Verificar todas as direções para capturas adicionais
-  const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
-  
-  for (const [dirRow, dirCol] of directions) {
-    // Para peças normais, só podem capturar para frente
-    if (!piece.king) {
-      const direction = piece.color === 'red' ? -1 : 1;
-      if (dirRow !== direction) continue;
+// ===== DEBUG: VER TABULEIRO COMPLETO =====
+function debugBoard() {
+  console.log('=== TABULEIRO ATUAL ===');
+  for (let row = 0; row < 8; row++) {
+    let rowStr = '';
+    for (let col = 0; col < 8; col++) {
+      const piece = gameState.board[row][col];
+      if (piece) {
+        rowStr += piece.color === 'red' ? 'R' : 'B';
+        rowStr += piece.king ? 'K' : ' ';
+      } else {
+        rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
+      }
+      rowStr += ' ';
     }
-    
-    const jumpRow = fromRow + dirRow;
-    const jumpCol = fromCol + dirCol;
-    const landRow = fromRow + 2 * dirRow;
-    const landCol = fromCol + 2 * dirCol;
-    
-    // Verificar se está dentro do tabuleiro
-    if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
-    
-    const jumpedPiece = gameState.board[jumpRow][jumpCol];
-    const landingCell = gameState.board[landRow][landCol];
-    
-    // Verificar se a peça já foi capturada
-    const alreadyCaptured = capturedSoFar.some(c => c.row === jumpRow && c.col === jumpCol);
-    
-    // Verificar se há uma peça para capturar e se a célula de destino está vazia
-    if (!alreadyCaptured && jumpedPiece && jumpedPiece.color !== piece.color && !landingCell) {
-      const newCapture = { row: jumpRow, col: jumpCol };
-      const allCaptures = [...capturedSoFar, newCapture];
-      
-      captures.push({
-        fromRow: fromRow,
-        fromCol: fromCol,
-        toRow: landRow,
-        toCol: landCol,
-        captures: allCaptures
-      });
-      
-      // Verificar mais capturas a partir desta posição
-      checkMultipleCaptures(captures, landRow, landCol, dirRow, dirCol, piece, allCaptures);
-    }
+    console.log(row + ': ' + rowStr);
   }
 }
 
-// ===== FUNÇÃO GET POSSIBLE MOVES (ATUALIZADA) =====
-function getPossibleMoves(fromRow, fromCol) {
-  console.log('Obtendo movimentos para:', fromRow, fromCol);
-  
-  if (!gameState || !gameState.board) {
-    console.error('Estado do jogo ou tabuleiro não disponível');
-    return [];
-  }
-  
-  const piece = gameState.board[fromRow][fromCol];
-  if (!piece) {
-    console.error('Nenhuma peça na posição:', fromRow, fromCol);
-    return [];
-  }
-  
-  const moves = [];
-  const direction = piece.color === 'red' ? -1 : 1;
-  
-  // Verificar capturas obrigatórias primeiro
-  const captures = getCaptureMoves(fromRow, fromCol, piece);
-  if (captures.length > 0) {
-    console.log('Capturas obrigatórias encontradas:', captures);
-    return captures;
-  }
-  
-  // Movimentos normais (apenas se não houver capturas)
-  if (piece.king) {
-    // Damas podem mover-se para trás também
-    addMoveIfValid(moves, fromRow, fromCol, fromRow + direction, fromCol - 1, false, piece);
-    addMoveIfValid(moves, fromRow, fromCol, fromRow + direction, fromCol + 1, false, piece);
-    addMoveIfValid(moves, fromRow, fromCol, fromRow - direction, fromCol - 1, false, piece);
-    addMoveIfValid(moves, fromRow, fromCol, fromRow - direction, fromCol + 1, false, piece);
-  } else {
-    // Peças normais só se movem para frente
-    addMoveIfValid(moves, fromRow, fromCol, fromRow + direction, fromCol - 1, false, piece);
-    addMoveIfValid(moves, fromRow, fromCol, fromRow + direction, fromCol + 1, false, piece);
-  }
-  
-  console.log('Movimentos válidos encontrados:', moves);
-  return moves;
-}
 
-// ===== FUNÇÃO ADD MOVE IF VALID =====
-function addMoveIfValid(moves, fromRow, fromCol, toRow, toCol, isCapture, piece) {
-  // Verificar se está dentro do tabuleiro
-  if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) return false;
-  
-  // Verificar se a célula de destino está vazia
-  if (gameState.board[toRow][toCol]) return false;
-  
-  // Para peças normais, só podem mover para frente (a menos que seja uma captura)
-  if (!piece.king && !isCapture) {
-    const direction = piece.color === 'red' ? -1 : 1;
-    if ((toRow - fromRow) * direction <= 0) return false;
-  }
-  
-  // Verificar se é uma casa escura (onde as peças podem se mover)
-  if ((toRow + toCol) % 2 === 0) return false;
-  
-  moves.push({
-    fromRow,
-    fromCol,
-    toRow,
-    toCol,
-    captures: isCapture ? [] : null
-  });
-  
-  return true;
-}
 
 // ===== DEBUG: VERIFICAR ESTRUTURA DO TABULEIRO =====
 function debugBoardStructure(board) {
@@ -1841,27 +1957,44 @@ async function signInWithTestAccount() {
     showLoading(false);
   }
 }
-
-// ===== INICIALIZAÇÃO DO TABULEIRO =====
+// ===== FUNÇÃO initializeBrazilianCheckersBoard (CORREÇÃO DEFINITIVA) =====
 function initializeBrazilianCheckersBoard() {
+  console.log('=== INICIALIZANDO TABULEIRO CORRETAMENTE ===');
   const board = Array(8).fill().map(() => Array(8).fill(null));
   
-  // Posicionar peças vermelhas (topo)
+  // PEÇAS PRETAS (black) - TOPO (linhas 0,1,2)
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 8; col++) {
-      if ((row + col) % 2 !== 0) {
-        board[row][col] = { color: 'red', king: false };
+      if ((row + col) % 2 !== 0) { // Apenas casas escuras
+        board[row][col] = { color: 'black', king: false };
+        console.log(`Peça PRETA colocada em: ${row},${col}`);
       }
     }
   }
   
-  // Posicionar peças pretas (base)
+  // PEÇAS VERMELHAS (red) - BASE (linhas 5,6,7)
   for (let row = 5; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
-      if ((row + col) % 2 !== 0) {
-        board[row][col] = { color: 'black', king: false };
+      if ((row + col) % 2 !== 0) { // Apenas casas escuras
+        board[row][col] = { color: 'red', king: false };
+        console.log(`Peça VERMELHA colocada em: ${row},${col}`);
       }
     }
+  }
+  
+  // DEBUG: Mostrar tabuleiro
+  console.log('=== TABULEIRO FINAL ===');
+  for (let row = 0; row < 8; row++) {
+    let rowStr = `${row}: `;
+    for (let col = 0; col < 8; col++) {
+      const piece = board[row][col];
+      if (piece) {
+        rowStr += piece.color === 'black' ? 'B ' : 'R ';
+      } else {
+        rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
+      }
+    }
+    console.log(rowStr);
   }
   
   return board;
