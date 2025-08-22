@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Damas Online</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Firebase App (o core do Firebase) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <!-- Firebase Auth -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <!-- Firebase Firestore -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <!-- Navbar Mobile -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-chess-board"></i>
+            <span>Damas Online</span>
+        </div>
+        <div class="nav-actions">
+            <button id="btn-notifications" class="nav-btn">
+                <i class="fas fa-bell"></i>
+                <span class="notification-badge">3</span>
+            </button>
+            <button id="btn-profile" class="nav-btn">
+                <i class="fas fa-user"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Conteúdo Principal -->
+    <main class="main-content">
+        <!-- Tela de Login/Registro -->
+        <!-- Tela de Login/Registro -->
+<section id="auth-screen" class="screen active">
+  <div class="auth-container">
+    <div class="auth-header">
+      <h1>Damas Online</h1>
+      <p>Jogue damas brasileiras online</p>
+    </div>
+    
+    <!-- Formulário de Login (padrão) -->
+    <div id="login-form" class="auth-form">
+      <div class="input-group">
+        <i class="fas fa-envelope"></i>
+        <input type="email" id="email" placeholder="E-mail" autocomplete="email">
+      </div>
+      
+      <div class="input-group">
+        <i class="fas fa-lock"></i>
+        <input type="password" id="password" placeholder="Senha" autocomplete="current-password">
+      </div>
+      
+      <button id="btn-login" class="btn btn-primary">Entrar</button>
+      
+      <div class="auth-options">
+<a href="#" id="show-register">Criar uma conta</a>        <a href="#" id="forgot-password">Esqueci minha senha</a>
+      </div>
+      
+      <div class="auth-divider">
+        <span>ou</span>
+      </div>
+      
+      <button id="btn-google" class="btn btn-google">
+        <i class="fab fa-google"></i>
+        Entrar com Google
+      </button>
+      
+      <!-- Botão para teste rápido -->
+      <div class="auth-divider">
+        <span>acesso rápido para teste</span>
+      </div>
+      
+      <button id="btn-test-account" class="btn btn-secondary">
+        <i class="fas fa-bolt"></i>
+        Entrar com Conta de Teste
+      </button>
+    </div>
+    
+    <!-- Formulário de Registro (novo) -->
+    <div id="register-form" class="auth-form" style="display: none;">
+      <div class="input-group">
+        <i class="fas fa-user"></i>
+        <input type="text" id="register-name" placeholder="Seu nome completo">
+      </div>
+      
+      <div class="input-group">
+        <i class="fas fa-envelope"></i>
+        <input type="email" id="register-email" placeholder="E-mail">
+      </div>
+      
+      <div class="input-group">
+        <i class="fas fa-lock"></i>
+        <input type="password" id="register-password" placeholder="Senha (mínimo 6 caracteres)">
+      </div>
+      
+      <div class="input-group">
+        <i class="fas fa-lock"></i>
+        <input type="password" id="register-confirm-password" placeholder="Confirmar senha">
+      </div>
+      
+      <div class="form-row">
+        <div class="input-group" style="flex: 1;">
+          <i class="fas fa-birthday-cake"></i>
+          <input type="number" id="register-age" placeholder="Idade" min="10" max="120">
+        </div>
+        
+        <div class="input-group" style="flex: 2;">
+          <i class="fas fa-flag"></i>
+          <select id="register-country">
+            <option value="">Selecione seu país</option>
+            <option value="BR">Brasil</option>
+            <option value="AR">Argentina</option>
+            <option value="PT">Portugal</option>
+            <option value="US">Estados Unidos</option>
+            <option value="ES">Espanha</option>
+            <option value="FR">França</option>
+            <option value="DE">Alemanha</option>
+            <option value="IT">Itália</option>
+            <option value="UK">Reino Unido</option>
+            <option value="other">Outro</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="input-group">
+        <i class="fas fa-city"></i>
+        <input type="text" id="register-city" placeholder="Cidade">
+      </div>
+      
+      <div class="input-group checkbox-group">
+        <input type="checkbox" id="register-terms">
+        <label for="register-terms">Aceito os <a href="#">termos de uso</a> e <a href="#">política de privacidade</a></label>
+      </div>
+      
+<button id="btn-register-submit" class="btn btn-primary">Finalizar Cadastro</button>
+
+      
+      <div class="auth-options">
+        <a href="#" id="show-login">Já tenho uma conta</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+        <!-- Tela Principal com Abas -->
+        <section id="main-screen" class="screen">
+            <!-- Conteúdo das Abas -->
+            <div class="tab-content">
+                <!-- Aba: Tabuleiros -->
+                <div id="tab-tabuleiros" class="tab-pane active">
+                    <div class="header-with-action">
+                        <h2>Mesas Disponíveis</h2>
+                        <button id="btn-create-table" class="btn btn-primary btn-small">
+                            <i class="fas fa-plus"></i> Nova Mesa
+                        </button>
+                    </div>
+                    
+                    <div class="tables-list" id="tables-container">
+                        <!-- Mesas serão carregadas dinamicamente -->
+                    </div>
+                </div>
+                
+                <!-- Aba: Ranking -->
+                <div id="tab-ranking" class="tab-pane">
+                    <h2>Ranking de Jogadores</h2>
+                    <div class="ranking-filters">
+                        <button class="filter-btn active">Global</button>
+                        <button class="filter-btn">Amigos</button>
+                        <button class="filter-btn">Semanal</button>
+                    </div>
+                    
+                    <div class="ranking-list" id="ranking-container">
+                        <!-- Ranking será carregado dinamicamente -->
+                    </div>
+                </div>
+                
+                <!-- Aba: Amigos -->
+                <div id="tab-amigos" class="tab-pane">
+                    <div class="header-with-action">
+                        <h2>Amigos</h2>
+                        <button id="btn-add-friend" class="btn btn-primary btn-small">
+                            <i class="fas fa-user-plus"></i> Adicionar
+                        </button>
+                    </div>
+                    
+                    <div class="friends-search">
+                        <div class="input-group">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Buscar amigos...">
+                        </div>
+                    </div>
+                    
+                    <div class="friends-list" id="friends-container">
+                        <!-- Lista de amigos será carregada dinamicamente -->
+                    </div>
+                </div>
+                
+                <!-- Aba: Configurações -->
+                <div id="tab-configuracoes" class="tab-pane">
+                    <h2>Configurações</h2>
+                    
+                     <div class="settings-section">
+    <h3>Perfil</h3>
+    <div class="setting-item">
+      <div class="setting-info">
+        <i class="fas fa-user"></i>
+        <span>Nome de exibição</span>
+      </div>
+      <input type="text" id="display-name" class="setting-input">
+    </div>
+    
+    <div class="setting-item">
+      <div class="setting-info">
+        <i class="fas fa-birthday-cake"></i>
+        <span>Idade</span>
+      </div>
+      <input type="number" id="profile-age" class="setting-input" min="10" max="120">
+    </div>
+    
+    <div class="setting-item">
+      <div class="setting-info">
+        <i class="fas fa-flag"></i>
+        <span>País</span>
+      </div>
+      <select id="profile-country" class="setting-input">
+        <option value="">Selecione seu país</option>
+        <option value="BR">Brasil</option>
+        <option value="AR">Argentina</option>
+        <option value="PT">Portugal</option>
+        <option value="US">Estados Unidos</option>
+        <option value="ES">Espanha</option>
+        <option value="FR">França</option>
+        <option value="DE">Alemanha</option>
+        <option value="IT">Itália</option>
+        <option value="UK">Reino Unido</option>
+        <option value="other">Outro</option>
+      </select>
+    </div>
+    
+    <div class="setting-item">
+      <div class="setting-info">
+        <i class="fas fa-city"></i>
+        <span>Cidade</span>
+      </div>
+      <input type="text" id="profile-city" class="setting-input">
+    </div>
+    
+    <div class="setting-item">
+      <div class="setting-info">
+        <i class="fas fa-image"></i>
+        <span>Foto de perfil</span>
+      </div>
+      <button class="btn btn-secondary btn-small">Alterar</button>
+    </div>
+  </div>
+                    
+                    <div class="settings-section">
+                        <h3>Jogo</h3>
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <i class="fas fa-volume-up"></i>
+                                <span>Som</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <i class="fas fa-music"></i>
+                                <span>Música</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>Conta</h3>
+                        <button id="btn-logout" class="btn btn-secondary btn-full">Sair</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Barra de Navegação Inferior -->
+            <nav class="bottom-nav">
+                <button class="nav-item active" data-tab="tab-tabuleiros">
+                    <i class="fas fa-chess-board"></i>
+                    <span>Tabuleiros</span>
+                </button>
+                <button class="nav-item" data-tab="tab-ranking">
+                    <i class="fas fa-trophy"></i>
+                    <span>Ranking</span>
+                </button>
+                <button class="nav-item" data-tab="tab-amigos">
+                    <i class="fas fa-users"></i>
+                    <span>Amigos</span>
+                </button>
+                <button class="nav-item" data-tab="tab-configuracoes">
+                    <i class="fas fa-cog"></i>
+                    <span>Configurações</span>
+                </button>
+            </nav>
+        </section>
+
+        <!-- Tela de Jogo -->
+        <section id="game-screen" class="screen">
+            <div class="game-header">
+                <button id="btn-leave-game" class="btn btn-icon">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                
+                <div class="game-info">
+                    <div class="player-info opponent-info">
+                        <div class="player-avatar">
+                            <img src="https://ui-avatars.com/api/?name=Oponente&background=random" alt="Oponente">
+                        </div>
+                        <div class="player-details">
+                            <span class="player-name">Oponente</span>
+                            <span class="player-rating">1250</span>
+                        </div>
+                    </div>
+                    
+                    <div class="vs-text">VS</div>
+                    
+                    <div class="player-info my-info">
+                        <div class="player-avatar">
+                            <img src="https://ui-avatars.com/api/?name=Você&background=random" alt="Você">
+                        </div>
+                        <div class="player-details">
+                            <span class="player-name">Você</span>
+                            <span class="player-rating">1350</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <button id="btn-game-menu" class="btn btn-icon">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+            </div>
+            
+            <div class="game-container">
+                <div class="game-turn" id="game-turn">
+                    <span>Sua vez</span>
+                </div>
+                
+                <div class="checkers-board" id="checkers-board">
+                    <!-- Tabuleiro será gerado dinamicamente -->
+                </div>
+                
+                <div class="game-controls">
+                    <button id="btn-surrender" class="btn btn-danger">
+                        <i class="fas fa-flag"></i> Desistir
+                    </button>
+                    <button id="btn-offer-draw" class="btn btn-secondary">
+                        <i class="fas fa-handshake"></i> Empate
+                    </button>
+                </div>
+            </div>
+            
+            <div class="game-chat">
+                <div class="chat-messages" id="chat-messages">
+                    <!-- Mensagens de chat serão carregadas dinamicamente -->
+                </div>
+                
+                <div class="chat-input">
+                    <input type="text" placeholder="Digite uma mensagem...">
+                    <button class="btn btn-icon">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal para Criar Mesa -->
+    <div id="modal-create-table" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Criar Nova Mesa</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="input-group">
+                    <label>Nome da Mesa</label>
+                    <input type="text" id="table-name" placeholder="Digite um nome para a mesa">
+                </div>
+                
+                <div class="input-group">
+                    <label>Tempo por Jogada</label>
+                    <select id="table-time">
+                        <option value="60">1 minuto</option>
+                        <option value="120">2 minutos</option>
+                        <option value="300">5 minutos</option>
+                        <option value="0">Sem limite</option>
+                    </select>
+                </div>
+                
+                <div class="input-group">
+                    <label>Aposta de Moedas (opcional)</label>
+                    <input type="number" id="table-bet" min="0" placeholder="0">
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary modal-cancel">Cancelar</button>
+                <button id="btn-confirm-create" class="btn btn-primary">Criar Mesa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmação -->
+    <div id="modal-confirm" class="modal">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h3 id="confirm-title">Confirmar ação</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <p id="confirm-message">Tem certeza que deseja realizar esta ação?</p>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary modal-cancel">Cancelar</button>
+                <button id="btn-confirm-action" class="btn btn-primary">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p>Carregando...</p>
+    </div>
+
+    <script src="script.js"></script>
+
+    <!-- Firebase App (o core do Firebase) -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app-compat.js"></script>
+<!-- Firebase Auth -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth-compat.js"></script>
+<!-- Firebase Firestore -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore-compat.js"></script>
+
+
+</body>
+</html>
