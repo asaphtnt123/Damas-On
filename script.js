@@ -444,115 +444,7 @@ function tryToDetectCountry() {
     );
   }
 }
-// ===== INTERFACE DO USUÁRIO =====
-function initializeUI() {
-  console.log('Inicializando interface do usuário...');
-      // Inicializar chat
-    initializeChat();
-        initializeSpectatorsModal();
 
-  // Navegação por abas - verificar se existem
-  const navItems = document.querySelectorAll('.nav-item');
-  if (navItems.length > 0) {
-    navItems.forEach(item => {
-      item.addEventListener('click', (e) => {
-        const tabName = e.currentTarget.getAttribute('data-tab');
-        switchTab(tabName);
-      });
-    });
-  } else {
-    console.error('Itens de navegação não encontrados');
-  }
-  
-  // Modal de criação de mesa - verificar se existe
-  const createTableBtn = document.getElementById('btn-create-table');
-  if (createTableBtn) {
-    createTableBtn.addEventListener('click', () => {
-      showModal('modal-create-table');
-    });
-  }
-  
-  const confirmCreateBtn = document.getElementById('btn-confirm-create');
-  if (confirmCreateBtn) {
-    confirmCreateBtn.addEventListener('click', createNewTable);
-  }
-  
-  // Botões de fechar modal - verificar se existem
-  const modalCloseButtons = document.querySelectorAll('.modal-close, .modal-cancel');
-  if (modalCloseButtons.length > 0) {
-    modalCloseButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        closeAllModals();
-      });
-    });
-  }
-  
-  // Configurações - verificar se existe
-  const displayNameInput = document.getElementById('display-name');
-  if (displayNameInput) {
-    displayNameInput.addEventListener('change', updateUserProfile);
-  }
-  
-  // Jogo - verificar se os botões existem
-  const leaveGameBtn = document.getElementById('btn-leave-game');
-  if (leaveGameBtn) {
-    leaveGameBtn.addEventListener('click', leaveGame);
-  }
-  
-  const surrenderBtn = document.getElementById('btn-surrender');
-  if (surrenderBtn) {
-    surrenderBtn.addEventListener('click', surrenderGame);
-  }
-  
-  const offerDrawBtn = document.getElementById('btn-offer-draw');
-  if (offerDrawBtn) {
-    offerDrawBtn.addEventListener('click', offerDraw);
-  }
-  
-  // Recuperação de senha - verificar se existe
-  const forgotPasswordLink = document.getElementById('forgot-password');
-  if (forgotPasswordLink) {
-    forgotPasswordLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      showPasswordRecovery();
-    });
-  }
-  
-  // Conta de teste - verificar se existe
-  const testAccountBtn = document.getElementById('btn-test-account');
-  if (testAccountBtn) {
-    testAccountBtn.addEventListener('click', signInWithTestAccount);
-  }
-}
-
-// ===== FUNÇÃO SHOWSCREEN (CORRIGIDA) =====
-function showScreen(screenId) {
-  console.log('Mostrando tela:', screenId);
-  
-  // Primeiro, ocultar todas as telas
-  document.querySelectorAll('.screen').forEach(screen => {
-    screen.classList.remove('active');
-    screen.style.display = 'none'; // Garantir que está oculto
-  });
-  
-  // Mostrar a tela solicitada
-  const screen = document.getElementById(screenId);
-  if (screen) {
-    screen.classList.add('active');
-    screen.style.display = 'block'; // Garantir que está visível
-    console.log('Tela', screenId, 'mostrada com sucesso');
-  } else {
-    console.error('Tela não encontrada:', screenId);
-    
-    // Fallback: tentar encontrar a tela de jogo por classe ou outro seletor
-    const gameScreen = document.querySelector('.game-screen') || document.querySelector('[data-screen="game"]');
-    if (gameScreen) {
-      gameScreen.classList.add('active');
-      gameScreen.style.display = 'block';
-      console.log('Fallback: Tela de jogo encontrada por seletor alternativo');
-    }
-  }
-}
 
 
 function switchTab(tabName) {
@@ -1142,42 +1034,6 @@ function updateSpectatorsUI() {
     }
 }
 
-// ===== FUNÇÃO SUPPORT PLAYER =====
-async function supportPlayer(playerColor) {
-    if (!currentGameRef || !currentUser) {
-        showNotification('Você precisa estar assistindo um jogo', 'error');
-        return;
-    }
-    
-    try {
-        const spectatorRef = db.collection('tables')
-            .doc(currentGameRef.id)
-            .collection('spectators')
-            .doc(currentUser.uid);
-        
-        if (userSupporting === playerColor) {
-            // Parar de torcer
-            await spectatorRef.update({
-                supporting: null
-            });
-            userSupporting = null;
-            showNotification('Você parou de torcer', 'info');
-        } else {
-            // Torcer para o jogador
-            await spectatorRef.update({
-                supporting: playerColor
-            });
-            userSupporting = playerColor;
-            
-            const playerName = gameState.players.find(p => p.color === playerColor)?.displayName || playerColor;
-            showNotification(`Você está torcendo para ${playerName}!`, 'success');
-        }
-        
-    } catch (error) {
-        console.error('Erro ao torcer:', error);
-        showNotification('Erro ao torcer: ' + error.message, 'error');
-    }
-}
 
 // ===== FUNÇÃO UPDATE RENDER TABLE PARA ESPECTADORES =====
 function renderTable(table, container) {
@@ -1256,45 +1112,8 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-// ===== ATUALIZAR SETUP GAME LISTENER PARA TODOS =====
-function setupGameListener(tableId, isSpectator = false) {
-    if (gameListener) gameListener();
-    if (chatListener) cleanupChat();
-    if (spectatorsListener) spectatorsListener();
-    
-    currentGameRef = db.collection('tables').doc(tableId);
-    
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
-        if (doc.exists) {
-            gameState = doc.data();
-            
-            if (gameState.board && typeof gameState.board === 'object') {
-                gameState.board = convertFirestoreFormatToBoard(gameState.board);
-            }
-            
-            // Atualizar contador de espectadores (para todos)
-            const spectatorsSnapshot = await currentGameRef.collection('spectators').get();
-            await currentGameRef.update({
-                spectatorsCount: spectatorsSnapshot.size
-            });
-            
-            if (gameState.status === 'finished') {
-                endGame(gameState.winner);
-                return;
-            }
-            
-            renderBoard(gameState.board);
-            updatePlayerInfo();
-            checkGlobalMandatoryCaptures();
-            
-            if (gameState.status === 'playing') {
-                setupChatListener();
-                setupSpectatorsListener(tableId); // SEMPRE configurar para todos
-                setupSpectatorUI(); // SEMPRE mostrar UI de espectadores
-            }
-        }
-    });
-}
+
+
 // ===== ATUALIZAR SETUP SPECTATOR UI PARA JOGADORES TAMBÉM =====
 function setupSpectatorUI() {
     // Adicionar botões de torcida (apenas para espectadores)
@@ -1348,46 +1167,7 @@ function setupSpectatorUI() {
         gameContainer.insertAdjacentHTML('beforeend', spectatorsPanel);
     }
 }
-// ===== ATUALIZAR LEAVE GAME =====
-function leaveGame() {
-    console.log('Saindo do jogo...');
-    
-    // Remover listeners
-    if (gameListener) gameListener();
-    if (chatListener) cleanupChat();
-    if (spectatorsListener) spectatorsListener();
-    
-    // Se era espectador, remover da lista
-    if (currentGameRef && currentUser) {
-        const isPlayer = gameState && gameState.players && gameState.players.some(p => p.uid === currentUser.uid);
-        if (!isPlayer) {
-            db.collection('tables')
-                .doc(currentGameRef.id)
-                .collection('spectators')
-                .doc(currentUser.uid)
-                .delete()
-                .catch(error => console.error('Erro ao sair como espectador:', error));
-        }
-    }
-    
-    // Limpar UI
-    const supportButtons = document.getElementById('support-buttons');
-    if (supportButtons) supportButtons.remove();
-    
-    const spectatorsPanel = document.getElementById('spectators-panel');
-    if (spectatorsPanel) spectatorsPanel.remove();
-    
-    // Limpar referências
-    currentGameRef = null;
-    gameState = null;
-    selectedPiece = null;
-    currentSpectators = [];
-    userSupporting = null;
-    
-    // Voltar para a tela principal
-    showScreen('main-screen');
-    loadTables();
-}
+
 
 
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
@@ -3203,7 +2983,360 @@ function initializeSpectatorsModal() {
         });
     });
 }
+// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES (CORRIGIDA) =====
+function initializeSpectatorsModal() {
+    // Verificar se o botão existe antes de adicionar event listeners
+    const spectatorsBtn = document.getElementById('btn-spectators');
+    if (!spectatorsBtn) {
+        console.log('Botão de espectadores não encontrado, tentando novamente...');
+        setTimeout(initializeSpectatorsModal, 1000); // Tentar novamente após 1 segundo
+        return;
+    }
+    
+    // Criar modal se não existir
+    if (!document.getElementById('spectators-modal')) {
+        const modalHTML = `
+            <div class="modal spectators-modal" id="spectators-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>👥 Espectadores e Torcedores</h3>
+                        <button class="modal-close" id="close-spectators">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="spectators-stats">
+                            <div class="stat-item">
+                                <i class="fas fa-eye"></i>
+                                <span>Total: <strong id="total-spectators">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-heart red"></i>
+                                <span>Vermelhas: <strong id="red-supporters-count">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-heart black"></i>
+                                <span>Pretas: <strong id="black-supporters-count">0</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="spectators-tabs">
+                            <button class="tab-btn active" data-tab="all">Todos</button>
+                            <button class="tab-btn" data-tab="red">Torcendo Vermelho</button>
+                            <button class="tab-btn" data-tab="black">Torcendo Preto</button>
+                        </div>
+                        
+                        <div class="spectators-list-container">
+                            <div class="tab-content active" id="tab-all">
+                                <h4>🎯 Todos os Espectadores</h4>
+                                <div class="spectators-list" id="all-spectators-list">
+                                    <div class="empty-state">Nenhum espectador no momento</div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-content" id="tab-red">
+                                <h4>❤️ Torcendo pelas Vermelhas</h4>
+                                <div class="spectators-list" id="red-spectators-list">
+                                    <div class="empty-state">Ninguém torcendo pelas vermelhas</div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-content" id="tab-black">
+                                <h4>🖤 Torcendo pelas Pretas</h4>
+                                <div class="spectators-list" id="black-spectators-list">
+                                    <div class="empty-state">Ninguém torcendo pelas pretas</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    spectatorsModal = document.getElementById('spectators-modal');
+    
+    // Remover event listeners existentes para evitar duplicação
+    spectatorsBtn.replaceWith(spectatorsBtn.cloneNode(true));
+    const newSpectatorsBtn = document.getElementById('btn-spectators');
+    
+    // Adicionar event listeners
+    newSpectatorsBtn.addEventListener('click', openSpectatorsModal);
+    
+    const closeBtn = document.getElementById('close-spectators');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeSpectatorsModal);
+    }
+    
+    // Fechar modal clicando fora
+    if (spectatorsModal) {
+        spectatorsModal.addEventListener('click', (e) => {
+            if (e.target === spectatorsModal) {
+                closeSpectatorsModal();
+            }
+        });
+    }
+    
+    // Sistema de tabs
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Remover classe active de todos
+            tabButtons.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            
+            // Adicionar classe active ao selecionado
+            btn.classList.add('active');
+            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+        });
+    });
+    
+    console.log('Modal de espectadores inicializado com sucesso!');
+}
 
+// ===== FUNÇÃO PARA ATUALIZAR TORCIDA (CORRIGIDA) =====
+async function supportPlayer(playerColor) {
+    if (!currentGameRef || !currentUser) {
+        showNotification('Você precisa estar assistindo um jogo', 'error');
+        return;
+    }
+    
+    try {
+        const spectatorRef = db.collection('tables')
+            .doc(currentGameRef.id)
+            .collection('spectators')
+            .doc(currentUser.uid);
+        
+        // Verificar se já está torcendo para este time
+        if (userSupporting === playerColor) {
+            // Parar de torcer
+            await spectatorRef.update({
+                supporting: null
+            });
+            userSupporting = null;
+            showNotification('Você parou de torcer', 'info');
+        } else {
+            // Torcer para o jogador
+            await spectatorRef.update({
+                supporting: playerColor
+            });
+            userSupporting = playerColor;
+            
+            const playerName = gameState.players.find(p => p.color === playerColor)?.displayName || 
+                              (playerColor === 'red' ? 'vermelhas' : 'pretas');
+            showNotification(`Você está torcendo para ${playerName}!`, 'success');
+        }
+        
+        // Atualizar modal se estiver aberto
+        if (spectatorsModal && spectatorsModal.classList.contains('active')) {
+            updateSpectatorsModal();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao torcer:', error);
+        showNotification('Erro ao torcer: ' + error.message, 'error');
+    }
+}
+
+// ===== SETUP GAME LISTENER (ATUALIZADO) =====
+function setupGameListener(tableId, isSpectator = false) {
+    if (gameListener) gameListener();
+    if (chatListener) cleanupChat();
+    if (spectatorsListener) spectatorsListener();
+    
+    currentGameRef = db.collection('tables').doc(tableId);
+    
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
+        if (doc.exists) {
+            gameState = doc.data();
+            
+            if (gameState.board && typeof gameState.board === 'object') {
+                gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // Atualizar contador de espectadores (para todos)
+            const spectatorsSnapshot = await currentGameRef.collection('spectators').get();
+            await currentGameRef.update({
+                spectatorsCount: spectatorsSnapshot.size
+            });
+            
+            if (gameState.status === 'finished') {
+                endGame(gameState.winner);
+                return;
+            }
+            
+            renderBoard(gameState.board);
+            updatePlayerInfo();
+            checkGlobalMandatoryCaptures();
+            
+            if (gameState.status === 'playing') {
+                setupChatListener();
+                setupSpectatorsListener(tableId);
+                
+                // Inicializar modal de espectadores apenas quando necessário
+                if (isSpectator || gameState.players.some(p => p.uid === currentUser.uid)) {
+                    setTimeout(initializeSpectatorsModal, 500); // Pequeno delay para garantir que o DOM esteja pronto
+                }
+            }
+        }
+    });
+}
+
+// ===== INITIALIZE UI (ATUALIZADO) =====
+function initializeUI() {
+    console.log('Inicializando interface do usuário...');
+    
+    // Navegação por abas
+    const navItems = document.querySelectorAll('.nav-item');
+    if (navItems.length > 0) {
+        navItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                const tabName = e.currentTarget.getAttribute('data-tab');
+                switchTab(tabName);
+            });
+        });
+    }
+    
+    // Modal de criação de mesa
+    const createTableBtn = document.getElementById('btn-create-table');
+    if (createTableBtn) {
+        createTableBtn.addEventListener('click', () => {
+            showModal('modal-create-table');
+        });
+    }
+    
+    const confirmCreateBtn = document.getElementById('btn-confirm-create');
+    if (confirmCreateBtn) {
+        confirmCreateBtn.addEventListener('click', createNewTable);
+    }
+    
+    // Botões de fechar modal
+    const modalCloseButtons = document.querySelectorAll('.modal-close, .modal-cancel');
+    if (modalCloseButtons.length > 0) {
+        modalCloseButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                closeAllModals();
+            });
+        });
+    }
+    
+    // Configurações
+    const displayNameInput = document.getElementById('display-name');
+    if (displayNameInput) {
+        displayNameInput.addEventListener('change', updateUserProfile);
+    }
+    
+    // Jogo
+    const leaveGameBtn = document.getElementById('btn-leave-game');
+    if (leaveGameBtn) {
+        leaveGameBtn.addEventListener('click', leaveGame);
+    }
+    
+    const surrenderBtn = document.getElementById('btn-surrender');
+    if (surrenderBtn) {
+        surrenderBtn.addEventListener('click', surrenderGame);
+    }
+    
+    const offerDrawBtn = document.getElementById('btn-offer-draw');
+    if (offerDrawBtn) {
+        offerDrawBtn.addEventListener('click', offerDraw);
+    }
+    
+    // Recuperação de senha
+    const forgotPasswordLink = document.getElementById('forgot-password');
+    if (forgotPasswordLink) {
+        forgotPasswordLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showPasswordRecovery();
+        });
+    }
+    
+    // Conta de teste
+    const testAccountBtn = document.getElementById('btn-test-account');
+    if (testAccountBtn) {
+        testAccountBtn.addEventListener('click', signInWithTestAccount);
+    }
+    
+    // Chat
+    initializeChat();
+    
+    // Modal de espectadores será inicializado quando necessário (no setupGameListener)
+    console.log('UI inicializada - Modal de espectadores será carregado sob demanda');
+}
+
+// ===== LEAVE GAME (ATUALIZADO) =====
+function leaveGame() {
+    console.log('Saindo do jogo...');
+    
+    // Remover listeners
+    if (gameListener) gameListener();
+    if (chatListener) cleanupChat();
+    if (spectatorsListener) spectatorsListener();
+    
+    // Fechar modal de espectadores se estiver aberto
+    if (spectatorsModal) {
+        closeSpectatorsModal();
+    }
+    
+    // Se era espectador, remover da lista
+    if (currentGameRef && currentUser) {
+        const isPlayer = gameState && gameState.players && gameState.players.some(p => p.uid === currentUser.uid);
+        if (!isPlayer) {
+            db.collection('tables')
+                .doc(currentGameRef.id)
+                .collection('spectators')
+                .doc(currentUser.uid)
+                .delete()
+                .catch(error => console.error('Erro ao sair como espectador:', error));
+        }
+    }
+    
+    // Limpar referências
+    currentGameRef = null;
+    gameState = null;
+    selectedPiece = null;
+    currentSpectators = [];
+    userSupporting = null;
+    spectatorsModal = null;
+    
+    // Voltar para a tela principal
+    showScreen('main-screen');
+    loadTables();
+}
+
+// ===== SHOW SCREEN (ATUALIZADO) =====
+function showScreen(screenId) {
+    console.log('Mostrando tela:', screenId);
+    
+    // Fechar modal de espectadores ao mudar de tela
+    if (spectatorsModal) {
+        closeSpectatorsModal();
+    }
+    
+    // Primeiro, ocultar todas as telas
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+        screen.style.display = 'none';
+    });
+    
+    // Mostrar a tela solicitada
+    const screen = document.getElementById(screenId);
+    if (screen) {
+        screen.classList.add('active');
+        screen.style.display = 'flex'; // Usar flex para melhor layout
+        console.log('Tela', screenId, 'mostrada com sucesso');
+        
+        // Inicializar modal de espectadores apenas se for a tela de jogo
+        if (screenId === 'game-screen') {
+            setTimeout(() => {
+                const spectatorsBtn = document.getElementById('btn-spectators');
+                if (spectatorsBtn) {
+                    initializeSpectatorsModal();
+                }
+            }, 1000);
+        }
+    }
+}
 // ===== FUNÇÃO PARA ABRIR MODAL =====
 function openSpectatorsModal() {
     if (!spectatorsModal) {
