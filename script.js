@@ -937,6 +937,7 @@ async function joinTable(tableId) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
+
 function renderTable(table, container) {
   const tableEl = document.createElement('div');
   tableEl.className = 'table-item';
@@ -998,6 +999,7 @@ function renderTable(table, container) {
   
   container.appendChild(tableEl);
 }
+
 
 // ===== FUNÇÃO SETUP GAME LISTENER (PROTEÇÃO ADICIONAL) =====
 function setupGameListener(tableId) {
@@ -1687,15 +1689,13 @@ function updateTurnInfo() {
         turnInfo.className = 'turn-indicator opponent-turn';
     }
 }
-// ===== FUNÇÃO MAKE MOVE (ATUALIZADA PARA CAPTURAS MÚLTIPLAS) =====
+// ===== FUNÇÃO MAKE MOVE (CORREÇÃO PARA CAPTURAS MÚLTIPLAS) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
-
     try {
         if (!gameState || !gameState.board || !currentGameRef) {
             showNotification('Erro: jogo não está pronto', 'error');
             return;
         }
-   
         
         const newBoard = JSON.parse(JSON.stringify(gameState.board));
         const movingPiece = newBoard[fromRow][fromCol];
@@ -1717,18 +1717,21 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         if ((movingPiece.color === 'red' && toRow === 0) || 
             (movingPiece.color === 'black' && toRow === 7)) {
             newBoard[toRow][toCol].king = true;
+            console.log('Peça promovida a dama!');
         }
         
-        // Verificar se há mais capturas possíveis APÓS executar as capturas atuais
+        // IMPORTANTE: Verificar capturas adicionais NO TABULEIRO ATUALIZADO
         const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], []);
         
         console.log('Capturas realizadas:', capturedPieces);
         console.log('Mais capturas possíveis:', moreCaptures.length);
+        console.log('Peça na nova posição:', newBoard[toRow][toCol]);
         
-        // Só continuar no mesmo turno se houve captura E há mais capturas possíveis
+        // REGRA: Só continuar no mesmo turno se:
+        // 1. Houve captura nesta jogada E
+        // 2. Há mais capturas possíveis NO TABULEIRO ATUALIZADO
         if (capturedPieces > 0 && moreCaptures.length > 0) {
-            // CONTINUAR CAPTURA MÚLTIPLA
-            showNotification('Continue capturando!', 'info');
+            console.log('CONTINUAR CAPTURA MÚLTIPLA');
             
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
@@ -1736,6 +1739,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
                 }
+                // NÃO alterar currentTurn - mantém o mesmo jogador
             });
             
             gameState.board = newBoard;
@@ -1749,16 +1753,19 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                     pieceEl.classList.add('selected');
                     showPossibleMoves(toRow, toCol);
                 }
+                showNotification('Continue capturando!', 'info');
             }, 100);
             
         } else {
-            // PASSAR TURNO
+            console.log('PASSAR TURNO - não há mais capturas');
+            
+            // PASSAR TURNO - movimento normal ou captura sem continuação
             const nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
             
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
                 board: firestoreBoard,
-                currentTurn: nextTurn,
+                currentTurn: nextTurn, // ALTERA o turno
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
                 }
@@ -1767,6 +1774,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             gameState.board = newBoard;
             gameState.currentTurn = nextTurn;
             
+            showNotification('Turno passado para ' + nextTurn, 'info');
             checkGameEnd(newBoard, nextTurn);
             clearSelection();
         }
@@ -1774,9 +1782,9 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     } catch (error) {
         console.error('Erro ao realizar movimento:', error);
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
-        
     }
 }
+
 
 // ===== FUNÇÃO GET CAPTURE MOVES FROM BOARD (ATUALIZADA PARA DAMAS) =====
 function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
@@ -1895,29 +1903,28 @@ function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virt
     
     return captures;
 }
-
-// ===== FUNÇÃO GET CAPTURE MOVES (REGRAS BRASILEIRAS OFICIAIS) =====
+// ===== FUNÇÃO GET CAPTURE MOVES (DEBUG ADICIONAL) =====
 function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
+    console.log('Verificando capturas para peça em:', fromRow, fromCol, piece);
+    
     const captures = [];
     
     if (piece.king) {
-        // DAMA: pode capturar em todas as 4 direções e a longa distância
+        console.log('É uma dama - verificando capturas longas');
         captures.push(...getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures));
     } else {
-        // PEÇA NORMAL: pode capturar para frente e para trás
+        console.log('É uma peça normal - verificando capturas');
         captures.push(...getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures));
     }
     
+    console.log('Capturas encontradas:', captures.length);
     return captures;
 }
-// ===== FUNÇÃO PARA PEÇAS NORMAIS (captura para frente e para trás) =====
+
+// ===== FUNÇÃO GET NORMAL PIECE CAPTURE MOVES (DEBUG) =====
 function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
-    // Peças normais podem capturar para frente e para trás
-    const directions = [
-        [-1, -1], [-1, 1],  // Para frente (depende da cor)
-        [1, -1], [1, 1]      // Para trás (depende da cor)
-    ];
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
     for (const [rowDir, colDir] of directions) {
         const jumpRow = fromRow + rowDir;
@@ -1934,11 +1941,17 @@ function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = [
             c.row === jumpRow && c.col === jumpCol
         );
         
+        console.log('Direção:', rowDir, colDir);
+        console.log('Pular peça em:', jumpRow, jumpCol, jumpedPiece);
+        console.log('Pousar em:', landRow, landCol, landingCell);
+        console.log('Já capturada:', alreadyCaptured);
+        
         if (!alreadyCaptured && 
             jumpedPiece && 
             jumpedPiece.color !== piece.color && 
             landingCell === null) {
             
+            console.log('CAPTURA VÁLIDA ENCONTRADA');
             const newCapture = { row: jumpRow, col: jumpCol };
             const allCaptures = [...currentCaptures, newCapture];
             
@@ -1951,15 +1964,6 @@ function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = [
             };
             
             captures.push(captureMove);
-            
-            // Verificar capturas múltiplas
-            const virtualBoard = JSON.parse(JSON.stringify(gameState.board));
-            virtualBoard[landRow][landCol] = piece;
-            virtualBoard[fromRow][fromCol] = null;
-            virtualBoard[jumpRow][jumpCol] = null;
-            
-            const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, virtualBoard);
-            captures.push(...furtherCaptures);
         }
     }
     
@@ -2057,6 +2061,9 @@ function renderBoard(boardState) {
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+    
+       console.log('Renderizando tabuleiro - Turno atual:', gameState.currentTurn);
+    console.log('É minha vez:', isMyTurn);
     
     // Verificar capturas obrigatórias
     const hasMandatoryCaptures = checkGlobalMandatoryCaptures();
