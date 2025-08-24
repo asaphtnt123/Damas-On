@@ -1750,77 +1750,146 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     }
 }
 
-// ===== FUNÇÃO AUXILIAR PARA CAPTURAS MÚLTIPLAS =====
+// ===== FUNÇÃO GET CAPTURE MOVES FROM BOARD (ATUALIZADA PARA DAMAS) =====
 function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
     const captures = [];
-    const directions = [];
     
     if (piece.king) {
-        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+        // Capturas para damas
+        const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+        
+        for (const [rowDir, colDir] of directions) {
+            let foundCapture = false;
+            let capturePosition = null;
+            
+            for (let distance = 1; distance <= 7; distance++) {
+                const checkRow = fromRow + (rowDir * distance);
+                const checkCol = fromCol + (colDir * distance);
+                
+                if (checkRow < 0 || checkRow > 7 || checkCol < 0 || checkCol > 7) break;
+                
+                const checkCell = virtualBoard[checkRow][checkCol];
+                
+                if (!foundCapture) {
+                    if (checkCell) {
+                        if (checkCell.color !== piece.color) {
+                            foundCapture = true;
+                            capturePosition = { row: checkRow, col: checkCol };
+                            
+                            const alreadyCaptured = currentCaptures.some(c => 
+                                c.row === checkRow && c.col === checkCol
+                            );
+                            
+                            if (alreadyCaptured) {
+                                foundCapture = false;
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                } else {
+                    if (checkCell === null) {
+                        const newCapture = { row: capturePosition.row, col: capturePosition.col };
+                        const allCaptures = [...currentCaptures, newCapture];
+                        
+                        const captureMove = {
+                            fromRow,
+                            fromCol,
+                            toRow: checkRow,
+                            toCol: checkCol,
+                            captures: allCaptures
+                        };
+                        
+                        captures.push(captureMove);
+                        
+                        // Continuar verificando
+                        const newVirtualBoard = JSON.parse(JSON.stringify(virtualBoard));
+                        newVirtualBoard[checkRow][checkCol] = piece;
+                        newVirtualBoard[fromRow][fromCol] = null;
+                        newVirtualBoard[capturePosition.row][capturePosition.col] = null;
+                        
+                        const furtherCaptures = getCaptureMovesFromBoard(checkRow, checkCol, piece, allCaptures, newVirtualBoard);
+                        captures.push(...furtherCaptures);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
     } else {
-        const direction = piece.color === 'red' ? -1 : 1;
-        directions.push([direction, -1], [direction, 1]);
-    }
-    
-    for (const [rowDir, colDir] of directions) {
-        const jumpRow = fromRow + rowDir;
-        const jumpCol = fromCol + colDir;
-        const landRow = fromRow + 2 * rowDir;
-        const landCol = fromCol + 2 * colDir;
+        // Capturas para peças normais
+        const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
         
-        if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
-        
-        const jumpedPiece = virtualBoard[jumpRow][jumpCol];
-        const landingCell = virtualBoard[landRow][landCol];
-        
-        const alreadyCaptured = currentCaptures.some(c => 
-            c.row === jumpRow && c.col === jumpCol
-        );
-        
-        if (!alreadyCaptured && 
-            jumpedPiece && 
-            jumpedPiece.color !== piece.color && 
-            landingCell === null) {
+        for (const [rowDir, colDir] of directions) {
+            const jumpRow = fromRow + rowDir;
+            const jumpCol = fromCol + colDir;
+            const landRow = fromRow + 2 * rowDir;
+            const landCol = fromCol + 2 * colDir;
             
-            const newCapture = { row: jumpRow, col: jumpCol };
-            const allCaptures = [...currentCaptures, newCapture];
+            if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
             
-            const captureMove = {
-                fromRow,
-                fromCol,
-                toRow: landRow,
-                toCol: landCol,
-                captures: allCaptures
-            };
+            const jumpedPiece = virtualBoard[jumpRow][jumpCol];
+            const landingCell = virtualBoard[landRow][landCol];
             
-            captures.push(captureMove);
+            const alreadyCaptured = currentCaptures.some(c => 
+                c.row === jumpRow && c.col === jumpCol
+            );
             
-            // Continuar verificando recursivamente
-            const newVirtualBoard = JSON.parse(JSON.stringify(virtualBoard));
-            newVirtualBoard[landRow][landCol] = piece;
-            newVirtualBoard[fromRow][fromCol] = null;
-            newVirtualBoard[jumpRow][jumpCol] = null;
-            
-            const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, newVirtualBoard);
-            captures.push(...furtherCaptures);
+            if (!alreadyCaptured && 
+                jumpedPiece && 
+                jumpedPiece.color !== piece.color && 
+                landingCell === null) {
+                
+                const newCapture = { row: jumpRow, col: jumpCol };
+                const allCaptures = [...currentCaptures, newCapture];
+                
+                const captureMove = {
+                    fromRow,
+                    fromCol,
+                    toRow: landRow,
+                    toCol: landCol,
+                    captures: allCaptures
+                };
+                
+                captures.push(captureMove);
+                
+                const newVirtualBoard = JSON.parse(JSON.stringify(virtualBoard));
+                newVirtualBoard[landRow][landCol] = piece;
+                newVirtualBoard[fromRow][fromCol] = null;
+                newVirtualBoard[jumpRow][jumpCol] = null;
+                
+                const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, newVirtualBoard);
+                captures.push(...furtherCaptures);
+            }
         }
     }
     
     return captures;
 }
 
-// ===== FUNÇÃO GET CAPTURE MOVES (CORRIGIDA PARA CAPTURAS MÚLTIPLAS) =====
+// ===== FUNÇÃO GET CAPTURE MOVES (REGRAS BRASILEIRAS OFICIAIS) =====
 function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
-    const directions = [];
     
-    // Definir direções baseadas no tipo de peça
     if (piece.king) {
-        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+        // DAMA: pode capturar em todas as 4 direções e a longa distância
+        captures.push(...getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures));
     } else {
-        const direction = piece.color === 'red' ? -1 : 1;
-        directions.push([direction, -1], [direction, 1]);
+        // PEÇA NORMAL: pode capturar para frente e para trás
+        captures.push(...getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures));
     }
+    
+    return captures;
+}
+// ===== FUNÇÃO PARA PEÇAS NORMAIS (captura para frente e para trás) =====
+function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
+    const captures = [];
+    // Peças normais podem capturar para frente e para trás
+    const directions = [
+        [-1, -1], [-1, 1],  // Para frente (depende da cor)
+        [1, -1], [1, 1]      // Para trás (depende da cor)
+    ];
     
     for (const [rowDir, colDir] of directions) {
         const jumpRow = fromRow + rowDir;
@@ -1828,18 +1897,15 @@ function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
         const landRow = fromRow + 2 * rowDir;
         const landCol = fromCol + 2 * colDir;
         
-        // Verificar limites do tabuleiro
         if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
         
         const jumpedPiece = gameState.board[jumpRow][jumpCol];
         const landingCell = gameState.board[landRow][landCol];
         
-        // Verificar se já capturamos esta peça
         const alreadyCaptured = currentCaptures.some(c => 
             c.row === jumpRow && c.col === jumpCol
         );
         
-        // Condições para captura válida:
         if (!alreadyCaptured && 
             jumpedPiece && 
             jumpedPiece.color !== piece.color && 
@@ -1858,21 +1924,93 @@ function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
             
             captures.push(captureMove);
             
-            // VERIFICAÇÃO RECURSIVA PARA CAPTURAS MÚLTIPLAS
-            // Criar um tabuleiro virtual para verificar capturas adicionais
+            // Verificar capturas múltiplas
             const virtualBoard = JSON.parse(JSON.stringify(gameState.board));
-            
-            // Aplicar a captura atual no tabuleiro virtual
             virtualBoard[landRow][landCol] = piece;
             virtualBoard[fromRow][fromCol] = null;
             virtualBoard[jumpRow][jumpCol] = null;
             
-            // Verificar se há mais capturas a partir da nova posição
             const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, virtualBoard);
+            captures.push(...furtherCaptures);
+        }
+    }
+    
+    return captures;
+}
+// ===== FUNÇÃO PARA DAMAS (captura a longa distância em todas as direções) =====
+function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
+    const captures = [];
+    // Damas podem capturar em todas as 4 direções
+    const directions = [
+        [-1, -1], [-1, 1],  // Diagonal superior
+        [1, -1], [1, 1]      // Diagonal inferior
+    ];
+    
+    for (const [rowDir, colDir] of directions) {
+        // Verificar todas as possíveis posições de captura nesta direção
+        let foundCapture = false;
+        let capturePosition = null;
+        
+        // Procurar por peças para capturar nesta direção
+        for (let distance = 1; distance <= 7; distance++) {
+            const checkRow = fromRow + (rowDir * distance);
+            const checkCol = fromCol + (colDir * distance);
             
-            if (furtherCaptures.length > 0) {
-                // Adicionar todas as capturas múltiplas encontradas
-                captures.push(...furtherCaptures);
+            if (checkRow < 0 || checkRow > 7 || checkCol < 0 || checkCol > 7) break;
+            
+            const checkCell = gameState.board[checkRow][checkCol];
+            
+            if (!foundCapture) {
+                // Procurando por uma peça para capturar
+                if (checkCell) {
+                    if (checkCell.color !== piece.color) {
+                        // Encontrou uma peça inimiga
+                        foundCapture = true;
+                        capturePosition = { row: checkRow, col: checkCol };
+                        
+                        // Verificar se já foi capturada
+                        const alreadyCaptured = currentCaptures.some(c => 
+                            c.row === checkRow && c.col === checkCol
+                        );
+                        
+                        if (alreadyCaptured) {
+                            foundCapture = false;
+                            break;
+                        }
+                    } else {
+                        // Peça da mesma cor - não pode pular
+                        break;
+                    }
+                }
+            } else {
+                // Já encontrou uma peça para capturar, agora procurando casa vazia para land
+                if (checkCell === null) {
+                    // Casa vazia encontrada - pode capturar
+                    const newCapture = { row: capturePosition.row, col: capturePosition.col };
+                    const allCaptures = [...currentCaptures, newCapture];
+                    
+                    const captureMove = {
+                        fromRow,
+                        fromCol,
+                        toRow: checkRow,
+                        toCol: checkCol,
+                        captures: allCaptures
+                    };
+                    
+                    captures.push(captureMove);
+                    
+                    // Verificar capturas múltiplas para damas
+                    const virtualBoard = JSON.parse(JSON.stringify(gameState.board));
+                    virtualBoard[checkRow][checkCol] = piece;
+                    virtualBoard[fromRow][fromCol] = null;
+                    virtualBoard[capturePosition.row][capturePosition.col] = null;
+                    
+                    const furtherCaptures = getCaptureMovesFromBoard(checkRow, checkCol, piece, allCaptures, virtualBoard);
+                    captures.push(...furtherCaptures);
+                } else {
+                    // Casa ocupada - não pode capturar além desta posição
+                    break;
+                }
             }
         }
     }
@@ -1950,32 +2088,57 @@ function renderBoard(boardState) {
     
     updateTurnInfo(); // Agora esta função existe
 }
-// ===== FUNÇÃO GET NORMAL MOVES =====
+// ===== FUNÇÃO GET NORMAL MOVES (ATUALIZADA PARA DAMAS) =====
 function getNormalMoves(fromRow, fromCol, piece) {
     const moves = [];
-    const directions = [];
     
     if (piece.king) {
-        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+        // DAMA: pode mover em todas as direções até encontrar uma peça
+        const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+        
+        for (const [rowDir, colDir] of directions) {
+            for (let distance = 1; distance <= 7; distance++) {
+                const toRow = fromRow + (rowDir * distance);
+                const toCol = fromCol + (colDir * distance);
+                
+                if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) break;
+                if ((toRow + toCol) % 2 === 0) continue; // Apenas casas escuras
+                
+                if (gameState.board[toRow][toCol] === null) {
+                    moves.push({
+                        fromRow,
+                        fromCol,
+                        toRow,
+                        toCol,
+                        captures: []
+                    });
+                } else {
+                    // Casa ocupada - não pode mover além
+                    break;
+                }
+            }
+        }
     } else {
+        // PEÇA NORMAL: move apenas uma casa para frente
         const direction = piece.color === 'red' ? -1 : 1;
-        directions.push([direction, -1], [direction, 1]);
-    }
-    
-    for (const [rowDir, colDir] of directions) {
-        const toRow = fromRow + rowDir;
-        const toCol = fromCol + colDir;
+        const directions = [[direction, -1], [direction, 1]];
         
-        if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
-        
-        if (gameState.board[toRow][toCol] === null) {
-            moves.push({
-                fromRow,
-                fromCol,
-                toRow,
-                toCol,
-                captures: []
-            });
+        for (const [rowDir, colDir] of directions) {
+            const toRow = fromRow + rowDir;
+            const toCol = fromCol + colDir;
+            
+            if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
+            if ((toRow + toCol) % 2 === 0) continue;
+            
+            if (gameState.board[toRow][toCol] === null) {
+                moves.push({
+                    fromRow,
+                    fromCol,
+                    toRow,
+                    toCol,
+                    captures: []
+                });
+            }
         }
     }
     
