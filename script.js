@@ -1503,6 +1503,50 @@ async function loadRanking() {
   }
 }
 
+// ===== FUNÇÃO GET POSSIBLE MOVES (REGRA OFICIAL) =====
+function getPossibleMoves(fromRow, fromCol) {
+    if (!gameState || !gameState.board) return [];
+    
+    const piece = gameState.board[fromRow][fromCol];
+    if (!piece) return [];
+    
+    // 1. Verificar capturas obrigatórias primeiro
+    const captures = getCaptureMoves(fromRow, fromCol, piece, []);
+    if (captures.length > 0) {
+        return captures;
+    }
+    
+    // 2. Se não houver capturas, verificar movimentos normais
+    const moves = [];
+    const directions = [];
+    
+    if (piece.king) {
+        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+    } else {
+        const direction = piece.color === 'red' ? -1 : 1;
+        directions.push([direction, -1], [direction, 1]);
+    }
+    
+    for (const [rowDir, colDir] of directions) {
+        const toRow = fromRow + rowDir;
+        const toCol = fromCol + colDir;
+        
+        if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
+        
+        if (gameState.board[toRow][toCol] === null && (toRow + toCol) % 2 !== 0) {
+            moves.push({
+                fromRow,
+                fromCol,
+                toRow,
+                toCol,
+                captures: []
+            });
+        }
+    }
+    
+    return moves;
+}
+
 function renderRankingItem(user, position, container) {
   const itemEl = document.createElement('div');
   itemEl.className = 'ranking-item';
