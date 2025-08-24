@@ -977,8 +977,10 @@ function renderTable(table, container) {
   container.appendChild(tableEl);
 }
 
-// ===== ATUALIZAR setupGameListener =====
+
+// ===== FUNÇÃO SETUP GAME LISTENER (COMPLETA) =====
 function setupGameListener(tableId) {
+    // Remover listener anterior se existir
     if (gameListener) gameListener();
     
     currentGameRef = db.collection('tables').doc(tableId);
@@ -987,24 +989,30 @@ function setupGameListener(tableId) {
         if (doc.exists) {
             gameState = doc.data();
             
+            // Converter o tabuleiro do formato Firestore para array bidimensional
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
+            // Verificar se o jogo terminou
             if (gameState.status === 'finished') {
                 endGame(gameState.winner);
                 return;
             }
             
+            // Renderizar o tabuleiro e atualizar UI
             renderBoard(gameState.board);
             updatePlayerInfo();
+            updateTurnInfo();
             
-            // Verificar capturas obrigatórias sempre que o tabuleiro for atualizado
+            // Verificar capturas obrigatórias
             checkGlobalMandatoryCaptures();
+            
         }
+    }, (error) => {
+        console.error('Erro ao escutar atualizações do jogo:', error);
     });
 }
-
 // ===== SISTEMA DE BLOQUEIO TOTAL =====
 let mandatoryCaptures = [];
 
@@ -1083,8 +1091,27 @@ function blockNonCapturingPieces() {
         }
     });
 }
+// ===== FUNÇÃO UPDATE TURN INFO =====
+function updateTurnInfo() {
+    if (!gameState) return;
+    
+    const turnEl = document.getElementById('game-turn');
+    if (turnEl) {
+        const currentPlayer = gameState.players.find(p => p.color === gameState.currentTurn);
+        const playerName = currentPlayer ? currentPlayer.displayName : 'Jogador';
+        
+        turnEl.innerHTML = `
+            <span>Vez de: ${playerName}</span>
+            <span>(${gameState.currentTurn === 'red' ? 'Vermelhas' : 'Pretas'})</span>
+        `;
+        turnEl.style.backgroundColor = gameState.currentTurn === 'red' ? '#e74c3c' : '#2c3e50';
+    }
+    
+    // Atualizar informações dos jogadores
+    updatePlayerInfo();
+}
 
-// ===== FUNÇÃO RENDER BOARD (COM BLOQUEIO AUTOMÁTICO) =====
+// ===== FUNÇÃO RENDER BOARD (CORRIGIDA) =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
@@ -1112,7 +1139,6 @@ function renderBoard(boardState) {
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
                 
-                // Verificação inicial de permissão
                 let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
                 if (canSelect) {
@@ -1137,8 +1163,9 @@ function renderBoard(boardState) {
         checkGlobalMandatoryCaptures();
     }, 100);
     
-    updateTurnInfo();
+    updateTurnInfo(); // Atualizar informações do turno
 }
+
 // ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
 function debugShowBoard() {
   if (gameState && gameState.board) {
@@ -1204,26 +1231,101 @@ function highlightCapturingPieces() {
         }
     });
 }
-// ===== FUNÇÃO LEAVE GAME =====
+
+// ===== FUNÇÃO END GAME (COMPLETA) =====
+async function endGame(winner) {
+    try {
+        let status = 'finished';
+        
+        if (winner === 'draw') {
+            status = 'draw';
+            // Atualizar estatísticas para empate
+            for (const player of gameState.players) {
+                await db.collection('users').doc(player.uid).update({
+                    draws: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(5)
+                });
+            }
+        } else {
+            const winningPlayer = gameState.players.find(p => p.color === winner);
+            const losingPlayer = gameState.players.find(p => p.color !== winner);
+            
+            // Calcular recompensas
+            const betAmount = gameState.bet || 0;
+            const reward = betAmount * 2;
+            
+            if (winningPlayer) {
+                await db.collection('users').doc(winningPlayer.uid).update({
+                    wins: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(20),
+                    coins: firebase.firestore.FieldValue.increment(reward)
+                });
+            }
+            
+            if (losingPlayer) {
+                await db.collection('users').doc(losingPlayer.uid).update({
+                    losses: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(-10)
+                });
+            }
+        }
+        
+        // Atualizar estado do jogo
+        await currentGameRef.update({
+            status: status,
+            winner: winner,
+            finishedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Mostrar mensagem final
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        if (winner === 'draw') {
+            showNotification('Jogo terminou em empate!', 'info');
+        } else if (currentPlayer.color === winner) {
+            showNotification('Você venceu! Parabéns!', 'success');
+        } else {
+            showNotification('Você perdeu! Melhor sorte na próxima.', 'error');
+        }
+        
+        // Voltar para o lobby após 3 segundos
+        setTimeout(() => {
+            leaveGame();
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Erro ao finalizar jogo:', error);
+        showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
+    }
+}
+
+// ===== FUNÇÃO LEAVE GAME (COMPLETA) =====
 function leaveGame() {
-  console.log('Saindo do jogo...');
-  
-  // Remover listener do jogo
-  if (gameListener) {
-    gameListener();
-    gameListener = null;
-  }
-  
-  // Limpar referências do jogo
-  currentGameRef = null;
-  gameState = null;
-  selectedPiece = null;
-  
-  // Voltar para a tela principal
-  showScreen('main-screen');
-  
-  // Recarregar mesas disponíveis
-  loadTables();
+    console.log('Saindo do jogo...');
+    
+    // Remover listener do jogo
+    if (gameListener) {
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Limpar referências do jogo
+    currentGameRef = null;
+    gameState = null;
+    selectedPiece = null;
+    mandatoryCaptureState = {
+        hasMandatoryCaptures: false,
+        capturingPiece: null,
+        availableCaptures: []
+    };
+    
+    // Voltar para a tela principal
+    showScreen('main-screen');
+    
+    // Recarregar mesas disponíveis
+    loadTables();
+    
+    // Recarregar ranking
+    loadRanking();
 }
 
 // ===== FUNÇÃO HANDLE PIECE CLICK (BLOQUEIO DE SELEÇÃO) =====
@@ -1333,39 +1435,39 @@ function isValidMove(fromRow, fromCol, toRow, toCol) {
   
   return true;
 }
-
-// ===== FUNÇÃO UPDATE PLAYER INFO =====
+// ===== FUNÇÃO UPDATE PLAYER INFO (COMPLETA) =====
 function updatePlayerInfo() {
-  if (!gameState || !gameState.players) return;
-  
-  const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-  const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-  
-  if (opponent) {
-    const opponentNameEl = document.querySelector('.opponent-info .player-name');
-    const opponentRatingEl = document.querySelector('.opponent-info .player-rating');
-    const opponentAvatarEl = document.querySelector('.opponent-info .player-avatar img');
+    if (!gameState || !gameState.players) return;
     
-    if (opponentNameEl) opponentNameEl.textContent = opponent.displayName;
-    if (opponentRatingEl) opponentRatingEl.textContent = opponent.rating;
-    if (opponentAvatarEl) {
-      opponentAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(opponent.displayName)}&background=random`;
-    }
-  }
-  
-  if (currentPlayer) {
-    const playerNameEl = document.querySelector('.my-info .player-name');
-    const playerRatingEl = document.querySelector('.my-info .player-rating');
-    const playerAvatarEl = document.querySelector('.my-info .player-avatar img');
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     
-    if (playerNameEl) playerNameEl.textContent = currentPlayer.displayName;
-    if (playerRatingEl) playerRatingEl.textContent = currentPlayer.rating;
-    if (playerAvatarEl) {
-      playerAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentPlayer.displayName)}&background=random`;
+    // Atualizar informações do oponente
+    if (opponent) {
+        const opponentNameEl = document.querySelector('.opponent-info .player-name');
+        const opponentRatingEl = document.querySelector('.opponent-info .player-rating');
+        const opponentAvatarEl = document.querySelector('.opponent-info .player-avatar img');
+        
+        if (opponentNameEl) opponentNameEl.textContent = opponent.displayName;
+        if (opponentRatingEl) opponentRatingEl.textContent = opponent.rating;
+        if (opponentAvatarEl) {
+            opponentAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(opponent.displayName)}&background=random`;
+        }
     }
-  }
+    
+    // Atualizar informações do jogador atual
+    if (currentPlayer) {
+        const playerNameEl = document.querySelector('.my-info .player-name');
+        const playerRatingEl = document.querySelector('.my-info .player-rating');
+        const playerAvatarEl = document.querySelector('.my-info .player-avatar img');
+        
+        if (playerNameEl) playerNameEl.textContent = currentPlayer.displayName;
+        if (playerRatingEl) playerRatingEl.textContent = currentPlayer.rating;
+        if (playerAvatarEl) {
+            playerAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(currentPlayer.displayName)}&background=random`;
+        }
+    }
 }
-
 // ===== FUNÇÃO SURRENDER GAME =====
 async function surrenderGame() {
   console.log('Iniciando processo de desistência...');
@@ -1529,74 +1631,6 @@ async function offerDraw() {
   }
 }
 
-// ===== FUNÇÃO END GAME =====
-async function endGame(result) {
-  try {
-    let winner = null;
-    let status = 'finished';
-    
-    if (result === 'draw') {
-      status = 'draw';
-      // Atualizar estatísticas para empate
-      for (const player of gameState.players) {
-        await db.collection('users').doc(player.uid).update({
-          draws: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(5) // Pequeno aumento para ambos
-        });
-      }
-    } else {
-      winner = result;
-      const winningPlayer = gameState.players.find(p => p.color === winner);
-      const losingPlayer = gameState.players.find(p => p.color !== winner);
-      
-      // Calcular recompensas
-      const betAmount = gameState.bet || 0;
-      const reward = betAmount * 2;
-      
-      if (winningPlayer) {
-        await db.collection('users').doc(winningPlayer.uid).update({
-          wins: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(20),
-          coins: firebase.firestore.FieldValue.increment(reward)
-        });
-      }
-      
-      if (losingPlayer) {
-        await db.collection('users').doc(losingPlayer.uid).update({
-          losses: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(-10)
-        });
-      }
-    }
-    
-    // Atualizar estado do jogo
-    await currentGameRef.update({
-      status: status,
-      winner: winner,
-      finishedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    
-    if (result === 'draw') {
-      showNotification('Jogo terminou em empate!', 'info');
-    } else {
-      const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-      if (currentPlayer.color === winner) {
-        showNotification('Você venceu!', 'success');
-      } else {
-        showNotification('Você perdeu!', 'error');
-      }
-    }
-    
-    // Voltar para o lobby após 3 segundos
-    setTimeout(() => {
-      leaveGame();
-    }, 3000);
-    
-  } catch (error) {
-    console.error('Erro ao finalizar jogo:', error);
-    showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
-  }
-}
 // ===== RANKING =====
 async function loadRanking() {
   try {
