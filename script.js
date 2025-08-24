@@ -1051,55 +1051,84 @@ function setupSpectatorsListener(tableId) {
         });
 }
 
-// ===== FUNÇÃO UPDATE SPECTATORS UI =====
+// ===== ATUALIZAR UPDATE SPECTATORS UI PARA JOGADORES =====
 function updateSpectatorsUI() {
     const spectatorsContainer = document.getElementById('spectators-container');
     const supportersContainer = document.getElementById('supporters-container');
+    const spectatorsCountBadge = document.querySelector('.spectators-count-badge');
     
     if (!spectatorsContainer || !supportersContainer) return;
     
-    // Atualizar lista de espectadores
+    // Atualizar contador
+    if (spectatorsCountBadge) {
+        spectatorsCountBadge.innerHTML = `<i class="fas fa-eye"></i> ${currentSpectators.length}`;
+    }
+    
+    // Lista de espectadores
     spectatorsContainer.innerHTML = `
-        <h4>Espectadores (${currentSpectators.length})</h4>
         <div class="spectators-list">
             ${currentSpectators.map(spec => `
                 <div class="spectator-item">
+                    <i class="fas fa-user"></i>
                     <span class="spectator-name">${spec.displayName}</span>
-                    ${spec.supporting ? `<span class="supporting-badge">Torcendo</span>` : ''}
+                    ${spec.supporting ? `
+                        <span class="supporting-badge" style="background: ${spec.supporting === 'black' ? '#000' : '#e74c3c'}">
+                            <i class="fas fa-flag"></i> Torcendo
+                        </span>
+                    ` : ''}
                 </div>
             `).join('')}
+            ${currentSpectators.length === 0 ? '<div class="no-spectators">Nenhum espectador</div>' : ''}
         </div>
     `;
     
-    // Atualizar lista de torcedores por jogador
+    // Lista de torcedores por jogador
     const blackSupporters = currentSpectators.filter(s => s.supporting === 'black');
     const redSupporters = currentSpectators.filter(s => s.supporting === 'red');
     
     supportersContainer.innerHTML = `
         <div class="supporters-section">
-            <h4>Torcendo pelas Pretas</h4>
+            <h5 class="supporters-title" style="color: #000;">
+                <i class="fas fa-chess-pawn"></i> Pretas (${blackSupporters.length})
+            </h5>
             <div class="supporters-list">
                 ${blackSupporters.map(s => `
                     <div class="supporter-item">
                         <i class="fas fa-user"></i> ${s.displayName}
                     </div>
                 `).join('')}
-                ${blackSupporters.length === 0 ? '<span class="no-supporters">Ninguém torcendo</span>' : ''}
+                ${blackSupporters.length === 0 ? '<div class="no-supporters">Ninguém torcendo</div>' : ''}
             </div>
         </div>
         
         <div class="supporters-section">
-            <h4>Torcendo pelas Vermelhas</h4>
+            <h5 class="supporters-title" style="color: #e74c3c;">
+                <i class="fas fa-chess-pawn"></i> Vermelhas (${redSupporters.length})
+            </h5>
             <div class="supporters-list">
                 ${redSupporters.map(s => `
                     <div class="supporter-item">
                         <i class="fas fa-user"></i> ${s.displayName}
                     </div>
                 `).join('')}
-                ${redSupporters.length === 0 ? '<span class="no-supporters">Ninguém torcendo</span>' : ''}
+                ${redSupporters.length === 0 ? '<div class="no-supporters">Ninguém torcendo</div>' : ''}
             </div>
         </div>
     `;
+    
+    // Mostrar notificação para jogadores quando alguém torce por eles
+    const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
+    if (isPlayer) {
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        const newSupporters = currentSpectators.filter(s => 
+            s.supporting === currentPlayer.color && 
+            !currentSpectators.some(oldSpec => oldSpec.id === s.id && oldSpec.supporting === currentPlayer.color)
+        );
+        
+        newSupporters.forEach(supporter => {
+            showNotification(`${supporter.displayName} está torcendo por você! 🎉`, 'success', 3000);
+        });
+    }
 }
 
 // ===== FUNÇÃO SUPPORT PLAYER =====
@@ -1216,8 +1245,7 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-
-// ===== ATUALIZAR SETUP GAME LISTENER PARA ESPECTADORES =====
+// ===== ATUALIZAR SETUP GAME LISTENER PARA TODOS =====
 function setupGameListener(tableId, isSpectator = false) {
     if (gameListener) gameListener();
     if (chatListener) cleanupChat();
@@ -1233,13 +1261,11 @@ function setupGameListener(tableId, isSpectator = false) {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            // Atualizar contador de espectadores
-            if (isSpectator) {
-                const spectatorsSnapshot = await currentGameRef.collection('spectators').get();
-                await currentGameRef.update({
-                    spectatorsCount: spectatorsSnapshot.size
-                });
-            }
+            // Atualizar contador de espectadores (para todos)
+            const spectatorsSnapshot = await currentGameRef.collection('spectators').get();
+            await currentGameRef.update({
+                spectatorsCount: spectatorsSnapshot.size
+            });
             
             if (gameState.status === 'finished') {
                 endGame(gameState.winner);
@@ -1252,47 +1278,53 @@ function setupGameListener(tableId, isSpectator = false) {
             
             if (gameState.status === 'playing') {
                 setupChatListener();
-                if (isSpectator) {
-                    setupSpectatorsListener(tableId);
-                    setupSpectatorUI();
-                }
+                setupSpectatorsListener(tableId); // SEMPRE configurar para todos
+                setupSpectatorUI(); // SEMPRE mostrar UI de espectadores
             }
         }
     });
 }
-
-// ===== FUNÇÃO SETUP SPECTATOR UI =====
+// ===== ATUALIZAR SETUP SPECTATOR UI PARA JOGADORES TAMBÉM =====
 function setupSpectatorUI() {
-    // Adicionar botões de torcida
+    // Adicionar botões de torcida (apenas para espectadores)
     const gameHeader = document.querySelector('.game-header');
     if (gameHeader && !document.getElementById('support-buttons')) {
-        const supportButtons = `
-            <div id="support-buttons" class="support-buttons">
-                <button class="btn btn-dark btn-small support-btn" data-color="black">
-                    <i class="fas fa-flag"></i> Torcer Pretas
-                </button>
-                <button class="btn btn-danger btn-small support-btn" data-color="red">
-                    <i class="fas fa-flag"></i> Torcer Vermelhas
-                </button>
-            </div>
-        `;
-        gameHeader.insertAdjacentHTML('beforeend', supportButtons);
+        const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
         
-        // Adicionar event listeners
-        document.querySelectorAll('.support-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                supportPlayer(e.target.dataset.color);
+        if (!isPlayer) {
+            const supportButtons = `
+                <div id="support-buttons" class="support-buttons">
+                    <button class="btn btn-dark btn-small support-btn" data-color="black">
+                        <i class="fas fa-flag"></i> Torcer Pretas
+                    </button>
+                    <button class="btn btn-danger btn-small support-btn" data-color="red">
+                        <i class="fas fa-flag"></i> Torcer Vermelhas
+                    </button>
+                </div>
+            `;
+            gameHeader.insertAdjacentHTML('beforeend', supportButtons);
+            
+            document.querySelectorAll('.support-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    supportPlayer(e.target.dataset.color);
+                });
             });
-        });
+        }
     }
     
-    // Mostrar painel de espectadores
+    // Mostrar painel de espectadores (para todos)
     const gameContainer = document.querySelector('.game-container');
     if (gameContainer && !document.getElementById('spectators-panel')) {
+        const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
+        const panelTitle = isPlayer ? "Público da Partida" : "Espectadores";
+        
         const spectatorsPanel = `
             <div id="spectators-panel" class="spectators-panel">
                 <div class="panel-header">
-                    <h4>Espectadores</h4>
+                    <h4>${panelTitle}</h4>
+                    <span class="spectators-count-badge">
+                        <i class="fas fa-eye"></i> ${currentSpectators.length}
+                    </span>
                 </div>
                 <div id="spectators-container" class="panel-content"></div>
                 
@@ -1305,8 +1337,7 @@ function setupSpectatorUI() {
         gameContainer.insertAdjacentHTML('beforeend', spectatorsPanel);
     }
 }
-
-// ===== ATUALIZAR LEAVE GAME PARA ESPECTADORES =====
+// ===== ATUALIZAR LEAVE GAME =====
 function leaveGame() {
     console.log('Saindo do jogo...');
     
@@ -1317,15 +1348,18 @@ function leaveGame() {
     
     // Se era espectador, remover da lista
     if (currentGameRef && currentUser) {
-        db.collection('tables')
-            .doc(currentGameRef.id)
-            .collection('spectators')
-            .doc(currentUser.uid)
-            .delete()
-            .catch(error => console.error('Erro ao sair como espectador:', error));
+        const isPlayer = gameState && gameState.players && gameState.players.some(p => p.uid === currentUser.uid);
+        if (!isPlayer) {
+            db.collection('tables')
+                .doc(currentGameRef.id)
+                .collection('spectators')
+                .doc(currentUser.uid)
+                .delete()
+                .catch(error => console.error('Erro ao sair como espectador:', error));
+        }
     }
     
-    // Limpar UI de espectador
+    // Limpar UI
     const supportButtons = document.getElementById('support-buttons');
     if (supportButtons) supportButtons.remove();
     
@@ -2463,8 +2497,7 @@ function getKingCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, 
     return captures;
 }
 
-
-// ===== FUNÇÃO RENDER BOARD (ATUALIZADA) =====
+// ===== ATUALIZAR RENDER BOARD PARA MOSTRAR TORCIDA =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
@@ -2476,9 +2509,6 @@ function renderBoard(boardState) {
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
     
-       console.log('Renderizando tabuleiro - Turno atual:', gameState.currentTurn);
-    console.log('É minha vez:', isMyTurn);
-
     // Verificar capturas obrigatórias
     const hasMandatoryCaptures = checkGlobalMandatoryCaptures();
     
@@ -2499,6 +2529,12 @@ function renderBoard(boardState) {
                 pieceEl.className = `checker-piece ${piece.color} ${piece.king ? 'king' : ''}`;
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
+                
+                // Adicionar indicador de torcida se houver muitos torcedores
+                const supportersCount = currentSpectators.filter(s => s.supporting === piece.color).length;
+                if (supportersCount > 2) {
+                    pieceEl.innerHTML = `<span class="supporters-indicator">${supportersCount}👏</span>`;
+                }
                 
                 let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
@@ -2535,8 +2571,9 @@ function renderBoard(boardState) {
         showNotification('Captura obrigatória!', 'warning');
     }
     
-    updateTurnInfo(); // Agora esta função existe
+    updateTurnInfo();
 }
+
 // ===== FUNÇÃO GET NORMAL MOVES (ATUALIZADA PARA DAMAS) =====
 function getNormalMoves(fromRow, fromCol, piece) {
     const moves = [];
