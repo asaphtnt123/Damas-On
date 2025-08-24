@@ -937,17 +937,33 @@ async function joinTable(tableId) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
-
-//==== FUNÇÃO RENDER TABLE (ATUALIZADA) =====
 function renderTable(table, container) {
   const tableEl = document.createElement('div');
   tableEl.className = 'table-item';
   
   const playerCount = table.players ? table.players.length : 0;
   const isPlaying = table.status === 'playing';
+  const isFinished = table.status === 'finished' || table.status === 'draw';
   const isFull = playerCount >= 2;
   const isWaiting = table.waitingForOpponent;
-  
+
+  // Pegar nomes dos jogadores
+  let playersNames = '';
+  if (table.players && table.players.length === 2) {
+    const [p1, p2] = table.players;
+    if (isFinished) {
+      if (table.status === 'draw') {
+        playersNames = `${p1.displayName} x ${p2.displayName} (Empate)`;
+      } else {
+        const winner = table.players.find(p => p.color === table.winner);
+        const loser = table.players.find(p => p.color !== table.winner);
+        playersNames = `${winner.displayName} venceu ${loser.displayName}`;
+      }
+    } else {
+      playersNames = `${p1.displayName} x ${p2.displayName}`;
+    }
+  }
+
   tableEl.innerHTML = `
     <div class="table-info">
       <div class="table-name">${table.name || `Mesa ${table.id}`}</div>
@@ -956,17 +972,22 @@ function renderTable(table, container) {
         <span><i class="fas fa-clock"></i> ${table.timeLimit || 0}s</span>
         ${table.bet > 0 ? `<span><i class="fas fa-coins"></i> ${table.bet}</span>` : ''}
         ${isWaiting ? `<span class="waiting-badge">Aguardando</span>` : ''}
+        ${isFinished ? `<span class="finished-badge">${playersNames}</span>` : ''}
       </div>
     </div>
     <div class="table-actions">
-      ${isPlaying || isFull ? 
-        `<button class="btn btn-secondary btn-small" disabled>${isPlaying ? 'Jogando' : 'Cheia'}</button>` : 
+      ${isPlaying ? 
+        `<button class="btn btn-secondary btn-small" disabled>Jogando</button>` : 
+        isFinished ? 
+        `<button class="btn btn-dark btn-small" disabled>Finalizado</button>` :
+        isFull ? 
+        `<button class="btn btn-secondary btn-small" disabled>Cheia</button>` : 
         `<button class="btn btn-primary btn-small join-btn">Entrar</button>`
       }
     </div>
   `;
-  
-  if (!isPlaying && !isFull) {
+
+  if (!isPlaying && !isFull && !isFinished) {
     const joinBtn = tableEl.querySelector('.join-btn');
     if (joinBtn) {
       joinBtn.addEventListener('click', () => {
@@ -977,7 +998,8 @@ function renderTable(table, container) {
   
   container.appendChild(tableEl);
 }
-// ===== FUNÇÃO SETUP GAME LISTENER (CORRIGIDA) =====
+
+// ===== FUNÇÃO SETUP GAME LISTENER (PROTEÇÃO ADICIONAL) =====
 function setupGameListener(tableId) {
     if (gameListener) gameListener();
     
@@ -987,26 +1009,26 @@ function setupGameListener(tableId) {
         if (doc.exists) {
             gameState = doc.data();
             
-            // Verificar se board existe e converter formato
+            if (!gameState) return;
+            
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            // Verificar se players existe
             if (!gameState.players) {
                 console.error('gameState.players não existe');
                 return;
             }
             
             if (gameState.status === 'finished') {
-                endGame(gameState.winner);
+                if (currentGameRef) {
+                    endGame(gameState.winner);
+                }
                 return;
             }
             
             renderBoard(gameState.board);
             updatePlayerInfo();
-            
-            // Verificar capturas obrigatórias sempre que o tabuleiro for atualizado
             checkGlobalMandatoryCaptures();
         }
     }, (error) => {
@@ -1094,28 +1116,32 @@ function highlightCapturingPieces() {
     });
 }
 
-// ===== FUNÇÃO LEAVE GAME =====
+// ===== FUNÇÃO LEAVE GAME (CORRIGIDA) =====
 function leaveGame() {
-  console.log('Saindo do jogo...');
-  
-  // Remover listener do jogo
-  if (gameListener) {
-    gameListener();
-    gameListener = null;
-  }
-  
-  // Limpar referências do jogo
-  currentGameRef = null;
-  gameState = null;
-  selectedPiece = null;
-  
-  // Voltar para a tela principal
-  showScreen('main-screen');
-  
-  // Recarregar mesas disponíveis
-  loadTables();
+    console.log('Saindo do jogo...');
+    
+    // Remover listener do jogo
+    if (gameListener) {
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Limpar referências do jogo - MAS manter currentGameRef para endGame
+    // currentGameRef = null; // NÃO limpar aqui - deixar para o endGame limpar
+    gameState = null;
+    selectedPiece = null;
+    
+    // Voltar para a tela principal
+    showScreen('main-screen');
+    
+    // Recarregar mesas disponíveis
+    loadTables();
+    
+    // Limpar currentGameRef apenas após tudo estar finalizado
+    setTimeout(() => {
+        currentGameRef = null;
+    }, 5000);
 }
-
 // ===== FUNÇÃO HANDLE PIECE CLICK (COM VERIFICAÇÃO DE CAPTURA) =====
 function handlePieceClick(row, col) {
     const piece = gameState.board[row][col];
@@ -1405,7 +1431,6 @@ async function offerDraw() {
     showNotification('Erro ao oferecer empate: ' + error.message, 'error');
   }
 }
-// ===== FUNÇÃO END GAME (CORRIGIDA) =====
 async function endGame(result) {
     try {
         // Verificar se as referências necessárias existem
@@ -1432,15 +1457,11 @@ async function endGame(result) {
             const winningPlayer = gameState.players.find(p => p.color === winner);
             const losingPlayer = gameState.players.find(p => p.color !== winner);
             
-            // Calcular recompensas
-            const betAmount = gameState.bet || 0;
-            const reward = betAmount * 2;
-            
             if (winningPlayer) {
                 await db.collection('users').doc(winningPlayer.uid).update({
                     wins: firebase.firestore.FieldValue.increment(1),
                     rating: firebase.firestore.FieldValue.increment(20),
-                    coins: firebase.firestore.FieldValue.increment(reward)
+                    coins: firebase.firestore.FieldValue.increment(gameState.bet * 2 || 0)
                 });
             }
             
@@ -1480,6 +1501,7 @@ async function endGame(result) {
         showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
     }
 }
+
 // ===== RANKING =====
 async function loadRanking() {
   try {
@@ -1577,42 +1599,45 @@ async function loadFriends() {
   }
 }
 
-
-// ===== FUNÇÃO CHECK GAME END (NOVA - PARA VERIFICAR FIM DE JOGO) =====
+// ===== FUNÇÃO CHECK GAME END (CORRIGIDA) =====
 function checkGameEnd(board, currentTurn) {
-  // Verificar se algum jogador não tem mais peças
-  let redPieces = 0;
-  let blackPieces = 0;
-  let redCanMove = false;
-  let blackCanMove = false;
-  
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const piece = board[row][col];
-      if (piece) {
-        if (piece.color === 'red') {
-          redPieces++;
-          // Verificar se tem movimentos possíveis
-          if (getPossibleMoves(row, col).length > 0) {
-            redCanMove = true;
-          }
-        } else {
-          blackPieces++;
-          // Verificar se tem movimentos possíveis
-          if (getPossibleMoves(row, col).length > 0) {
-            blackCanMove = true;
-          }
+    // Verificar se algum jogador não tem mais peças
+    let redPieces = 0;
+    let blackPieces = 0;
+    let redCanMove = false;
+    let blackCanMove = false;
+    
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            const piece = board[row][col];
+            if (piece) {
+                if (piece.color === 'red') {
+                    redPieces++;
+                    // Verificar se tem movimentos possíveis
+                    if (getPossibleMoves(row, col).length > 0) {
+                        redCanMove = true;
+                    }
+                } else {
+                    blackPieces++;
+                    // Verificar se tem movimentos possíveis
+                    if (getPossibleMoves(row, col).length > 0) {
+                        blackCanMove = true;
+                    }
+                }
+            }
         }
-      }
     }
-  }
-  
-  // Verificar condições de vitória
-  if (redPieces === 0 || !redCanMove) {
-    endGame('black');
-  } else if (blackPieces === 0 || !blackCanMove) {
-    endGame('red');
-  }
+    
+    // Verificar condições de vitória
+    if (redPieces === 0 || !redCanMove) {
+        if (currentGameRef) {
+            endGame('black');
+        }
+    } else if (blackPieces === 0 || !blackCanMove) {
+        if (currentGameRef) {
+            endGame('red');
+        }
+    }
 }
  // ===== SISTEMA DE CAPTURA OBRIGATÓRIA E MÚLTIPLA =====
 let mandatoryCaptureState = {
@@ -1664,11 +1689,13 @@ function updateTurnInfo() {
 }
 // ===== FUNÇÃO MAKE MOVE (ATUALIZADA PARA CAPTURAS MÚLTIPLAS) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
+
     try {
-        if (!gameState || !gameState.board) {
-            showNotification('Erro: estado do jogo não carregado', 'error');
+        if (!gameState || !gameState.board || !currentGameRef) {
+            showNotification('Erro: jogo não está pronto', 'error');
             return;
         }
+   
         
         const newBoard = JSON.parse(JSON.stringify(gameState.board));
         const movingPiece = newBoard[fromRow][fromCol];
@@ -1747,6 +1774,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     } catch (error) {
         console.error('Erro ao realizar movimento:', error);
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
+        
     }
 }
 
