@@ -313,72 +313,147 @@
 
         <!-- Tela de Jogo -->
         <section id="game-screen" class="screen">
-            <div class="game-header">
-                <button id="btn-leave-game" class="btn btn-icon">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                
-                <div class="game-info">
-                    <div class="player-info opponent-info">
-                        <div class="player-avatar">
-                            <img src="https://ui-avatars.com/api/?name=Oponente&background=random" alt="Oponente">
-                        </div>
-                        <div class="player-details">
-                            <span class="player-name">Oponente</span>
-                            <span class="player-rating">1250</span>
-                        </div>
+    <div class="game-header">
+        <button id="btn-leave-game" class="btn btn-icon btn-back">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        
+        <div class="game-title">
+            <h2>Partida de Damas</h2>
+            <div class="game-timer" id="game-timer">00:00</div>
+        </div>
+        
+        <div class="header-actions">
+            <button id="btn-spectators-toggle" class="btn btn-icon" title="Espectadores">
+                <i class="fas fa-users"></i>
+                <span class="badge" id="spectators-count">0</span>
+            </button>
+            <button id="btn-game-menu" class="btn btn-icon" title="Menu">
+                <i class="fas fa-ellipsis-v"></i>
+            </button>
+        </div>
+    </div>
+    
+    <div class="game-main">
+        <!-- Painel Esquerdo - Informações dos Jogadores -->
+        <div class="game-sidebar left-sidebar">
+            <div class="player-card opponent-card">
+                <div class="player-header">
+                    <div class="player-avatar">
+                        <img src="https://ui-avatars.com/api/?name=Oponente&background=ff6b6b" alt="Oponente">
+                        <div class="player-status"></div>
                     </div>
-                    
-                    <div class="vs-text">VS</div>
-                    
-                    <div class="player-info my-info">
-                        <div class="player-avatar">
-                            <img src="https://ui-avatars.com/api/?name=Você&background=random" alt="Você">
-                        </div>
-                        <div class="player-details">
-                            <span class="player-name">Você</span>
-                            <span class="player-rating">1350</span>
-                        </div>
+                    <div class="player-badges">
+                        <span class="badge rating">1250</span>
+                        <span class="badge pieces-count" id="opponent-pieces">12</span>
                     </div>
                 </div>
-                
-                <button id="btn-game-menu" class="btn btn-icon">
-                    <i class="fas fa-ellipsis-v"></i>
-                </button>
+                <div class="player-info">
+                    <h3 class="player-name">Oponente</h3>
+                    <div class="supporters-info">
+                        <i class="fas fa-heart"></i>
+                        <span id="opponent-supporters">0 torcedores</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Área Central do Jogo -->
+        <div class="game-center">
+            <div class="game-turn" id="game-turn">
+                <div class="turn-indicator">
+                    <i class="fas fa-clock"></i>
+                    <span id="turn-text">Sua vez de jogar</span>
+                </div>
+                <div class="current-player" id="current-player-color"></div>
             </div>
             
-            <div class="game-container">
-                <div class="game-turn" id="game-turn">
-                    <span>Sua vez</span>
+            <div class="board-container">
+                <div class="board-coordinates">
+                    <div class="coordinates-horizontal">
+                        <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+                    </div>
+                    <div class="coordinates-vertical">
+                        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
+                    </div>
                 </div>
                 
                 <div class="checkers-board" id="checkers-board">
                     <!-- Tabuleiro será gerado dinamicamente -->
                 </div>
-                
-                <div class="game-controls">
-                    <button id="btn-surrender" class="btn btn-danger">
-                        <i class="fas fa-flag"></i> Desistir
-                    </button>
-                    <button id="btn-offer-draw" class="btn btn-secondary">
-                        <i class="fas fa-handshake"></i> Empate
-                    </button>
+            </div>
+
+            <div class="game-controls">
+                <button id="btn-surrender" class="btn btn-danger btn-control">
+                    <i class="fas fa-flag"></i>
+                    <span>Desistir</span>
+                </button>
+                <button id="btn-offer-draw" class="btn btn-warning btn-control">
+                    <i class="fas fa-handshake"></i>
+                    <span>Empate</span>
+                </button>
+                <button id="btn-hint" class="btn btn-info btn-control">
+                    <i class="fas fa-lightbulb"></i>
+                    <span>Dica</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Painel Direito - Suas Informações -->
+        <div class="game-sidebar right-sidebar">
+            <div class="player-card my-card">
+                <div class="player-header">
+                    <div class="player-avatar">
+                        <img src="https://ui-avatars.com/api/?name=Você&background=4ecdc4" alt="Você">
+                        <div class="player-status active"></div>
+                    </div>
+                    <div class="player-badges">
+                        <span class="badge rating">1350</span>
+                        <span class="badge pieces-count" id="my-pieces">12</span>
+                    </div>
+                </div>
+                <div class="player-info">
+                    <h3 class="player-name">Você</h3>
+                    <div class="supporters-info">
+                        <i class="fas fa-heart"></i>
+                        <span id="my-supporters">0 torcedores</span>
+                    </div>
                 </div>
             </div>
-            
-            <div class="game-chat">
-                <div class="chat-messages" id="chat-messages">
-                    <!-- Mensagens de chat serão carregadas dinamicamente -->
+
+            <!-- Painel de Espectadores (inicialmente oculto) -->
+            <div class="spectators-panel" id="spectators-panel">
+                <div class="panel-header">
+                    <h4>Espectadores</h4>
+                    <span class="close-panel" id="close-spectators">×</span>
                 </div>
-                
-                <div class="chat-input">
-                    <input type="text" placeholder="Digite uma mensagem...">
-                    <button class="btn btn-icon">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
+                <div class="panel-content">
+                    <div id="spectators-list" class="spectators-list"></div>
+                    <div id="supporters-list" class="supporters-list"></div>
                 </div>
             </div>
-        </section>
+        </div>
+    </div>
+    
+    <!-- Chat Fixo na Parte Inferior -->
+    <div class="game-chat">
+        <div class="chat-header">
+            <span>Chat da Partida</span>
+            <button class="btn btn-icon chat-toggle" id="chat-toggle">
+                <i class="fas fa-chevron-up"></i>
+            </button>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="chat-messages" id="chat-messages"></div>
+        </div>
+        <div class="chat-input">
+            <input type="text" placeholder="Digite uma mensagem..." maxlength="200">
+            <button class="btn btn-primary btn-send">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+</section>
     </main>
 
     <!-- Modal para Criar Mesa -->
