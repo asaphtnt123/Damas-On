@@ -312,145 +312,148 @@
         </section>
 
         <!-- Tela de Jogo -->
-        <section id="game-screen" class="screen">
+       <section id="game-screen" class="screen">
+    <!-- Header Simplificado -->
     <div class="game-header">
         <button id="btn-leave-game" class="btn btn-icon btn-back">
             <i class="fas fa-arrow-left"></i>
         </button>
         
-        <div class="game-title">
-            <h2>Partida de Damas</h2>
-            <div class="game-timer" id="game-timer">00:00</div>
+        <div class="game-info-mobile">
+            <div class="mobile-score">
+                <span class="player-badge red">12</span>
+                <span class="vs">VS</span>
+                <span class="player-badge black">12</span>
+            </div>
+            <div class="game-timer" id="game-timer">05:00</div>
         </div>
         
         <div class="header-actions">
-            <button id="btn-spectators-toggle" class="btn btn-icon" title="Espectadores">
+            <button id="btn-spectators" class="btn btn-icon" title="Espectadores">
                 <i class="fas fa-users"></i>
                 <span class="badge" id="spectators-count">0</span>
             </button>
-            <button id="btn-game-menu" class="btn btn-icon" title="Menu">
-                <i class="fas fa-ellipsis-v"></i>
-            </button>
         </div>
     </div>
-    
-    <div class="game-main">
-        <!-- Painel Esquerdo - Informações dos Jogadores -->
-        <div class="game-sidebar left-sidebar">
-            <div class="player-card opponent-card">
-                <div class="player-header">
-                    <div class="player-avatar">
-                        <img src="https://ui-avatars.com/api/?name=Oponente&background=ff6b6b" alt="Oponente">
-                        <div class="player-status"></div>
-                    </div>
-                    <div class="player-badges">
-                        <span class="badge rating">1250</span>
-                        <span class="badge pieces-count" id="opponent-pieces">12</span>
-                    </div>
-                </div>
-                <div class="player-info">
-                    <h3 class="player-name">Oponente</h3>
-                    <div class="supporters-info">
-                        <i class="fas fa-heart"></i>
-                        <span id="opponent-supporters">0 torcedores</span>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Área Central do Jogo -->
-        <div class="game-center">
-            <div class="game-turn" id="game-turn">
-                <div class="turn-indicator">
-                    <i class="fas fa-clock"></i>
-                    <span id="turn-text">Sua vez de jogar</span>
-                </div>
-                <div class="current-player" id="current-player-color"></div>
+    <!-- Conteúdo Principal -->
+    <div class="game-content">
+        <!-- Área do Tabuleiro -->
+        <div class="board-section">
+            <div class="turn-indicator-mobile" id="turn-indicator">
+                <div class="turn-dot" id="turn-dot"></div>
+                <span id="turn-text">Sua vez</span>
             </div>
-            
-            <div class="board-container">
-                <div class="board-coordinates">
-                    <div class="coordinates-horizontal">
-                        <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
-                    </div>
-                    <div class="coordinates-vertical">
-                        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
-                    </div>
-                </div>
-                
+
+            <div class="board-wrapper">
                 <div class="checkers-board" id="checkers-board">
-                    <!-- Tabuleiro será gerado dinamicamente -->
+                    <!-- Tabuleiro gerado dinamicamente -->
                 </div>
             </div>
 
-            <div class="game-controls">
-                <button id="btn-surrender" class="btn btn-danger btn-control">
+            <div class="mobile-controls">
+                <button id="btn-surrender" class="btn btn-danger btn-sm">
                     <i class="fas fa-flag"></i>
-                    <span>Desistir</span>
+                    Desistir
                 </button>
-                <button id="btn-offer-draw" class="btn btn-warning btn-control">
+                <button id="btn-offer-draw" class="btn btn-warning btn-sm">
                     <i class="fas fa-handshake"></i>
-                    <span>Empate</span>
+                    Empate
                 </button>
-                <button id="btn-hint" class="btn btn-info btn-control">
+                <button id="btn-hint" class="btn btn-info btn-sm">
                     <i class="fas fa-lightbulb"></i>
-                    <span>Dica</span>
+                    Dica
                 </button>
             </div>
         </div>
 
-        <!-- Painel Direito - Suas Informações -->
-        <div class="game-sidebar right-sidebar">
-            <div class="player-card my-card">
-                <div class="player-header">
+        <!-- Painel de Jogadores (lateral em desktop, abaixo em mobile) -->
+        <div class="players-section">
+            <div class="player-card opponent">
+                <div class="player-main">
                     <div class="player-avatar">
-                        <img src="https://ui-avatars.com/api/?name=Você&background=4ecdc4" alt="Você">
-                        <div class="player-status active"></div>
+                        <img src="https://ui-avatars.com/api/?name=O&background=ff6b6b" alt="Oponente">
                     </div>
-                    <div class="player-badges">
-                        <span class="badge rating">1350</span>
-                        <span class="badge pieces-count" id="my-pieces">12</span>
+                    <div class="player-details">
+                        <h4 class="player-name">Oponente</h4>
+                        <div class="player-stats">
+                            <span class="rating">1250</span>
+                            <span class="pieces">12 peças</span>
+                        </div>
                     </div>
                 </div>
-                <div class="player-info">
-                    <h3 class="player-name">Você</h3>
-                    <div class="supporters-info">
-                        <i class="fas fa-heart"></i>
-                        <span id="my-supporters">0 torcedores</span>
-                    </div>
+                <div class="supporters">
+                    <i class="fas fa-heart"></i>
+                    <span id="opponent-supporters">0</span>
                 </div>
             </div>
 
-            <!-- Painel de Espectadores (inicialmente oculto) -->
-            <div class="spectators-panel" id="spectators-panel">
-                <div class="panel-header">
-                    <h4>Espectadores</h4>
-                    <span class="close-panel" id="close-spectators">×</span>
+            <div class="player-card me">
+                <div class="player-main">
+                    <div class="player-avatar">
+                        <img src="https://ui-avatars.com/api/?name=V&background=4ecdc4" alt="Você">
+                        <div class="online-dot"></div>
+                    </div>
+                    <div class="player-details">
+                        <h4 class="player-name">Você</h4>
+                        <div class="player-stats">
+                            <span class="rating">1350</span>
+                            <span class="pieces">12 peças</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="panel-content">
-                    <div id="spectators-list" class="spectators-list"></div>
-                    <div id="supporters-list" class="supporters-list"></div>
+                <div class="supporters">
+                    <i class="fas fa-heart"></i>
+                    <span id="my-supporters">0</span>
                 </div>
             </div>
         </div>
     </div>
-    
-    <!-- Chat Fixo na Parte Inferior -->
-    <div class="game-chat">
-        <div class="chat-header">
-            <span>Chat da Partida</span>
-            <button class="btn btn-icon chat-toggle" id="chat-toggle">
-                <i class="fas fa-chevron-up"></i>
-            </button>
+
+    <!-- Chat Colapsável -->
+    <div class="chat-container">
+        <div class="chat-header" id="chat-header">
+            <span>Chat</span>
+            <div class="chat-actions">
+                <span class="unread-count">3</span>
+                <i class="fas fa-chevron-up" id="chat-arrow"></i>
+            </div>
         </div>
+        
         <div class="chat-body" id="chat-body">
             <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-input">
+                <input type="text" placeholder="Digite uma mensagem..." id="chat-input">
+                <button class="btn btn-icon btn-send">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
         </div>
-        <div class="chat-input">
-            <input type="text" placeholder="Digite uma mensagem..." maxlength="200">
-            <button class="btn btn-primary btn-send">
-                <i class="fas fa-paper-plane"></i>
-            </button>
+    </div>
+
+    <!-- Modal de Espectadores -->
+    <div class="modal spectators-modal" id="spectators-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Espectadores</h3>
+                <button class="modal-close" id="close-spectators">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="spectators-grid">
+                    <div class="spectators-group">
+                        <h4>Torcendo pelas Pretas</h4>
+                        <div class="spectators-list" id="black-supporters-list"></div>
+                    </div>
+                    <div class="spectators-group">
+                        <h4>Torcendo pelas Vermelhas</h4>
+                        <div class="spectators-list" id="red-supporters-list"></div>
+                    </div>
+                    <div class="spectators-group">
+                        <h4>Assistindo</h4>
+                        <div class="spectators-list" id="spectators-list"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </section>
