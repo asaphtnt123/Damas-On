@@ -449,6 +449,8 @@ function initializeUI() {
   console.log('Inicializando interface do usuário...');
       // Inicializar chat
     initializeChat();
+        initializeSpectatorsModal();
+
   // Navegação por abas - verificar se existem
   const navItems = document.querySelectorAll('.nav-item');
   if (navItems.length > 0) {
@@ -1033,8 +1035,7 @@ async function joinAsSpectator(tableId) {
         showNotification('Erro ao assistir jogo: ' + error.message, 'error');
     }
 }
-
-// ===== FUNÇÃO SETUP SPECTATORS LISTENER =====
+// ===== ATUALIZAR SETUP SPECTATORS LISTENER =====
 function setupSpectatorsListener(tableId) {
     if (spectatorsListener) spectatorsListener();
     
@@ -1047,7 +1048,17 @@ function setupSpectatorsListener(tableId) {
                 currentSpectators.push({ id: doc.id, ...doc.data() });
             });
             
-            updateSpectatorsUI();
+            // Atualizar badge do botão
+            const badge = document.getElementById('spectators-count');
+            if (badge) {
+                badge.textContent = currentSpectators.length;
+                badge.style.display = currentSpectators.length > 0 ? 'flex' : 'none';
+            }
+            
+            // Atualizar modal se estiver aberto
+            if (spectatorsModal && spectatorsModal.classList.contains('active')) {
+                updateSpectatorsModal();
+            }
         });
 }
 
@@ -3095,4 +3106,201 @@ function cleanupChat() {
     if (chatMessages) {
         chatMessages.innerHTML = '';
     }
+}
+
+
+
+// ===== VARIÁVEIS GLOBAIS =====
+let spectatorsModal = null;
+
+// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES =====
+function initializeSpectatorsModal() {
+    // Criar modal se não existir
+    if (!document.getElementById('spectators-modal')) {
+        const modalHTML = `
+            <div class="modal spectators-modal" id="spectators-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>👥 Espectadores e Torcedores</h3>
+                        <button class="modal-close" id="close-spectators">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="spectators-stats">
+                            <div class="stat-item">
+                                <i class="fas fa-eye"></i>
+                                <span>Total: <strong id="total-spectators">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-heart red"></i>
+                                <span>Vermelhas: <strong id="red-supporters-count">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-heart black"></i>
+                                <span>Pretas: <strong id="black-supporters-count">0</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="spectators-tabs">
+                            <button class="tab-btn active" data-tab="all">Todos</button>
+                            <button class="tab-btn" data-tab="red">Torcendo Vermelho</button>
+                            <button class="tab-btn" data-tab="black">Torcendo Preto</button>
+                        </div>
+                        
+                        <div class="spectators-list-container">
+                            <div class="tab-content active" id="tab-all">
+                                <h4>🎯 Todos os Espectadores</h4>
+                                <div class="spectators-list" id="all-spectators-list">
+                                    <div class="empty-state">Nenhum espectador no momento</div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-content" id="tab-red">
+                                <h4>❤️ Torcendo pelas Vermelhas</h4>
+                                <div class="spectators-list" id="red-spectators-list">
+                                    <div class="empty-state">Ninguém torcendo pelas vermelhas</div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-content" id="tab-black">
+                                <h4>🖤 Torcendo pelas Pretas</h4>
+                                <div class="spectators-list" id="black-spectators-list">
+                                    <div class="empty-state">Ninguém torcendo pelas pretas</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    spectatorsModal = document.getElementById('spectators-modal');
+    
+    // Event listeners
+    document.getElementById('btn-spectators').addEventListener('click', openSpectatorsModal);
+    document.getElementById('close-spectators').addEventListener('click', closeSpectatorsModal);
+    
+    // Fechar modal clicando fora
+    spectatorsModal.addEventListener('click', (e) => {
+        if (e.target === spectatorsModal) {
+            closeSpectatorsModal();
+        }
+    });
+    
+    // Sistema de tabs
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Remover classe active de todos
+            tabButtons.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            
+            // Adicionar classe active ao selecionado
+            btn.classList.add('active');
+            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+        });
+    });
+}
+
+// ===== FUNÇÃO PARA ABRIR MODAL =====
+function openSpectatorsModal() {
+    if (!spectatorsModal) {
+        initializeSpectatorsModal();
+    }
+    
+    // Atualizar dados antes de abrir
+    updateSpectatorsModal();
+    
+    spectatorsModal.classList.add('active');
+    document.body.style.overflow = 'hidden'; // Previne scroll do body
+}
+
+// ===== FUNÇÃO PARA FECHAR MODAL =====
+function closeSpectatorsModal() {
+    if (spectatorsModal) {
+        spectatorsModal.classList.remove('active');
+        document.body.style.overflow = ''; // Restaura scroll
+    }
+}
+
+// ===== FUNÇÃO PARA ATUALIZAR MODAL =====
+function updateSpectatorsModal() {
+    if (!spectatorsModal || !spectatorsModal.classList.contains('active')) return;
+    
+    const totalSpectators = currentSpectators.length;
+    const redSupporters = currentSpectators.filter(s => s.supporting === 'red');
+    const blackSupporters = currentSpectators.filter(s => s.supporting === 'black');
+    const neutralSpectators = currentSpectators.filter(s => !s.supporting);
+    
+    // Atualizar estatísticas
+    document.getElementById('total-spectators').textContent = totalSpectators;
+    document.getElementById('red-supporters-count').textContent = redSupporters.length;
+    document.getElementById('black-supporters-count').textContent = blackSupporters.length;
+    
+    // Atualizar lista completa
+    updateSpectatorsList('all', currentSpectators);
+    
+    // Atualizar listas por time
+    updateSpectatorsList('red', redSupporters);
+    updateSpectatorsList('black', blackSupporters);
+}
+
+// ===== FUNÇÃO PARA ATUALIZAR LISTA =====
+function updateSpectatorsList(type, spectators) {
+    const listElement = document.getElementById(`${type}-spectators-list`);
+    if (!listElement) return;
+    
+    if (spectators.length === 0) {
+        listElement.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-${type === 'all' ? 'eye-slash' : 'heart-broken'}"></i>
+                <p>${type === 'all' ? 'Nenhum espectador no momento' : 
+                   type === 'red' ? 'Ninguém torcendo pelas vermelhas' : 
+                   'Ninguém torcendo pelas pretas'}</p>
+            </div>
+        `;
+        return;
+    }
+    
+    listElement.innerHTML = spectators.map(spectator => `
+        <div class="spectator-item ${spectator.supporting ? 'supporting' : ''}">
+            <div class="spectator-avatar">
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(spectator.displayName)}&background=random" 
+                     alt="${spectator.displayName}">
+                ${spectator.supporting ? `
+                    <div class="support-badge ${spectator.supporting}">
+                        <i class="fas fa-heart"></i>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="spectator-info">
+                <span class="spectator-name">${spectator.displayName}</span>
+                <span class="spectator-status">
+                    ${spectator.supporting ? 
+                        `Torcendo para ${spectator.supporting === 'red' ? 'vermelhas' : 'pretas'}` : 
+                        'Apenas assistindo'}
+                </span>
+            </div>
+            <div class="spectator-time">
+                ${formatTimeAgo(spectator.joinedAt)}
+            </div>
+        </div>
+    `).join('');
+}
+
+// ===== FUNÇÃO FORMATAR TEMPO =====
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Agora';
+    
+    const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diff = now - time;
+    const minutes = Math.floor(diff / 60000);
+    
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} min`;
+    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
+    return `Há ${Math.floor(minutes / 1440)} d`;
 }

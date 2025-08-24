@@ -313,7 +313,7 @@
 
         <!-- Tela de Jogo -->
        <section id="game-screen" class="screen">
-    <!-- Header Simplificado -->
+    <!-- Header -->
     <div class="game-header">
         <button id="btn-leave-game" class="btn btn-icon btn-back">
             <i class="fas fa-arrow-left"></i>
@@ -367,7 +367,7 @@
             </div>
         </div>
 
-        <!-- Painel de Jogadores (lateral em desktop, abaixo em mobile) -->
+        <!-- Painel de Jogadores -->
         <div class="players-section">
             <div class="player-card opponent">
                 <div class="player-main">
@@ -410,24 +410,17 @@
         </div>
     </div>
 
-    <!-- Chat Colapsável -->
-    <div class="chat-container">
-        <div class="chat-header" id="chat-header">
-            <span>Chat</span>
-            <div class="chat-actions">
-                <span class="unread-count">3</span>
-                <i class="fas fa-chevron-up" id="chat-arrow"></i>
-            </div>
+    <!-- Chat Fixo como era antes -->
+    <div class="game-chat">
+        <div class="chat-messages" id="chat-messages">
+            <!-- Mensagens de chat serão carregadas dinamicamente -->
         </div>
         
-        <div class="chat-body" id="chat-body">
-            <div class="chat-messages" id="chat-messages"></div>
-            <div class="chat-input">
-                <input type="text" placeholder="Digite uma mensagem..." id="chat-input">
-                <button class="btn btn-icon btn-send">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
+        <div class="chat-input">
+            <input type="text" placeholder="Digite uma mensagem..." id="chat-input">
+            <button class="btn btn-icon btn-send">
+                <i class="fas fa-paper-plane"></i>
+            </button>
         </div>
     </div>
 
