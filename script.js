@@ -447,7 +447,8 @@ function tryToDetectCountry() {
 // ===== INTERFACE DO USUÁRIO =====
 function initializeUI() {
   console.log('Inicializando interface do usuário...');
-  
+      // Inicializar chat
+    initializeChat();
   // Navegação por abas - verificar se existem
   const navItems = document.querySelectorAll('.nav-item');
   if (navItems.length > 0) {
@@ -1043,9 +1044,10 @@ function renderTable(table, container) {
     container.appendChild(tableEl);
 }
 
-// ===== FUNÇÃO SETUP GAME LISTENER (PROTEÇÃO ADICIONAL) =====
+// ===== ATUALIZAR SETUP GAME LISTENER =====
 function setupGameListener(tableId) {
     if (gameListener) gameListener();
+    if (chatListener) cleanupChat();
     
     currentGameRef = db.collection('tables').doc(tableId);
     
@@ -1053,30 +1055,24 @@ function setupGameListener(tableId) {
         if (doc.exists) {
             gameState = doc.data();
             
-            if (!gameState) return;
-            
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            if (!gameState.players) {
-                console.error('gameState.players não existe');
-                return;
-            }
-            
             if (gameState.status === 'finished') {
-                if (currentGameRef) {
-                    endGame(gameState.winner);
-                }
+                endGame(gameState.winner);
                 return;
             }
             
             renderBoard(gameState.board);
             updatePlayerInfo();
             checkGlobalMandatoryCaptures();
+            
+            // Inicializar chat quando o jogo começar
+            if (gameState.status === 'playing') {
+                setupChatListener();
+            }
         }
-    }, (error) => {
-        console.error('Erro no listener do jogo:', error);
     });
 }
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
@@ -1160,31 +1156,26 @@ function highlightCapturingPieces() {
     });
 }
 
-// ===== FUNÇÃO LEAVE GAME (CORRIGIDA) =====
+// ===== ATUALIZAR LEAVE GAME =====
 function leaveGame() {
     console.log('Saindo do jogo...');
     
-    // Remover listener do jogo
+    // Remover listeners
     if (gameListener) {
         gameListener();
         gameListener = null;
     }
     
-    // Limpar referências do jogo - MAS manter currentGameRef para endGame
-    // currentGameRef = null; // NÃO limpar aqui - deixar para o endGame limpar
+    cleanupChat();
+    
+    // Limpar referências
+    currentGameRef = null;
     gameState = null;
     selectedPiece = null;
     
     // Voltar para a tela principal
     showScreen('main-screen');
-    
-    // Recarregar mesas disponíveis
     loadTables();
-    
-    // Limpar currentGameRef apenas após tudo estar finalizado
-    setTimeout(() => {
-        currentGameRef = null;
-    }, 5000);
 }
 // ===== FUNÇÃO HANDLE PIECE CLICK (COM VERIFICAÇÃO DE CAPTURA) =====
 function handlePieceClick(row, col) {
@@ -2665,3 +2656,127 @@ function initializeTurn() {
   }
 }
 
+
+
+// ===== VARIÁVEIS GLOBAIS PARA CHAT =====
+let chatListener = null;
+
+// ===== INICIALIZAÇÃO DO CHAT =====
+function initializeChat() {
+    const chatInput = document.querySelector('.chat-input input');
+    const chatSendBtn = document.querySelector('.chat-input .btn');
+    
+    if (chatInput && chatSendBtn) {
+        chatSendBtn.addEventListener('click', sendChatMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendChatMessage();
+        });
+    }
+}
+
+// ===== FUNÇÃO SEND CHAT MESSAGE =====
+async function sendChatMessage() {
+    if (!currentGameRef || !currentUser || !userData) return;
+    
+    const chatInput = document.querySelector('.chat-input input');
+    const message = chatInput.value.trim();
+    
+    if (!message) return;
+    
+    try {
+        await db.collection('tables').doc(currentGameRef.id).collection('chat').add({
+            message: message,
+            senderId: currentUser.uid,
+            senderName: userData.displayName,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            color: gameState.players.find(p => p.uid === currentUser.uid)?.color || 'black'
+        });
+        
+        chatInput.value = '';
+        
+    } catch (error) {
+        console.error('Erro ao enviar mensagem:', error);
+        showNotification('Erro ao enviar mensagem', 'error');
+    }
+}
+
+// ===== FUNÇÃO SETUP CHAT LISTENER =====
+function setupChatListener() {
+    // Remover listener anterior se existir
+    if (chatListener) chatListener();
+    
+    if (!currentGameRef) return;
+    
+    chatListener = db.collection('tables')
+        .doc(currentGameRef.id)
+        .collection('chat')
+        .orderBy('timestamp', 'asc')
+        .onSnapshot((snapshot) => {
+            const chatMessages = document.getElementById('chat-messages');
+            if (!chatMessages) return;
+            
+            // Limpar apenas se for uma nova snapshot
+            chatMessages.innerHTML = '';
+            
+            snapshot.forEach((doc) => {
+                const message = doc.data();
+                renderChatMessage(message, chatMessages);
+            });
+            
+            // Rolar para a última mensagem
+            scrollChatToBottom();
+        }, (error) => {
+            console.error('Erro no chat:', error);
+        });
+}
+
+// ===== FUNÇÃO RENDER CHAT MESSAGE =====
+function renderChatMessage(message, container) {
+    const messageEl = document.createElement('div');
+    messageEl.className = `chat-message ${message.senderId === currentUser.uid ? 'own-message' : 'other-message'}`;
+    
+    const time = message.timestamp ? new Date(message.timestamp.toDate()).toLocaleTimeString() : 'Agora';
+    
+    messageEl.innerHTML = `
+        <div class="message-content">
+            <div class="message-sender">${message.senderName}</div>
+            <div class="message-text">${escapeHtml(message.message)}</div>
+            <div class="message-time">${time}</div>
+        </div>
+    `;
+    
+    // Adicionar cor baseada no jogador
+    if (message.color) {
+        messageEl.style.borderLeft = `3px solid ${message.color === 'black' ? '#000' : '#e74c3c'}`;
+    }
+    
+    container.appendChild(messageEl);
+}
+
+// ===== FUNÇÃO SCROLL CHAT TO BOTTOM =====
+function scrollChatToBottom() {
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+}
+
+// ===== FUNÇÃO ESCAPE HTML (SEGURANÇA) =====
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ===== FUNÇÃO CLEANUP CHAT =====
+function cleanupChat() {
+    if (chatListener) {
+        chatListener();
+        chatListener = null;
+    }
+    
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages) {
+        chatMessages.innerHTML = '';
+    }
+}
