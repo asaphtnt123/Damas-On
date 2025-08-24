@@ -1144,32 +1144,33 @@ function handlePieceClick(row, col) {
 }
 // ===== FUNÇÃO SHOW POSSIBLE MOVES (INDICAÇÃO CLARA DE CAPTURAS) =====
 function showPossibleMoves(row, col) {
-  clearHighlights();
-  
-  const moves = getPossibleMoves(row, col);
-  
-  moves.forEach(move => {
-    const cell = document.querySelector(`.board-cell[data-row="${move.toRow}"][data-col="${move.toCol}"]`);
-    if (cell) {
-      if (move.captures && move.captures.length > 0) {
-        cell.classList.add('capture-highlight');
-        cell.title = 'Captura disponível';
-      } else {
-        cell.classList.add('highlighted');
-      }
-    }
+    clearHighlights();
     
-    // Destacar peças que serão capturadas
-    if (move.captures) {
-      move.captures.forEach(capture => {
-        const pieceEl = document.querySelector(`.checker-piece[data-row="${capture.row}"][data-col="${capture.col}"]`);
-        if (pieceEl) {
-          pieceEl.classList.add('capture-target');
+    const moves = getPossibleMoves(row, col);
+    
+    moves.forEach(move => {
+        const cell = document.querySelector(`.board-cell[data-row="${move.toRow}"][data-col="${move.toCol}"]`);
+        if (cell) {
+            if (move.captures && move.captures.length > 0) {
+                cell.classList.add('capture-highlight');
+                cell.title = `Captura ${move.captures.length} peça(s)`;
+            } else {
+                cell.classList.add('highlighted');
+            }
         }
-      });
-    }
-  });
+        
+        // Destacar peças que serão capturadas
+        if (move.captures) {
+            move.captures.forEach(capture => {
+                const pieceEl = document.querySelector(`.checker-piece[data-row="${capture.row}"][data-col="${capture.col}"]`);
+                if (pieceEl) {
+                    pieceEl.classList.add('capture-target');
+                }
+            });
+        }
+    });
 }
+
 
 // ===== FUNÇÃO CLEAR HIGHLIGHTS =====
 function clearHighlights() {
@@ -1661,8 +1662,7 @@ function updateTurnInfo() {
         turnInfo.className = 'turn-indicator opponent-turn';
     }
 }
-
-// ===== FUNÇÃO MAKE MOVE (CORREÇÃO SIMPLIFICADA) =====
+// ===== FUNÇÃO MAKE MOVE (ATUALIZADA PARA CAPTURAS MÚLTIPLAS) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
         if (!gameState || !gameState.board) {
@@ -1695,9 +1695,6 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         // Verificar se há mais capturas possíveis APÓS executar as capturas atuais
         const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], []);
         
-        let nextTurn = gameState.currentTurn;
-        
-        // DEBUG: Mostrar informações
         console.log('Capturas realizadas:', capturedPieces);
         console.log('Mais capturas possíveis:', moreCaptures.length);
         
@@ -1712,7 +1709,6 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
                 }
-                // NÃO altera currentTurn - mantém o mesmo jogador
             });
             
             gameState.board = newBoard;
@@ -1729,13 +1725,13 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             }, 100);
             
         } else {
-            // PASSAR TURNO - movimento normal ou captura sem continuação
-            nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
+            // PASSAR TURNO
+            const nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
             
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
                 board: firestoreBoard,
-                currentTurn: nextTurn, // ALTERA o turno
+                currentTurn: nextTurn,
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
                 }
@@ -1744,11 +1740,9 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             gameState.board = newBoard;
             gameState.currentTurn = nextTurn;
             
-            // Verificar fim de jogo
             checkGameEnd(newBoard, nextTurn);
+            clearSelection();
         }
-        
-        clearSelection();
         
     } catch (error) {
         console.error('Erro ao realizar movimento:', error);
@@ -1756,7 +1750,66 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     }
 }
 
-// ===== FUNÇÃO GET CAPTURE MOVES (CORRIGIDA) =====
+// ===== FUNÇÃO AUXILIAR PARA CAPTURAS MÚLTIPLAS =====
+function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
+    const captures = [];
+    const directions = [];
+    
+    if (piece.king) {
+        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
+    } else {
+        const direction = piece.color === 'red' ? -1 : 1;
+        directions.push([direction, -1], [direction, 1]);
+    }
+    
+    for (const [rowDir, colDir] of directions) {
+        const jumpRow = fromRow + rowDir;
+        const jumpCol = fromCol + colDir;
+        const landRow = fromRow + 2 * rowDir;
+        const landCol = fromCol + 2 * colDir;
+        
+        if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) continue;
+        
+        const jumpedPiece = virtualBoard[jumpRow][jumpCol];
+        const landingCell = virtualBoard[landRow][landCol];
+        
+        const alreadyCaptured = currentCaptures.some(c => 
+            c.row === jumpRow && c.col === jumpCol
+        );
+        
+        if (!alreadyCaptured && 
+            jumpedPiece && 
+            jumpedPiece.color !== piece.color && 
+            landingCell === null) {
+            
+            const newCapture = { row: jumpRow, col: jumpCol };
+            const allCaptures = [...currentCaptures, newCapture];
+            
+            const captureMove = {
+                fromRow,
+                fromCol,
+                toRow: landRow,
+                toCol: landCol,
+                captures: allCaptures
+            };
+            
+            captures.push(captureMove);
+            
+            // Continuar verificando recursivamente
+            const newVirtualBoard = JSON.parse(JSON.stringify(virtualBoard));
+            newVirtualBoard[landRow][landCol] = piece;
+            newVirtualBoard[fromRow][fromCol] = null;
+            newVirtualBoard[jumpRow][jumpCol] = null;
+            
+            const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, newVirtualBoard);
+            captures.push(...furtherCaptures);
+        }
+    }
+    
+    return captures;
+}
+
+// ===== FUNÇÃO GET CAPTURE MOVES (CORRIGIDA PARA CAPTURAS MÚLTIPLAS) =====
 function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
     const directions = [];
@@ -1786,6 +1839,7 @@ function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
             c.row === jumpRow && c.col === jumpCol
         );
         
+        // Condições para captura válida:
         if (!alreadyCaptured && 
             jumpedPiece && 
             jumpedPiece.color !== piece.color && 
@@ -1803,6 +1857,23 @@ function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
             };
             
             captures.push(captureMove);
+            
+            // VERIFICAÇÃO RECURSIVA PARA CAPTURAS MÚLTIPLAS
+            // Criar um tabuleiro virtual para verificar capturas adicionais
+            const virtualBoard = JSON.parse(JSON.stringify(gameState.board));
+            
+            // Aplicar a captura atual no tabuleiro virtual
+            virtualBoard[landRow][landCol] = piece;
+            virtualBoard[fromRow][fromCol] = null;
+            virtualBoard[jumpRow][jumpCol] = null;
+            
+            // Verificar se há mais capturas a partir da nova posição
+            const furtherCaptures = getCaptureMovesFromBoard(landRow, landCol, piece, allCaptures, virtualBoard);
+            
+            if (furtherCaptures.length > 0) {
+                // Adicionar todas as capturas múltiplas encontradas
+                captures.push(...furtherCaptures);
+            }
         }
     }
     
