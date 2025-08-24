@@ -1367,3 +1367,69 @@ input:checked + .slider:before {
     color: #3498db !important;
 }
 
+
+.spectators-panel {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 20px;
+}
+
+.panel-header {
+    border-bottom: 2px solid #3498db;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+}
+
+.panel-header h4 {
+    margin: 0;
+    color: #3498db;
+}
+
+.panel-content {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.spectator-item, .supporter-item {
+    padding: 5px;
+    margin: 2px 0;
+    border-radius: 4px;
+    background: #f8f9fa;
+}
+
+.supporting-badge {
+    background: #27ae60;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    margin-left: 5px;
+}
+
+.support-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.spectators-count {
+    font-size: 12px;
+    color: #666;
+    margin-top: 5px;
+}
+
+.no-supporters {
+    color: #999;
+    font-style: italic;
+}
+
+.watch-btn {
+    background: #17a2b8;
+    color: white;
+}
+
+.watch-btn:hover {
+    background: #138496;
+}
