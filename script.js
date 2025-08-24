@@ -937,7 +937,8 @@ async function joinTable(tableId) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
-// ===== FUNÇÃO RENDER TABLE (ATUALIZADA) =====
+
+//==== FUNÇÃO RENDER TABLE (ATUALIZADA) =====
 function renderTable(table, container) {
   const tableEl = document.createElement('div');
   tableEl.className = 'table-item';
@@ -976,8 +977,7 @@ function renderTable(table, container) {
   
   container.appendChild(tableEl);
 }
-
-// ===== ATUALIZAR setupGameListener =====
+// ===== FUNÇÃO SETUP GAME LISTENER (CORRIGIDA) =====
 function setupGameListener(tableId) {
     if (gameListener) gameListener();
     
@@ -987,8 +987,15 @@ function setupGameListener(tableId) {
         if (doc.exists) {
             gameState = doc.data();
             
+            // Verificar se board existe e converter formato
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // Verificar se players existe
+            if (!gameState.players) {
+                console.error('gameState.players não existe');
+                return;
             }
             
             if (gameState.status === 'finished') {
@@ -1002,6 +1009,8 @@ function setupGameListener(tableId) {
             // Verificar capturas obrigatórias sempre que o tabuleiro for atualizado
             checkGlobalMandatoryCaptures();
         }
+    }, (error) => {
+        console.error('Erro no listener do jogo:', error);
     });
 }
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
@@ -1037,12 +1046,35 @@ function checkGlobalMandatoryCaptures() {
     
     return hasGlobalMandatoryCaptures;
 }
-// ===== FUNÇÃO RENDER BOARD (COM BLOQUEIO DE PEÇAS) =====
+
+// ===== FUNÇÃO UPDATE TURN INFO (NOVA) =====
+function updateTurnInfo() {
+    if (!gameState) return;
+    
+    const turnInfo = document.getElementById('turn-info');
+    if (!turnInfo) return;
+    
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+    
+    if (isMyTurn) {
+        turnInfo.textContent = 'Sua vez de jogar!';
+        turnInfo.className = 'turn-indicator my-turn';
+    } else {
+        turnInfo.textContent = 'Vez do adversário';
+        turnInfo.className = 'turn-indicator opponent-turn';
+    }
+}
+
+// ===== FUNÇÃO RENDER BOARD (CORRIGIDA) =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
     
     board.innerHTML = '';
+    
+    // Verificar se gameState existe
+    if (!gameState || !gameState.players) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
@@ -1106,8 +1138,9 @@ function renderBoard(boardState) {
         showNotification('Captura obrigatória! Selecione uma peça que possa capturar.', 'warning');
     }
     
-    updateTurnInfo();
+    updateTurnInfo(); // Agora esta função existe
 }
+
 
 // ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
 function debugShowBoard() {
@@ -1464,74 +1497,80 @@ async function offerDraw() {
     showNotification('Erro ao oferecer empate: ' + error.message, 'error');
   }
 }
-
-// ===== FUNÇÃO END GAME =====
+// ===== FUNÇÃO END GAME (CORRIGIDA) =====
 async function endGame(result) {
-  try {
-    let winner = null;
-    let status = 'finished';
-    
-    if (result === 'draw') {
-      status = 'draw';
-      // Atualizar estatísticas para empate
-      for (const player of gameState.players) {
-        await db.collection('users').doc(player.uid).update({
-          draws: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(5) // Pequeno aumento para ambos
+    try {
+        // Verificar se as referências necessárias existem
+        if (!currentGameRef || !gameState || !gameState.players) {
+            console.error('Referências inválidas em endGame');
+            showNotification('Erro ao finalizar jogo: referências inválidas', 'error');
+            return;
+        }
+        
+        let winner = null;
+        let status = 'finished';
+        
+        if (result === 'draw') {
+            status = 'draw';
+            // Atualizar estatísticas para empate
+            for (const player of gameState.players) {
+                await db.collection('users').doc(player.uid).update({
+                    draws: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(5)
+                });
+            }
+        } else {
+            winner = result;
+            const winningPlayer = gameState.players.find(p => p.color === winner);
+            const losingPlayer = gameState.players.find(p => p.color !== winner);
+            
+            // Calcular recompensas
+            const betAmount = gameState.bet || 0;
+            const reward = betAmount * 2;
+            
+            if (winningPlayer) {
+                await db.collection('users').doc(winningPlayer.uid).update({
+                    wins: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(20),
+                    coins: firebase.firestore.FieldValue.increment(reward)
+                });
+            }
+            
+            if (losingPlayer) {
+                await db.collection('users').doc(losingPlayer.uid).update({
+                    losses: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(-10)
+                });
+            }
+        }
+        
+        // Atualizar estado do jogo
+        await currentGameRef.update({
+            status: status,
+            winner: winner,
+            finishedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-      }
-    } else {
-      winner = result;
-      const winningPlayer = gameState.players.find(p => p.color === winner);
-      const losingPlayer = gameState.players.find(p => p.color !== winner);
-      
-      // Calcular recompensas
-      const betAmount = gameState.bet || 0;
-      const reward = betAmount * 2;
-      
-      if (winningPlayer) {
-        await db.collection('users').doc(winningPlayer.uid).update({
-          wins: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(20),
-          coins: firebase.firestore.FieldValue.increment(reward)
-        });
-      }
-      
-      if (losingPlayer) {
-        await db.collection('users').doc(losingPlayer.uid).update({
-          losses: firebase.firestore.FieldValue.increment(1),
-          rating: firebase.firestore.FieldValue.increment(-10)
-        });
-      }
+        
+        if (result === 'draw') {
+            showNotification('Jogo terminou em empate!', 'info');
+        } else {
+            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            if (currentPlayer && currentPlayer.color === winner) {
+                showNotification('Você venceu!', 'success');
+            } else {
+                showNotification('Você perdeu!', 'error');
+            }
+        }
+        
+        // Voltar para o lobby após 3 segundos
+        setTimeout(() => {
+            leaveGame();
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Erro ao finalizar jogo:', error);
+        showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
     }
-    
-    // Atualizar estado do jogo
-    await currentGameRef.update({
-      status: status,
-      winner: winner,
-      finishedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    
-    if (result === 'draw') {
-      showNotification('Jogo terminou em empate!', 'info');
-    } else {
-      const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-      if (currentPlayer.color === winner) {
-        showNotification('Você venceu!', 'success');
-      } else {
-        showNotification('Você perdeu!', 'error');
-      }
-    }
-    
-    // Voltar para o lobby após 3 segundos
-    setTimeout(() => {
-      leaveGame();
-    }, 3000);
-    
-  } catch (error) {
-    console.error('Erro ao finalizar jogo:', error);
-    showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
-  }
 }
 // ===== RANKING =====
 async function loadRanking() {
@@ -1760,10 +1799,15 @@ function getNormalMoves(fromRow, fromCol, piece) {
     return moves;
 }
 
-
-// ===== FUNÇÃO MAKE MOVE (CORRIGIDA) =====
+// ===== FUNÇÃO MAKE MOVE (CORRIGIDA - VERIFICAÇÃO DE TURNO) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
+        // Verificar se gameState existe
+        if (!gameState || !gameState.board) {
+            showNotification('Erro: estado do jogo não carregado', 'error');
+            return;
+        }
+        
         const newBoard = JSON.parse(JSON.stringify(gameState.board));
         const movingPiece = newBoard[fromRow][fromCol];
         
@@ -1788,15 +1832,10 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], captures || []);
         
         let nextTurn = gameState.currentTurn;
-        let shouldChangeTurn = true;
         
         if (moreCaptures.length > 0) {
             // Continuar captura múltipla - manter o mesmo turno
             showNotification('Continue capturando!', 'info');
-            shouldChangeTurn = false;
-            
-            // Atualizar estado local primeiro para feedback imediato
-            gameState.board = newBoard;
             
             // Atualizar Firestore mantendo o mesmo turno
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
@@ -1806,6 +1845,9 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                     fromRow, fromCol, toRow, toCol, captures
                 }
             });
+            
+            // Atualizar estado local
+            gameState.board = newBoard;
             
             // Selecionar automaticamente a peça para continuar
             setTimeout(() => {
@@ -1821,7 +1863,6 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         } else {
             // Finalizar jogada - passar turno
             nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
-            shouldChangeTurn = true;
             
             // Atualizar Firestore
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
@@ -1849,7 +1890,6 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
     }
 }
-
 // ===== INICIALIZAÇÃO E VERIFICAÇÃO DE CAPTURAS =====
 function checkForMandatoryCaptures() {
     const currentPlayerColor = gameState.currentTurn;
