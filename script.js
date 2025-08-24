@@ -983,8 +983,7 @@ function updateTablesList() {
     // Forçar recarregamento das mesas
     loadTables();
 }
-
-// ===== FUNÇÃO RENDER TABLE (ATUALIZADA PARA MOSTRAR RESULTADOS) =====
+// ===== ATUALIZAR RENDER TABLE PARA MOSTRAR EMPATES =====
 function renderTable(table, container) {
     const tableEl = document.createElement('div');
     tableEl.className = 'table-item';
@@ -993,22 +992,32 @@ function renderTable(table, container) {
     const playerCount = table.players ? table.players.length : 0;
     const isPlaying = table.status === 'playing';
     const isFinished = table.status === 'finished';
+    const isDraw = table.status === 'draw';
     const isWaiting = table.status === 'waiting';
     
     let tableStatus = '';
     let actionButton = '';
     
-    if (isFinished) {
+    if (isFinished || isDraw) {
         // MESA FINALIZADA - Mostrar resultado
-        tableStatus = `<div class="table-result">${table.resultText || 'Jogo finalizado'}</div>`;
+        const resultClass = isDraw ? 'draw-result' : 'win-result';
+        tableStatus = `<div class="table-result ${resultClass}">${table.resultText || (isDraw ? 'Empate' : 'Jogo finalizado')}</div>`;
         actionButton = `<button class="btn btn-secondary btn-small" disabled>Finalizado</button>`;
     } else if (isPlaying) {
         // MESA JOGANDO
         tableStatus = `<div class="table-status">Jogando</div>`;
-        actionButton = `<button class="btn btn-secondary btn-small" disabled>Jogando</button>`;
+        
+        // Verificar se o usuário está nesta mesa
+        const isUserInTable = table.players && table.players.some(p => p.uid === currentUser?.uid);
+        
+        if (isUserInTable) {
+            actionButton = `<button class="btn btn-warning btn-small" disabled>Jogando</button>`;
+        } else {
+            actionButton = `<button class="btn btn-secondary btn-small" disabled>Assistir</button>`;
+        }
     } else if (isWaiting) {
         // MESA AGUARDANDO
-        tableStatus = `<div class="table-status">Aguardando jogador</div>`;
+        tableStatus = `<div class="table-status waiting">Aguardando jogador</div>`;
         actionButton = `<button class="btn btn-primary btn-small join-btn">Entrar</button>`;
     }
     
@@ -1037,14 +1046,16 @@ function renderTable(table, container) {
     }
     
     // Adicionar classe especial para mesas finalizadas
-    if (isFinished) {
+    if (isFinished || isDraw) {
         tableEl.classList.add('table-finished');
+        if (isDraw) {
+            tableEl.classList.add('table-draw');
+        }
     }
     
     container.appendChild(tableEl);
 }
-
-// ===== ATUALIZAR SETUP GAME LISTENER =====
+// ===== ATUALIZAR SETUP GAME LISTENER PARA VERIFICAR EMPATES =====
 function setupGameListener(tableId) {
     if (gameListener) gameListener();
     if (chatListener) cleanupChat();
@@ -1057,6 +1068,20 @@ function setupGameListener(tableId) {
             
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // Verificar ofertas de empate expiradas
+            if (gameState.drawOffer && gameState.drawOffer.expiresAt) {
+                const expiresAt = gameState.drawOffer.expiresAt.toDate();
+                if (expiresAt < new Date()) {
+                    // Oferta expirada - limpar
+                    currentGameRef.update({ drawOffer: null });
+                }
+            }
+            
+            // Mostrar notificação de oferta de empate
+            if (gameState.drawOffer && gameState.drawOffer.from !== currentUser.uid) {
+                showNotification(`${gameState.drawOffer.senderName} ofereceu empate! Use a opção "Oferecer Empate" para responder.`, 'info', 5000);
             }
             
             if (gameState.status === 'finished') {
@@ -1431,57 +1456,92 @@ async function showConfirmModal(title, message) {
   });
 }
 
-// ===== FUNÇÃO OFFER DRAW =====
+// ===== FUNÇÃO OFFER DRAW (COMPLETA) =====
 async function offerDraw() {
-  console.log('Ofertando empate...');
-  
-  if (!currentGameRef || !gameState) {
-    showNotification('Nenhum jogo ativo para oferecer empate', 'error');
-    return;
-  }
-  
-  try {
-    // Verificar se já existe uma oferta de empate pendente
-    if (gameState.drawOffer && gameState.drawOffer.from !== currentUser.uid) {
-      // Aceitar empate
-      const confirm = await showConfirmModal('Empate', 'Aceitar proposta de empate?');
-      if (confirm) {
-        await endGame('draw');
-      }
-      return;
+    console.log('Ofertando empate...');
+    
+    if (!currentGameRef || !gameState) {
+        showNotification('Nenhum jogo ativo para oferecer empate', 'error');
+        return;
     }
     
-    // Oferecer empate
-    await currentGameRef.update({
-      drawOffer: {
-        from: currentUser.uid,
-        at: firebase.firestore.FieldValue.serverTimestamp()
-      }
-    });
-    
-    showNotification('Proposta de empate enviada', 'info');
-    
-  } catch (error) {
-    console.error('Erro ao oferecer empate:', error);
-    showNotification('Erro ao oferecer empate: ' + error.message, 'error');
-  }
+    try {
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        
+        // Verificar se já existe uma oferta de empate pendente do oponente
+        if (gameState.drawOffer && gameState.drawOffer.from !== currentUser.uid) {
+            // Aceitar empate do oponente
+            const confirm = await showConfirmModal(
+                'Proposta de Empate', 
+                `${gameState.drawOffer.senderName} ofereceu empate. Aceitar?`
+            );
+            
+            if (confirm) {
+                await endGame('draw');
+                // Limpar a oferta de empate
+                await currentGameRef.update({
+                    drawOffer: null
+                });
+            }
+            return;
+        }
+        
+        // Verificar se já existe uma oferta do próprio jogador
+        if (gameState.drawOffer && gameState.drawOffer.from === currentUser.uid) {
+            showNotification('Você já enviou uma proposta de empate', 'info');
+            return;
+        }
+        
+        // Oferecer empate
+        await currentGameRef.update({
+            drawOffer: {
+                from: currentUser.uid,
+                senderName: currentPlayer.displayName,
+                at: firebase.firestore.FieldValue.serverTimestamp(),
+                expiresAt: new Date(Date.now() + 30000) // 30 segundos para expirar
+            }
+        });
+        
+        showNotification('Proposta de empate enviada! Aguardando resposta...', 'info');
+        
+        // Configurar timeout para expirar a oferta
+        setTimeout(async () => {
+            if (currentGameRef && gameState && gameState.drawOffer && 
+                gameState.drawOffer.from === currentUser.uid) {
+                try {
+                    await currentGameRef.update({
+                        drawOffer: null
+                    });
+                    showNotification('Proposta de empate expirada', 'info');
+                } catch (error) {
+                    console.error('Erro ao expirar oferta:', error);
+                }
+            }
+        }, 30000);
+        
+    } catch (error) {
+        console.error('Erro ao oferecer empate:', error);
+        showNotification('Erro ao oferecer empate: ' + error.message, 'error');
+    }
 }
-// ===== FUNÇÃO END GAME (CORRIGIDA E MELHORADA) =====
+
+// ===== FUNÇÃO END GAME (ATUALIZADA PARA EMPATE) =====
 async function endGame(result) {
     try {
-        // Verificar se as referências necessárias existem
         if (!currentGameRef || !gameState || !gameState.players) {
             console.error('Referências inválidas em endGame');
-            showNotification('Erro ao finalizar jogo: referências inválidas', 'error');
             return;
         }
         
         const tableId = currentGameRef.id;
         let winner = null;
         let status = 'finished';
+        let resultText = '';
         
         if (result === 'draw') {
             status = 'draw';
+            resultText = 'Empate';
+            
             // Atualizar estatísticas para empate
             for (const player of gameState.players) {
                 await db.collection('users').doc(player.uid).update({
@@ -1489,12 +1549,18 @@ async function endGame(result) {
                     rating: firebase.firestore.FieldValue.increment(5)
                 });
             }
+            
+            showNotification('Jogo terminou em empate!', 'info');
+            
         } else {
             winner = result;
+            status = 'finished';
             const winningPlayer = gameState.players.find(p => p.color === winner);
             const losingPlayer = gameState.players.find(p => p.color !== winner);
             
-            // Calcular recompensa (aposta * 2)
+            resultText = winningPlayer ? `Vitória de ${winningPlayer.displayName}` : `Vitória das ${winner === 'black' ? 'pretas' : 'vermelhas'}`;
+            
+            // Calcular recompensa
             const reward = gameState.bet ? gameState.bet * 2 : 0;
             
             if (winningPlayer) {
@@ -1511,37 +1577,25 @@ async function endGame(result) {
                     rating: firebase.firestore.FieldValue.increment(-10)
                 });
             }
-        }
-        
-        // Determinar texto do resultado
-        let resultText = '';
-        if (result === 'draw') {
-            resultText = 'Empate';
-        } else {
-            const winnerPlayer = gameState.players.find(p => p.color === winner);
-            resultText = winnerPlayer ? `Vitória de ${winnerPlayer.displayName}` : `Vitória das ${winner === 'black' ? 'pretas' : 'vermelhas'}`;
+            
+            // Mostrar resultado
+            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            if (currentPlayer && currentPlayer.color === winner) {
+                showNotification('Você venceu! +' + reward + ' moedas', 'success');
+            } else {
+                showNotification('Você perdeu!', 'error');
+            }
         }
         
         // Atualizar estado do jogo com informações do resultado
         await currentGameRef.update({
             status: status,
             winner: winner,
-            finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
             resultText: resultText,
-            finalBoard: convertBoardToFirestoreFormat(gameState.board)
+            finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            finalBoard: convertBoardToFirestoreFormat(gameState.board),
+            drawOffer: null // Limpar qualquer oferta de empate pendente
         });
-        
-        // Mostrar resultado
-        if (result === 'draw') {
-            showNotification('Jogo terminou em empate!', 'info');
-        } else {
-            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-            if (currentPlayer && currentPlayer.color === winner) {
-                showNotification('Você venceu! +' + (gameState.bet ? gameState.bet * 2 : 0) + ' moedas', 'success');
-            } else {
-                showNotification('Você perdeu!', 'error');
-            }
-        }
         
         // Atualizar a lista de mesas para mostrar o resultado
         updateTablesList();
@@ -1556,6 +1610,7 @@ async function endGame(result) {
         showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
     }
 }
+
 // ===== RANKING =====
 async function loadRanking() {
   try {

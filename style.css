@@ -1338,3 +1338,32 @@ input:checked + .slider:before {
 .chat-input .btn {
     padding: 8px 12px;
 }
+
+.draw-result {
+    color: #f39c12 !important;
+    font-weight: bold;
+}
+
+.win-result {
+    color: #e74c3c !important;
+    font-weight: bold;
+}
+
+.table-draw {
+    background: linear-gradient(135deg, #fff3cd 0%, #f8f9fa 100%);
+    border-left: 4px solid #f39c12;
+}
+
+.btn-warning {
+    background: #f39c12;
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #e67e22;
+}
+
+.waiting {
+    color: #3498db !important;
+}
+
