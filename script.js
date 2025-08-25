@@ -450,6 +450,9 @@ function initializeUI() {
       // Inicializar chat
     initializeChat();
         initializeSpectatorsModal();
+            initializeProfileModal();
+    initializeCoinsModal();
+
 
   // Navegação por abas - verificar se existem
   const navItems = document.querySelectorAll('.nav-item');
@@ -523,6 +526,415 @@ function initializeUI() {
   if (testAccountBtn) {
     testAccountBtn.addEventListener('click', signInWithTestAccount);
   }
+}
+
+
+// ===== VARIÁVEIS GLOBAIS =====
+let profileModal = null;
+
+// ===== INICIALIZAÇÃO DO MODAL DE PERFIL =====
+function initializeProfileModal() {
+    // Verificar se o botão existe
+    const profileBtn = document.getElementById('btn-profile');
+    if (!profileBtn) {
+        console.log('Botão de perfil não encontrado, tentando novamente...');
+        setTimeout(initializeProfileModal, 1000);
+        return;
+    }
+    
+    // Criar modal se não existir
+    if (!document.getElementById('profile-modal')) {
+        const modalHTML = `
+            <div class="modal profile-modal" id="profile-modal">
+                <div class="modal-content profile-content">
+                    <div class="modal-header">
+                        <h3>👤 Meu Perfil</h3>
+                        <button class="modal-close" id="close-profile">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="profile-header">
+                            <div class="profile-avatar">
+                                <img id="profile-avatar" src="https://ui-avatars.com/api/?name=U&background=3498db" alt="Avatar">
+                                <div class="online-status"></div>
+                            </div>
+                            <div class="profile-info">
+                                <h2 id="profile-name">Carregando...</h2>
+                                <p class="profile-email" id="profile-email">carregando...</p>
+                                <div class="profile-rating">
+                                    <i class="fas fa-star"></i>
+                                    <span id="profile-rating">1000</span> pontos
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="profile-stats">
+                            <div class="stat-grid">
+                                <div class="stat-card success">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-trophy"></i>
+                                    </div>
+                                    <div class="stat-info">
+                                        <span class="stat-value" id="stat-wins">0</span>
+                                        <span class="stat-label">Vitórias</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="stat-card danger">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-times"></i>
+                                    </div>
+                                    <div class="stat-info">
+                                        <span class="stat-value" id="stat-losses">0</span>
+                                        <span class="stat-label">Derrotas</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="stat-card warning">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-handshake"></i>
+                                    </div>
+                                    <div class="stat-info">
+                                        <span class="stat-value" id="stat-draws">0</span>
+                                        <span class="stat-label">Empates</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="stat-card info">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-coins"></i>
+                                    </div>
+                                    <div class="stat-info">
+                                        <span class="stat-value" id="stat-coins">0</span>
+                                        <span class="stat-label">Moedas</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="profile-details">
+                            <h4>📊 Estatísticas Detalhadas</h4>
+                            <div class="details-grid">
+                                <div class="detail-item">
+                                    <span class="detail-label">Total de Partidas</span>
+                                    <span class="detail-value" id="total-games">0</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Taxa de Vitória</span>
+                                    <span class="detail-value" id="win-rate">0%</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Melhor Sequência</span>
+                                    <span class="detail-value" id="best-streak">0</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">Desde</span>
+                                    <span class="detail-value" id="member-since">-</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="profile-actions">
+                            <button class="btn btn-primary" id="btn-edit-profile">
+                                <i class="fas fa-edit"></i> Editar Perfil
+                            </button>
+                            <button class="btn btn-secondary" id="btn-stats-history">
+                                <i class="fas fa-history"></i> Histórico
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    profileModal = document.getElementById('profile-modal');
+    
+    // Remover event listeners existentes
+    profileBtn.replaceWith(profileBtn.cloneNode(true));
+    const newProfileBtn = document.getElementById('btn-profile');
+    
+    // Adicionar event listeners
+    newProfileBtn.addEventListener('click', openProfileModal);
+    
+    const closeBtn = document.getElementById('close-profile');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeProfileModal);
+    }
+    
+    // Fechar modal clicando fora
+    if (profileModal) {
+        profileModal.addEventListener('click', (e) => {
+            if (e.target === profileModal) {
+                closeProfileModal();
+            }
+        });
+    }
+    
+    // Botões de ação
+    const editBtn = document.getElementById('btn-edit-profile');
+    const historyBtn = document.getElementById('btn-stats-history');
+    
+    if (editBtn) {
+        editBtn.addEventListener('click', () => {
+            showNotification('Funcionalidade em desenvolvimento', 'info');
+        });
+    }
+    
+    if (historyBtn) {
+        historyBtn.addEventListener('click', () => {
+            showNotification('Histórico em desenvolvimento', 'info');
+        });
+    }
+    
+    console.log('Modal de perfil inicializado com sucesso!');
+}
+
+// ===== FUNÇÃO PARA ABRIR MODAL DE PERFIL =====
+function openProfileModal() {
+    if (!profileModal) {
+        initializeProfileModal();
+        return;
+    }
+    
+    // Atualizar dados antes de abrir
+    updateProfileModal();
+    
+    profileModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// ===== FUNÇÃO PARA FECHAR MODAL DE PERFIL =====
+function closeProfileModal() {
+    if (profileModal) {
+        profileModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+// ===== FUNÇÃO PARA ATUALIZAR MODAL DE PERFIL =====
+function updateProfileModal() {
+    if (!profileModal || !userData) return;
+    
+    // Atualizar informações básicas
+    document.getElementById('profile-name').textContent = userData.displayName || 'Usuário';
+    document.getElementById('profile-email').textContent = currentUser.email || 'Email não disponível';
+    document.getElementById('profile-rating').textContent = userData.rating || 1000;
+    
+    // Atualizar avatar
+    const avatarImg = document.getElementById('profile-avatar');
+    if (avatarImg && userData.displayName) {
+        const initials = userData.displayName.charAt(0).toUpperCase();
+        avatarImg.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName)}&background=3498db&color=fff`;
+    }
+    
+    // Atualizar estatísticas
+    document.getElementById('stat-wins').textContent = userData.wins || 0;
+    document.getElementById('stat-losses').textContent = userData.losses || 0;
+    document.getElementById('stat-draws').textContent = userData.draws || 0;
+    document.getElementById('stat-coins').textContent = userData.coins || 0;
+    
+    // Calcular estatísticas adicionais
+    const totalGames = (userData.wins || 0) + (userData.losses || 0) + (userData.draws || 0);
+    const winRate = totalGames > 0 ? Math.round(((userData.wins || 0) / totalGames) * 100) : 0;
+    const bestStreak = userData.bestWinStreak || 0;
+    
+    document.getElementById('total-games').textContent = totalGames;
+    document.getElementById('win-rate').textContent = `${winRate}%`;
+    document.getElementById('best-streak').textContent = bestStreak;
+    
+    // Data de criação
+    if (userData.createdAt) {
+        const createdDate = userData.createdAt.toDate ? userData.createdAt.toDate() : new Date(userData.createdAt);
+        document.getElementById('member-since').textContent = createdDate.toLocaleDateString('pt-BR');
+    } else {
+        document.getElementById('member-since').textContent = 'Não disponível';
+    }
+
+    // Adicionar botão de compra de moedas se não existir
+    if (!document.getElementById('btn-add-coins')) {
+        const addCoinsBtn = `
+            <button class="btn btn-success" id="btn-add-coins">
+                <i class="fas fa-plus"></i> Adicionar Moedas
+            </button>
+        `;
+        const actionsDiv = document.querySelector('.profile-actions');
+        if (actionsDiv) {
+            actionsDiv.insertAdjacentHTML('beforeend', addCoinsBtn);
+            
+            // Adicionar event listener
+            const addCoinsBtnElement = document.getElementById('btn-add-coins');
+            if (addCoinsBtnElement) {
+                addCoinsBtnElement.addEventListener('click', openCoinsModal);
+            }
+        }
+    }
+}
+
+// ===== VARIÁVEIS GLOBAIS =====
+let coinsModal = null;
+let userBalance = 1000; // Saldo inicial do usuário
+let currentBet = 0;
+let HOUSE_FEE_PERCENTAGE = 15; // Taxa da casa de 15%
+let currentPot = 0;
+
+// ===== PACOTES DE MOEDAS (SEM BÔNUS) =====
+const COINS_PACKAGES = [
+    { id: 1, coins: 10, price: 10.00, popular: false },
+    { id: 2, coins: 25, price: 25.00, popular: false },
+    { id: 3, coins: 50, price: 50.00, popular: true }, // Mais popular
+    { id: 4, coins: 100, price: 100.00, popular: false },
+    { id: 5, coins: 250, price: 250.00, popular: false },
+    { id: 6, coins: 500, price: 500.00, popular: false }
+];
+
+// ===== INICIALIZAÇÃO DO MODAL DE MOEDAS =====
+function initializeCoinsModal() {
+    // Verificar se já existe
+    if (!document.getElementById('coins-modal')) {
+        const modalHTML = `
+            <div class="modal coins-modal" id="coins-modal">
+                <div class="modal-content coins-content">
+                    <div class="modal-header">
+                        <h3>💰 Adicionar Moedas</h3>
+                        <button class="modal-close" id="close-coins">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="coins-balance">
+                            <div class="balance-info">
+                                <i class="fas fa-coins"></i>
+                                <span>Saldo atual: <strong id="current-coins-balance">${userBalance}</strong> moedas</span>
+                            </div>
+                        </div>
+                        
+                        <div class="packages-header">
+                            <h4>Escolha um pacote</h4>
+                            <p>Adicione moedas para apostar em partidas emocionantes!</p>
+                        </div>
+                        
+                        <div class="coins-packages">
+                            ${COINS_PACKAGES.map(pkg => `
+                                <div class="coin-package ${pkg.popular ? 'popular' : ''}" data-package-id="${pkg.id}">
+                                    ${pkg.popular ? '<div class="popular-badge">MAIS POPULAR</div>' : ''}
+                                    <div class="package-content">
+                                        <div class="coins-amount">
+                                            <span class="coins-number">${pkg.coins}</span>
+                                            <span class="coins-label">moedas</span>
+                                        </div>
+                                        <div class="package-price">
+                                            R$ ${pkg.price.toFixed(2).replace('.', ',')}
+                                        </div>
+                                        <div class="package-value">
+                                            R$ ${(pkg.price / pkg.coins).toFixed(4).replace('.', ',')} por moeda
+                                        </div>
+                                        <button class="btn btn-primary btn-buy">
+                                            Comprar Agora
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="payment-methods">
+                            <h4>Métodos de Pagamento</h4>
+                            <div class="methods-grid">
+                                <div class="payment-method">
+                                    <i class="fab fa-cc-visa"></i>
+                                    <span>Cartão de Crédito</span>
+                                </div>
+                                <div class="payment-method">
+                                    <i class="fab fa-pix"></i>
+                                    <span>PIX</span>
+                                </div>
+                                <div class="payment-method">
+                                    <i class="fab fa-paypal"></i>
+                                    <span>PayPal</span>
+                                </div>
+                                <div class="payment-method">
+                                    <i class="fas fa-barcode"></i>
+                                    <span>Boleto</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="security-info">
+                            <div class="security-item">
+                                <i class="fas fa-lock"></i>
+                                <span>Pagamento seguro</span>
+                            </div>
+                            <div class="security-item">
+                                <i class="fas fa-shield-alt"></i>
+                                <span>Dados protegidos</span>
+                            </div>
+                            <div class="security-item">
+                                <i class="fas fa-clock"></i>
+                                <span>Entrega instantânea</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    coinsModal = document.getElementById('coins-modal');
+    
+    // Event listeners
+    const closeBtn = document.getElementById('close-coins');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeCoinsModal);
+    }
+    
+    // Fechar modal clicando fora
+    if (coinsModal) {
+        coinsModal.addEventListener('click', (e) => {
+            if (e.target === coinsModal) {
+                closeCoinsModal();
+            }
+        });
+    }
+    
+    // Event listeners para botões de compra
+    const buyButtons = document.querySelectorAll('.btn-buy');
+    buyButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const packageElement = e.target.closest('.coin-package');
+            const packageId = packageElement.dataset.packageId;
+            const selectedPackage = COINS_PACKAGES.find(p => p.id === parseInt(packageId));
+            
+            if (selectedPackage) {
+                handleCoinPurchase(selectedPackage);
+            }
+        });
+    });
+}
+// ===== FUNÇÃO PARA ABRIR MODAL DE MOEDAS =====
+function openCoinsModal() {
+    if (!coinsModal) {
+        initializeCoinsModal();
+    }
+    
+    // Atualizar saldo antes de abrir
+    updateCoinsModal();
+    
+    coinsModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+
+
+// ===== FUNÇÃO PARA ATUALIZAR MODAL DE MOEDAS =====
+function updateCoinsModal() {
+    if (!coinsModal || !userData) return;
+    
+    // Atualizar saldo atual
+    const balanceElement = document.getElementById('current-coins-balance');
+    if (balanceElement) {
+        balanceElement.textContent = userData.coins || 0;
+    }
 }
 
 // ===== FUNÇÃO SHOWSCREEN (CORRIGIDA) =====
@@ -647,18 +1059,80 @@ function removeExistingNotifications() {
 
 // ===== GERENCIAMENTO DE USUÁRIO =====
 async function loadUserData(uid) {
-  try {
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (userDoc.exists) {
-      userData = { id: uid, ...userDoc.data() };
-      updateUIWithUserData();
-    } else {
-      console.error('Documento do usuário não encontrado');
+    try {
+        const userDoc = await db.collection('users').doc(uid).get();
+        if (userDoc.exists) {
+            userData = { id: uid, ...userData, ...userDoc.data() };
+            updateUIWithUserData();
+            
+            // Atualizar modal de perfil se estiver aberto
+            if (profileModal && profileModal.classList.contains('active')) {
+                updateProfileModal();
+            }
+        } else {
+            console.error('Documento do usuário não encontrado');
+        }
+    } catch (error) {
+        console.error('Erro ao carregar dados do usuário:', error);
     }
-  } catch (error) {
-    console.error('Erro ao carregar dados do usuário:', error);
-  }
 }
+
+function updateUI() {
+    // Atualizar saldo exibido
+    const balanceElement = document.getElementById('current-coins-balance');
+    if (balanceElement) {
+        balanceElement.textContent = userBalance;
+    }
+    
+    // Atualizar elemento de aposta atual (se existir)
+    const betElement = document.getElementById('current-bet');
+    if (betElement) {
+        betElement.textContent = currentBet;
+    }
+    
+    // Atualizar elemento de pote atual (se existir)
+    const potElement = document.getElementById('current-pot');
+    if (potElement) {
+        potElement.textContent = currentPot;
+    }
+}
+
+/**
+ * Simula a compra de moedas (em um sistema real, isso se conectaria a um gateway de pagamento)
+ * @param {Object} package - Pacote de moedas selecionado
+ */
+function handleCoinPurchase(package) {
+    // Simular processamento de pagamento
+    console.log(`Processando compra do pacote ${package.id}...`);
+    
+    // Adicionar moedas ao saldo do usuário (sem bônus)
+    userBalance += package.coins;
+    
+    // Atualizar UI
+    updateUI();
+    
+    // Fechar modal
+    closeCoinsModal();
+    
+    // Mostrar confirmação
+    alert(`Compra realizada com sucesso! ${package.coins} moedas adicionadas à sua conta.`);
+}
+
+/**
+ * Fecha o modal de compra de moedas
+ */
+function closeCoinsModal() {
+    if (coinsModal) {
+        coinsModal.style.display = 'none';
+    }
+}
+
+/**
+ * Abre o modal de compra de moedas
+ */
+
+
+
 
 function updateUIWithUserData() {
   if (userData && userData.displayName) {
@@ -855,64 +1329,57 @@ function initializeBrazilianCheckersBoard() {
   
   return board;
 }
-
-// ===== VERIFICAÇÃO EXTRA NA CRIAÇÃO DA MESA =====
+// ===== FUNÇÃO ATUALIZADA PARA CRIAR MESA =====
 async function createNewTable() {
-    console.log('CRIANDO NOVA MESA - Inicializando tabuleiro...');
-  const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
-  
-  const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
-  const timeLimit = parseInt(document.getElementById('table-time').value);
-  const bet = parseInt(document.getElementById('table-bet').value) || 0;
-  
-  if (bet > 0 && userData.coins < bet) {
-    showNotification('Você não tem moedas suficientes para esta aposta', 'error');
-    return;
-  }
-  
-  try {
-    // Inicializar e verificar tabuleiro
-    const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+    const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
+    const timeLimit = parseInt(document.getElementById('table-time').value);
+    const bet = parseInt(document.getElementById('table-bet').value) || 0;
     
-    const tableRef = await db.collection('tables').add({
-      name: tableName,
-      timeLimit: timeLimit,
-      bet: bet,
-      status: 'waiting',
-      players: [{
-        uid: currentUser.uid,
-        displayName: userData.displayName,
-        rating: userData.rating,
-        color: 'black' // Jogador 1 = PRETAS (começam no topo)
-      }],
-      createdBy: currentUser.uid,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      currentTurn: 'black', // Pretas começam
-      board: boardData,
-      waitingForOpponent: true
-    });
-    
-    if (bet > 0) {
-      await db.collection('users').doc(currentUser.uid).update({
-        coins: firebase.firestore.FieldValue.increment(-bet)
-      });
-      userData.coins -= bet;
+    if (bet > 0 && userData.coins < bet) {
+        showNotification('Você não tem moedas suficientes para esta aposta', 'error');
+        return;
     }
     
-    closeAllModals();
-    showNotification('Mesa criada com sucesso!', 'success');
-    
-    // Entrar na mesa
-    setupGameListener(tableRef.id);
-    showScreen('game-screen');
-    showNotification('Aguardando adversário...', 'info');
-    
-  } catch (error) {
-    console.error('Erro ao criar mesa:', error);
-    showNotification('Erro ao criar mesa: ' + error.message, 'error');
-  }
+    try {
+        const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+        
+        const tableRef = await db.collection('tables').add({
+            name: tableName,
+            timeLimit: timeLimit,
+            bet: bet,
+            status: 'waiting',
+            players: [{
+                uid: currentUser.uid,
+                displayName: userData.displayName,
+                rating: userData.rating,
+                color: 'black'
+            }],
+            createdBy: currentUser.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            currentTurn: 'black',
+            board: boardData,
+            waitingForOpponent: true,
+            platformFee: calculatePlatformFee(bet) // Adicionar taxa calculada
+        });
+        
+        if (bet > 0) {
+            await db.collection('users').doc(currentUser.uid).update({
+                coins: firebase.firestore.FieldValue.increment(-bet)
+            });
+            userData.coins -= bet;
+        }
+        
+        closeAllModals();
+        showNotification('Mesa criada com sucesso!', 'success');
+        
+        setupGameListener(tableRef.id);
+        showScreen('game-screen');
+        
+    } catch (error) {
+        console.error('Erro ao criar mesa:', error);
+        showNotification('Erro ao criar mesa: ' + error.message, 'error');
+    }
 }
-
 // ===== CORRIGIR JOIN TABLE =====
 async function joinTable(tableId) {
   try {
@@ -1256,32 +1723,58 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-// ===== ATUALIZAR SETUP GAME LISTENER PARA TODOS =====
-function setupGameListener(tableId, isSpectator = false) {
-    if (gameListener) gameListener();
-    if (chatListener) cleanupChat();
-    if (spectatorsListener) spectatorsListener();
+
+// ===== VERIFICAÇÃO EXTRA NO SETUP GAME LISTENER =====
+function setupGameListener(tableId) {
+    // Remover listener anterior se existir
+    if (gameListener) {
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Verificar se tableId é válido
+    if (!tableId) {
+        console.error('ID da mesa inválido');
+        showNotification('Erro ao entrar na mesa', 'error');
+        return;
+    }
     
     currentGameRef = db.collection('tables').doc(tableId);
     
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
+    gameListener = currentGameRef.onSnapshot((doc) => {
+        // Verificar se a referência ainda é a mesma (evitar race conditions)
+        if (!currentGameRef || currentGameRef.id !== tableId) {
+            console.log('Listener ignorado - referência mudou');
+            return;
+        }
+        
         if (doc.exists) {
             gameState = doc.data();
+            
+            // Verificar se gameState é válido
+            if (!gameState) {
+                console.error('Dados do jogo inválidos');
+                return;
+            }
             
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            // Atualizar contador de espectadores (para todos)
-            const spectatorsSnapshot = await currentGameRef.collection('spectators').get();
-            await currentGameRef.update({
-                spectatorsCount: spectatorsSnapshot.size
-            });
-            
-            if (gameState.status === 'finished') {
-                endGame(gameState.winner);
+            // Verificar se players existe
+            if (!gameState.players) {
+                console.error('gameState.players não existe');
                 return;
             }
+            
+            if (gameState.status === 'finished') {
+    setTimeout(() => {
+        if (currentGameRef && currentGameRef.id === tableId) {
+            safeEndGame(gameState.winner); // Usar a versão segura
+        }
+    }, 100);
+    return;
+}
             
             renderBoard(gameState.board);
             updatePlayerInfo();
@@ -1289,12 +1782,37 @@ function setupGameListener(tableId, isSpectator = false) {
             
             if (gameState.status === 'playing') {
                 setupChatListener();
-                setupSpectatorsListener(tableId); // SEMPRE configurar para todos
-                setupSpectatorUI(); // SEMPRE mostrar UI de espectadores
+                setupSpectatorsListener(tableId);
             }
+        }
+    }, (error) => {
+        console.error('Erro no listener do jogo:', error);
+        
+        // Não mostrar erro para o usuário se for apenas cancelamento
+        if (error.code !== 'cancelled') {
+            showNotification('Erro de conexão com o jogo', 'error');
         }
     });
 }
+
+// ===== FUNÇÃO AUXILIAR PARA VERIFICAR REFERÊNCIAS =====
+function isGameRefValid() {
+    return currentGameRef !== null && 
+           currentGameRef !== undefined && 
+           typeof currentGameRef.update === 'function';
+}
+
+// ===== ATUALIZAR A CHAMADA DE ENDGAME =====
+// Em todos os lugares onde endGame é chamado, verificar primeiro:
+function safeEndGame(result) {
+    if (isGameRefValid() && gameState) {
+        endGameSafe(result); // Usar a versão segura
+    } else {
+        console.log('Não é possível finalizar jogo - referência inválida');
+        leaveGame();
+    }
+}
+
 // ===== ATUALIZAR SETUP SPECTATOR UI PARA JOGADORES TAMBÉM =====
 function setupSpectatorUI() {
     // Adicionar botões de torcida (apenas para espectadores)
@@ -1348,18 +1866,28 @@ function setupSpectatorUI() {
         gameContainer.insertAdjacentHTML('beforeend', spectatorsPanel);
     }
 }
-// ===== ATUALIZAR LEAVE GAME =====
+
+
+// ===== FUNÇÃO LEAVE GAME CORRIGIDA =====
 function leaveGame() {
     console.log('Saindo do jogo...');
     
-    // Remover listeners
-    if (gameListener) gameListener();
-    if (chatListener) cleanupChat();
-    if (spectatorsListener) spectatorsListener();
+    // Remover listener do jogo primeiro
+    if (gameListener) {
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Fechar modal de espectadores se estiver aberto
+    if (spectatorsModal) {
+        closeSpectatorsModal();
+    }
     
     // Se era espectador, remover da lista
     if (currentGameRef && currentUser) {
-        const isPlayer = gameState && gameState.players && gameState.players.some(p => p.uid === currentUser.uid);
+        const isPlayer = gameState && gameState.players && 
+                        gameState.players.some(p => p.uid === currentUser.uid);
+        
         if (!isPlayer) {
             db.collection('tables')
                 .doc(currentGameRef.id)
@@ -1370,14 +1898,8 @@ function leaveGame() {
         }
     }
     
-    // Limpar UI
-    const supportButtons = document.getElementById('support-buttons');
-    if (supportButtons) supportButtons.remove();
-    
-    const spectatorsPanel = document.getElementById('spectators-panel');
-    if (spectatorsPanel) spectatorsPanel.remove();
-    
-    // Limpar referências
+    // Limpar referências - IMPORTANTE: fazer isso por último
+    const oldGameRef = currentGameRef;
     currentGameRef = null;
     gameState = null;
     selectedPiece = null;
@@ -1387,8 +1909,9 @@ function leaveGame() {
     // Voltar para a tela principal
     showScreen('main-screen');
     loadTables();
+    
+    console.log('Jogo finalizado e recursos limpos');
 }
-
 
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
 let hasGlobalMandatoryCaptures = false;
@@ -1794,80 +2317,104 @@ async function offerDraw() {
     }
 }
 
-// ===== FUNÇÃO END GAME (ATUALIZADA PARA EMPATE) =====
+
+
+
+
+// ===== FUNÇÃO CORRIGIDA PARA FINALIZAR JOGO =====
 async function endGame(result) {
     try {
+        // Verificar se as referências necessárias existem
         if (!currentGameRef || !gameState || !gameState.players) {
             console.error('Referências inválidas em endGame');
+            showNotification('Erro ao finalizar jogo', 'error');
             return;
         }
         
-        const tableId = currentGameRef.id;
+        const betAmount = gameState.bet || 0;
         let winner = null;
         let status = 'finished';
-        let resultText = '';
         
         if (result === 'draw') {
             status = 'draw';
-            resultText = 'Empate';
-            
-            // Atualizar estatísticas para empate
+            // Devolver apostas em caso de empate
             for (const player of gameState.players) {
                 await db.collection('users').doc(player.uid).update({
+                    coins: firebase.firestore.FieldValue.increment(betAmount),
                     draws: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(5)
+                    rating: firebase.firestore.FieldValue.increment(2)
                 });
             }
-            
-            showNotification('Jogo terminou em empate!', 'info');
+            showNotification('Empate! Apostas devolvidas.', 'info');
             
         } else {
             winner = result;
-            status = 'finished';
+            const calculation = calculatePrize(betAmount);
+            
             const winningPlayer = gameState.players.find(p => p.color === winner);
             const losingPlayer = gameState.players.find(p => p.color !== winner);
             
-            resultText = winningPlayer ? `Vitória de ${winningPlayer.displayName}` : `Vitória das ${winner === 'black' ? 'pretas' : 'vermelhas'}`;
-            
-            // Calcular recompensa
-            const reward = gameState.bet ? gameState.bet * 2 : 0;
-            
+            // Atualizar estatísticas dos jogadores
             if (winningPlayer) {
                 await db.collection('users').doc(winningPlayer.uid).update({
+                    coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
                     wins: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(20),
-                    coins: firebase.firestore.FieldValue.increment(reward)
+                    rating: firebase.firestore.FieldValue.increment(10)
                 });
             }
             
             if (losingPlayer) {
                 await db.collection('users').doc(losingPlayer.uid).update({
                     losses: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(-10)
+                    rating: firebase.firestore.FieldValue.increment(-5)
                 });
             }
             
-            // Mostrar resultado
-            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-            if (currentPlayer && currentPlayer.color === winner) {
-                showNotification('Você venceu! +' + reward + ' moedas', 'success');
+            // Registrar lucro da plataforma apenas se houver aposta
+            if (betAmount > 0) {
+                const earningsData = {
+                    amount: calculation.platformFee,
+                    betAmount: betAmount,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    players: gameState.players.map(p => p.uid),
+                    // Corrigido: garantir que winner não seja undefined
+                    winner: winningPlayer ? winningPlayer.uid : null
+                };
+                
+                // Remover campos undefined
+                Object.keys(earningsData).forEach(key => {
+                    if (earningsData[key] === undefined) {
+                        earningsData[key] = null;
+                    }
+                });
+                
+                await db.collection('platformEarnings').add(earningsData);
+                
+                showNotification(`Ganhador recebeu R$ ${calculation.winnerPrize} (Taxa: R$ ${calculation.platformFee})`, 'success');
             } else {
-                showNotification('Você perdeu!', 'error');
+                showNotification('Partida finalizada!', 'success');
             }
         }
         
-        // Atualizar estado do jogo com informações do resultado
-        await currentGameRef.update({
-            status: status,
-            winner: winner,
-            resultText: resultText,
-            finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            finalBoard: convertBoardToFirestoreFormat(gameState.board),
-            drawOffer: null // Limpar qualquer oferta de empate pendente
-        });
-        
-        // Atualizar a lista de mesas para mostrar o resultado
-        updateTablesList();
+        // Atualizar estado do jogo
+        if (currentGameRef) {
+            const updateData = {
+                status: status,
+                winner: winner,
+                finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                resultText: result === 'draw' ? 'Empate' : `Vitória das ${winner}`
+            };
+            
+            // Remover campos undefined
+            Object.keys(updateData).forEach(key => {
+                if (updateData[key] === undefined) {
+                    updateData[key] = null;
+                }
+            });
+            
+            await currentGameRef.update(updateData);
+        }
         
         // Voltar para o lobby após 3 segundos
         setTimeout(() => {
@@ -1876,10 +2423,241 @@ async function endGame(result) {
         
     } catch (error) {
         console.error('Erro ao finalizar jogo:', error);
-        showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
+        
+        if (error.code === 'permission-denied') {
+            showNotification('Erro de permissão ao finalizar jogo', 'error');
+        } else if (error.code === 'unavailable') {
+            showNotification('Sem conexão. Tente novamente.', 'error');
+        } else {
+            showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
+        }
     }
 }
 
+// ===== FUNÇÃO AUXILIAR PARA LIMPAR DADOS UNDEFINED =====
+function cleanFirestoreData(data) {
+    const cleaned = {...data};
+    Object.keys(cleaned).forEach(key => {
+        if (cleaned[key] === undefined) {
+            cleaned[key] = null;
+        }
+    });
+    return cleaned;
+}
+
+// ===== ALTERNATIVA MAIS SEGURA =====
+async function endGameSafe(result) {
+    try {
+        if (!currentGameRef || !gameState || !gameState.players) {
+            console.error('Referências inválidas em endGame');
+            return;
+        }
+        
+        const betAmount = gameState.bet || 0;
+        
+        if (result === 'draw') {
+            // Processar empate
+            for (const player of gameState.players) {
+                await db.collection('users').doc(player.uid).update({
+                    coins: firebase.firestore.FieldValue.increment(betAmount),
+                    draws: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(2)
+                });
+            }
+            showNotification('Empate! Apostas devolvidas.', 'info');
+        } else {
+            // Processar vitória
+            const calculation = calculatePrize(betAmount);
+            const winningPlayer = gameState.players.find(p => p.color === result);
+            
+            if (winningPlayer) {
+                await db.collection('users').doc(winningPlayer.uid).update({
+                    coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
+                    wins: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(10)
+                });
+            }
+            
+            const losingPlayer = gameState.players.find(p => p.color !== result);
+            if (losingPlayer) {
+                await db.collection('users').doc(losingPlayer.uid).update({
+                    losses: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(-5)
+                });
+            }
+            
+            // Registrar earnings apenas se houver aposta e winner definido
+            if (betAmount > 0 && winningPlayer) {
+                const earningsData = cleanFirestoreData({
+                    amount: calculation.platformFee,
+                    betAmount: betAmount,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    players: gameState.players.map(p => p.uid),
+                    winner: winningPlayer.uid // Garantido que existe
+                });
+                
+                await db.collection('platformEarnings').add(earningsData);
+                showNotification(`Ganhador recebeu R$ ${calculation.winnerPrize} (Taxa: R$ ${calculation.platformFee})`, 'success');
+            }
+        }
+        
+        // Atualizar estado da mesa
+        if (currentGameRef) {
+            const updateData = cleanFirestoreData({
+                status: result === 'draw' ? 'draw' : 'finished',
+                winner: result === 'draw' ? null : result,
+                finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                resultText: result === 'draw' ? 'Empate' : `Vitória das ${result}`
+            });
+            
+            await currentGameRef.update(updateData);
+        }
+        
+        setTimeout(() => leaveGame(), 3000);
+        
+    } catch (error) {
+        console.error('Erro ao finalizar jogo:', error);
+        showNotification('Erro ao finalizar jogo', 'error');
+    }
+}
+
+
+// ===== MOSTRAR TAXAS PARA O USUÁRIO =====
+function updateBetDisplay(betAmount) {
+    if (betAmount > 0) {
+        const calculation = calculatePrize(betAmount);
+        
+        const betInfo = document.getElementById('bet-info');
+        if (betInfo) {
+            betInfo.innerHTML = `
+                <div class="bet-breakdown">
+                    <strong>Detalhes da Aposta:</strong>
+                    <div>Aposta: R$ ${calculation.originalBet.toFixed(2)}</div>
+                    <div>Prêmio total: R$ ${calculation.totalPrize.toFixed(2)}</div>
+                    <div>Taxa da plataforma (15%): R$ ${calculation.platformFee.toFixed(2)}</div>
+                    <div>Ganhador recebe: R$ ${calculation.winnerPrize.toFixed(2)}</div>
+                </div>
+            `;
+        }
+    }
+}
+
+// ===== FUNÇÃO PARA VER LUCROS =====
+async function viewPlatformEarnings() {
+    try {
+        const snapshot = await db.collection('platformEarnings')
+            .orderBy('timestamp', 'desc')
+            .limit(50)
+            .get();
+        
+        let totalEarnings = 0;
+        let totalBets = 0;
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            totalEarnings += data.amount;
+            totalBets += data.betAmount;
+        });
+        
+        console.log(`
+        📊 RELATÓRIO DE LUCROS:
+        • Total arrecadado: R$ ${totalEarnings.toFixed(2)}
+        • Total apostado: R$ ${totalBets.toFixed(2)}
+        • Número de apostas: ${snapshot.size}
+        • Média por aposta: R$ ${(totalEarnings / snapshot.size).toFixed(2)}
+        `);
+        
+    } catch (error) {
+        console.error('Erro ao carregar lucros:', error);
+    }
+}
+
+// ===== CONFIGURAÇÃO DE TAXAS =====
+const PLATFORM_FEES = {
+    feePercentage: 0.15, // 15% de taxa da plataforma
+    minFee: 1.00,        // Taxa mínima de R$ 1,00
+    maxFee: 50.00        // Taxa máxima de R$ 50,00
+};
+
+// ===== FUNÇÃO PARA CALCULAR TAXA =====
+function calculatePlatformFee(betAmount) {
+    const fee = betAmount * PLATFORM_FEES.feePercentage;
+    
+    // Aplicar limites
+    return Math.min(
+        Math.max(fee, PLATFORM_FEES.minFee),
+        PLATFORM_FEES.maxFee
+    );
+}
+
+
+
+
+
+
+
+
+
+
+function calculatePrize(totalPot) {
+    const houseFee = totalPot * (HOUSE_FEE_PERCENTAGE / 100);
+    const prize = totalPot - houseFee;
+    
+    console.log(`Pote total: ${totalPot} moedas`);
+    console.log(`Taxa da casa (${HOUSE_FEE_PERCENTAGE}%): ${houseFee} moedas`);
+    console.log(`Prêmio líquido: ${prize} moedas`);
+    
+    return prize;
+}
+
+/**
+ * Processa uma aposta do jogador
+ * @param {number} amount - Valor da aposta
+ * @returns {boolean} True se a aposta foi bem-sucedida, False caso contrário
+ */
+function placeBet(amount) {
+    if (amount <= 0) {
+        alert("Valor de aposta inválido!");
+        return false;
+    }
+    
+    if (userBalance < amount) {
+        alert("Saldo insuficiente para esta aposta!");
+        return false;
+    }
+    
+    // Debita o valor da aposta do saldo do usuário
+    userBalance -= amount;
+    currentBet = amount;
+    currentPot = amount * 2; // Supondo que outro jogador apostará o mesmo valor
+    
+    updateUI();
+    
+    console.log(`Aposta de ${amount} moedas realizada com sucesso!`);
+    console.log(`Pote atual: ${currentPot} moedas`);
+    
+    return true;
+}
+
+/**
+ * Distribui o prêmio para o vencedor
+ * @param {number} winner - Identificador do jogador vencedor
+ */
+function distributePrize(winner) {
+    const prize = calculatePrize(currentPot);
+    
+    // Aqui você distribuiria o prêmio para o jogador vencedor
+    // Em um sistema real, isso seria feito no backend
+    
+    console.log(`Jogador ${winner} venceu e recebeu ${prize} moedas!`);
+    
+    // Resetar apostas para uma nova partida
+    currentBet = 0;
+    currentPot = 0;
+    
+    updateUI();
+}
 // ===== RANKING =====
 async function loadRanking() {
   try {

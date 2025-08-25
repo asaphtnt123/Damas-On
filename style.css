@@ -1882,3 +1882,575 @@ input:checked + .slider:before {
 }
 
 
+
+
+.profile-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.profile-modal.active {
+    display: flex;
+}
+
+.profile-content {
+    background: white;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 25px;
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    color: white;
+}
+
+.profile-avatar {
+    position: relative;
+}
+
+.profile-avatar img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.online-status {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    width: 16px;
+    height: 16px;
+    background: #27ae60;
+    border: 2px solid white;
+    border-radius: 50%;
+}
+
+.profile-info h2 {
+    margin: 0 0 5px 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.profile-email {
+    margin: 0 0 10px 0;
+    opacity: 0.9;
+    font-size: 0.9rem;
+}
+
+.profile-rating {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+}
+
+.profile-rating i {
+    color: #f1c40f;
+}
+
+/* ESTATÍSTICAS */
+.profile-stats {
+    padding: 20px;
+    background: #f8f9fa;
+}
+
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+}
+
+.stat-card {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.stat-card.success { border-left: 4px solid #27ae60; }
+.stat-card.danger { border-left: 4px solid #e74c3c; }
+.stat-card.warning { border-left: 4px solid #f39c12; }
+.stat-card.info { border-left: 4px solid #3498db; }
+
+.stat-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+}
+
+.stat-card.success .stat-icon { background: rgba(39, 174, 96, 0.1); color: #27ae60; }
+.stat-card.danger .stat-icon { background: rgba(231, 76, 60, 0.1); color: #e74c3c; }
+.stat-card.warning .stat-icon { background: rgba(243, 156, 18, 0.1); color: #f39c12; }
+.stat-card.info .stat-icon { background: rgba(52, 152, 219, 0.1); color: #3498db; }
+
+.stat-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: #7f8c8d;
+    margin-top: 2px;
+}
+
+/* DETALHES */
+.profile-details {
+    padding: 20px;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.profile-details h4 {
+    margin: 0 0 15px 0;
+    color: #2c3e50;
+    font-size: 1.1rem;
+}
+
+.details-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.detail-label {
+    font-size: 0.9rem;
+    color: #7f8c8d;
+}
+
+.detail-value {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+/* AÇÕES */
+.profile-actions {
+    padding: 20px;
+    display: flex;
+    gap: 12px;
+}
+
+.profile-actions .btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+/* RESPONSIVIDADE */
+@media (max-width: 600px) {
+    .profile-content {
+        margin: 10px;
+        max-height: 85vh;
+    }
+    
+    .profile-header {
+        flex-direction: column;
+        text-align: center;
+        padding: 20px;
+    }
+    
+    .stat-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .details-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .profile-actions {
+        flex-direction: column;
+    }
+    
+    .profile-avatar img {
+        width: 70px;
+        height: 70px;
+    }
+}
+
+/* Animações */
+@keyframes profileSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.profile-content {
+    animation: profileSlideIn 0.3s ease;
+}
+
+/* Scroll personalizado */
+.modal-body {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: #c4c4c4;
+    border-radius: 3px;
+}
+/* MODAL DE MOEDAS */
+.coins-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2100;
+    padding: 20px;
+}
+
+.coins-modal.active {
+    display: flex;
+}
+
+.coins-content {
+    background: white;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+}
+
+/* SALDO */
+.coins-balance {
+    padding: 20px;
+    background: linear-gradient(135deg, #f39c12, #e67e22);
+    color: white;
+    text-align: center;
+}
+
+.balance-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 1.1rem;
+}
+
+.balance-info i {
+    font-size: 1.5rem;
+}
+
+/* HEADER DOS PACOTES */
+.packages-header {
+    padding: 25px 25px 15px;
+    text-align: center;
+}
+
+.packages-header h4 {
+    margin: 0 0 8px 0;
+    color: #2c3e50;
+    font-size: 1.3rem;
+}
+
+.packages-header p {
+    margin: 0;
+    color: #7f8c8d;
+    font-size: 0.95rem;
+}
+
+/* PACOTES DE MOEDAS */
+.coins-packages {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    padding: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.coin-package {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    position: relative;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.coin-package:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    border-color: #3498db;
+}
+
+.coin-package.popular {
+    border: 3px solid #3498db;
+    transform: scale(1.05);
+}
+
+.coin-package.popular:hover {
+    transform: scale(1.05) translateY(-5px);
+}
+
+.popular-badge {
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #3498db;
+    color: white;
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.package-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.coins-amount {
+    margin-bottom: 10px;
+}
+
+.coins-number {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #f39c12;
+    display: block;
+    line-height: 1;
+}
+
+.coins-label {
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.bonus-badge {
+    background: linear-gradient(135deg, #27ae60, #2ecc71);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin: 0 auto;
+}
+
+.package-price {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2c3e50;
+}
+
+.package-value {
+    font-size: 0.8rem;
+    color: #7f8c8d;
+}
+
+.btn-buy {
+    margin-top: 10px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: all 0.3s ease;
+}
+
+.btn-buy:hover {
+    transform: scale(1.05);
+}
+
+/* MÉTODOS DE PAGAMENTO */
+.payment-methods {
+    padding: 20px;
+    border-top: 1px solid #ecf0f1;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.payment-methods h4 {
+    margin: 0 0 15px 0;
+    color: #2c3e50;
+    text-align: center;
+}
+
+.methods-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 15px;
+}
+
+.payment-method {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.payment-method:hover {
+    background: #e8f4fd;
+    transform: translateY(-2px);
+}
+
+.payment-method i {
+    font-size: 2rem;
+    color: #3498db;
+}
+
+.payment-method span {
+    font-size: 0.8rem;
+    color: #2c3e50;
+    font-weight: 500;
+}
+
+/* INFORMAÇÕES DE SEGURANÇA */
+.security-info {
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    flex-wrap: wrap;
+}
+
+.security-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #27ae60;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.security-item i {
+    font-size: 1.1rem;
+}
+
+/* RESPONSIVIDADE */
+@media (max-width: 768px) {
+    .coins-content {
+        margin: 10px;
+        max-height: 85vh;
+    }
+    
+    .coins-packages {
+        grid-template-columns: 1fr;
+        max-height: 300px;
+    }
+    
+    .coin-package.popular {
+        transform: none;
+    }
+    
+    .coin-package.popular:hover {
+        transform: translateY(-5px);
+    }
+    
+    .methods-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .security-info {
+        gap: 15px;
+    }
+    
+    .security-item {
+        font-size: 0.8rem;
+    }
+}
+
+/* Animações */
+@keyframes coinsSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(40px) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.coins-content {
+    animation: coinsSlideIn 0.4s ease;
+}
+
+/* Scroll personalizado */
+.coins-packages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.coins-packages::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.coins-packages::-webkit-scrollbar-thumb {
+    background: #c4c4c4;
+    border-radius: 3px;
+}
