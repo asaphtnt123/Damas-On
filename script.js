@@ -1724,7 +1724,7 @@ function renderTable(table, container) {
     container.appendChild(tableEl);
 }
 
-// ===== VERIFICAÇÃO EXTRA NO SETUP GAME LISTENER =====
+// ===== SETUP GAME LISTENER COMPLETO =====
 function setupGameListener(tableId) {
     // Remover listener anterior se existir
     if (gameListener) {
@@ -1757,6 +1757,18 @@ function setupGameListener(tableId) {
                 return;
             }
             
+            // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado, não processar mais
+            if (gameState.status === 'finished' || gameState.status === 'draw') {
+                console.log('Jogo finalizado, ignorando atualizações');
+                
+                // Apenas atualizar a UI se necessário
+                if (gameState.board && typeof gameState.board === 'object') {
+                    gameState.board = convertFirestoreFormatToBoard(gameState.board);
+                    renderBoard(gameState.board);
+                }
+                return;
+            }
+            
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
@@ -1767,23 +1779,18 @@ function setupGameListener(tableId) {
                 return;
             }
             
-            if (gameState.status === 'finished') {
-    setTimeout(() => {
-        if (currentGameRef && currentGameRef.id === tableId) {
-            safeEndGame(gameState.winner); // Usar a versão segura
-        }
-    }, 100);
-    return;
-}
-            
             renderBoard(gameState.board);
             updatePlayerInfo();
             checkGlobalMandatoryCaptures();
+            updateTurnInfo();
             
             if (gameState.status === 'playing') {
                 setupChatListener();
                 setupSpectatorsListener(tableId);
             }
+            
+            // Verificar fim de jogo (apenas se não estiver finalizado)
+            checkGameEnd(gameState.board, gameState.currentTurn);
         }
     }, (error) => {
         console.error('Erro no listener do jogo:', error);
@@ -2320,14 +2327,31 @@ async function offerDraw() {
 
 
 
+// ===== FUNÇÃO ENDGAME COMPLETA E CORRIGIDA =====
+let isGameEnding = false; // Variável global para controle
 
-// ===== FUNÇÃO CORRIGIDA PARA FINALIZAR JOGO =====
 async function endGame(result) {
+    // Prevenir múltiplas execuções
+    if (isGameEnding) {
+        console.log('endGame já em execução, ignorando chamada duplicada');
+        return;
+    }
+    
+    // Verificar se o jogo já está finalizado
+    if (gameState && (gameState.status === 'finished' || gameState.status === 'draw')) {
+        console.log('Jogo já finalizado, ignorando chamada');
+        return;
+    }
+    
+    isGameEnding = true;
+    console.log('Iniciando endGame para resultado:', result);
+    
     try {
         // Verificar se as referências necessárias existem
         if (!currentGameRef || !gameState || !gameState.players) {
             console.error('Referências inválidas em endGame');
             showNotification('Erro ao finalizar jogo', 'error');
+            isGameEnding = false;
             return;
         }
         
@@ -2335,86 +2359,138 @@ async function endGame(result) {
         let winner = null;
         let status = 'finished';
         
+        // Obter informações dos jogadores
+        const blackPlayer = gameState.players.find(p => p.color === 'black');
+        const redPlayer = gameState.players.find(p => p.color === 'red');
+        
+        if (!blackPlayer || !redPlayer) {
+            console.error('Jogadores não encontrados');
+            showNotification('Erro ao finalizar jogo: jogadores não encontrados', 'error');
+            isGameEnding = false;
+            return;
+        }
+        
         if (result === 'draw') {
             status = 'draw';
+            console.log('Processando empate...');
+            
             // Devolver apostas em caso de empate
-            for (const player of gameState.players) {
-                await db.collection('users').doc(player.uid).update({
+            const updates = {};
+            
+            if (blackPlayer.uid) {
+                updates[`users/${blackPlayer.uid}`] = {
                     coins: firebase.firestore.FieldValue.increment(betAmount),
                     draws: firebase.firestore.FieldValue.increment(1),
                     rating: firebase.firestore.FieldValue.increment(2)
-                });
+                };
             }
+            
+            if (redPlayer.uid) {
+                updates[`users/${redPlayer.uid}`] = {
+                    coins: firebase.firestore.FieldValue.increment(betAmount),
+                    draws: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(2)
+                };
+            }
+            
+            // Executar todas as atualizações em batch
+            const batch = db.batch();
+            
+            Object.keys(updates).forEach(path => {
+                const ref = db.doc(path);
+                batch.update(ref, updates[path]);
+            });
+            
+            await batch.commit();
+            
             showNotification('Empate! Apostas devolvidas.', 'info');
             
         } else {
             winner = result;
-            const calculation = calculatePrize(betAmount);
+            console.log('Processando vitória para:', winner);
             
             const winningPlayer = gameState.players.find(p => p.color === winner);
             const losingPlayer = gameState.players.find(p => p.color !== winner);
             
-            // Atualizar estatísticas dos jogadores
-            if (winningPlayer) {
-                await db.collection('users').doc(winningPlayer.uid).update({
-                    coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
+            if (!winningPlayer || !losingPlayer) {
+                console.error('Jogador vencedor/perdedor não encontrado');
+                showNotification('Erro ao processar vitória', 'error');
+                isGameEnding = false;
+                return;
+            }
+            
+            // Calcular prêmio apenas se houver aposta
+            let winnerPrize = 0;
+            let platformFee = 0;
+            
+            if (betAmount > 0) {
+                platformFee = calculatePlatformFee(betAmount);
+                winnerPrize = (betAmount * 2) - platformFee;
+                console.log(`Prêmio: ${winnerPrize}, Taxa: ${platformFee}`);
+            }
+            
+            // Preparar atualizações em batch
+            const updates = {};
+            
+            // Atualizar vencedor
+            if (winningPlayer.uid) {
+                updates[`users/${winningPlayer.uid}`] = {
                     wins: firebase.firestore.FieldValue.increment(1),
                     rating: firebase.firestore.FieldValue.increment(10)
-                });
+                };
+                
+                if (betAmount > 0) {
+                    updates[`users/${winningPlayer.uid}`].coins = 
+                        firebase.firestore.FieldValue.increment(winnerPrize);
+                }
             }
             
-            if (losingPlayer) {
-                await db.collection('users').doc(losingPlayer.uid).update({
+            // Atualizar perdedor
+            if (losingPlayer.uid) {
+                updates[`users/${losingPlayer.uid}`] = {
                     losses: firebase.firestore.FieldValue.increment(1),
                     rating: firebase.firestore.FieldValue.increment(-5)
-                });
+                };
             }
             
+            // Executar atualizações
+            const batch = db.batch();
+            
+            Object.keys(updates).forEach(path => {
+                const ref = db.doc(path);
+                batch.update(ref, updates[path]);
+            });
+            
+            await batch.commit();
+            
             // Registrar lucro da plataforma apenas se houver aposta
-            if (betAmount > 0) {
-                const earningsData = {
-                    amount: calculation.platformFee,
+            if (betAmount > 0 && platformFee > 0) {
+                await db.collection('platformEarnings').add({
+                    amount: platformFee,
                     betAmount: betAmount,
                     tableId: currentGameRef.id,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    players: gameState.players.map(p => p.uid),
-                    // Corrigido: garantir que winner não seja undefined
-                    winner: winningPlayer ? winningPlayer.uid : null
-                };
-                
-                // Remover campos undefined
-                Object.keys(earningsData).forEach(key => {
-                    if (earningsData[key] === undefined) {
-                        earningsData[key] = null;
-                    }
+                    winner: winningPlayer.uid,
+                    winnerName: winningPlayer.displayName
                 });
                 
-                await db.collection('platformEarnings').add(earningsData);
-                
-                showNotification(`Ganhador recebeu R$ ${calculation.winnerPrize} (Taxa: R$ ${calculation.platformFee})`, 'success');
+                showNotification(`Vitória! ${winningPlayer.displayName} recebeu ${winnerPrize} moedas`, 'success');
             } else {
-                showNotification('Partida finalizada!', 'success');
+                showNotification(`Vitória das ${winner === 'black' ? 'pretas' : 'vermelhas'}!`, 'success');
             }
         }
         
         // Atualizar estado do jogo
-        if (currentGameRef) {
-            const updateData = {
-                status: status,
-                winner: winner,
-                finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                resultText: result === 'draw' ? 'Empate' : `Vitória das ${winner}`
-            };
-            
-            // Remover campos undefined
-            Object.keys(updateData).forEach(key => {
-                if (updateData[key] === undefined) {
-                    updateData[key] = null;
-                }
-            });
-            
-            await currentGameRef.update(updateData);
-        }
+        const updateData = {
+            status: status,
+            winner: result === 'draw' ? null : result,
+            finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            resultText: result === 'draw' ? 'Empate' : `Vitória das ${result}`
+        };
+        
+        await currentGameRef.update(updateData);
+        
+        console.log('Jogo finalizado com sucesso');
         
         // Voltar para o lobby após 3 segundos
         setTimeout(() => {
@@ -2431,6 +2507,11 @@ async function endGame(result) {
         } else {
             showNotification('Erro ao finalizar jogo: ' + error.message, 'error');
         }
+    } finally {
+        // Liberar o bloqueio após um tempo
+        setTimeout(() => {
+            isGameEnding = false;
+        }, 5000);
     }
 }
 
@@ -2445,11 +2526,25 @@ function cleanFirestoreData(data) {
     return cleaned;
 }
 
-// ===== ALTERNATIVA MAIS SEGURA =====
+// ===== FUNÇÃO ENDGAME SAFE COMPLETA =====
 async function endGameSafe(result) {
+    // Prevenir múltiplas execuções
+    if (isGameEnding) {
+        console.log('endGameSafe já em execução, ignorando chamada duplicada');
+        return;
+    }
+    
+    // Verificar se o jogo já está finalizado
+    if (gameState && (gameState.status === 'finished' || gameState.status === 'draw')) {
+        console.log('Jogo já finalizado, ignorando chamada');
+        return;
+    }
+    
+    isGameEnding = true;
+    
     try {
         if (!currentGameRef || !gameState || !gameState.players) {
-            console.error('Referências inválidas em endGame');
+            console.error('Referências inválidas em endGameSafe');
             return;
         }
         
@@ -2458,11 +2553,13 @@ async function endGameSafe(result) {
         if (result === 'draw') {
             // Processar empate
             for (const player of gameState.players) {
-                await db.collection('users').doc(player.uid).update({
-                    coins: firebase.firestore.FieldValue.increment(betAmount),
-                    draws: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(2)
-                });
+                if (player.uid) {
+                    await db.collection('users').doc(player.uid).update({
+                        coins: firebase.firestore.FieldValue.increment(betAmount),
+                        draws: firebase.firestore.FieldValue.increment(1),
+                        rating: firebase.firestore.FieldValue.increment(2)
+                    });
+                }
             }
             showNotification('Empate! Apostas devolvidas.', 'info');
         } else {
@@ -2470,7 +2567,7 @@ async function endGameSafe(result) {
             const calculation = calculatePrize(betAmount);
             const winningPlayer = gameState.players.find(p => p.color === result);
             
-            if (winningPlayer) {
+            if (winningPlayer && winningPlayer.uid) {
                 await db.collection('users').doc(winningPlayer.uid).update({
                     coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
                     wins: firebase.firestore.FieldValue.increment(1),
@@ -2479,7 +2576,7 @@ async function endGameSafe(result) {
             }
             
             const losingPlayer = gameState.players.find(p => p.color !== result);
-            if (losingPlayer) {
+            if (losingPlayer && losingPlayer.uid) {
                 await db.collection('users').doc(losingPlayer.uid).update({
                     losses: firebase.firestore.FieldValue.increment(1),
                     rating: firebase.firestore.FieldValue.increment(-5)
@@ -2494,11 +2591,11 @@ async function endGameSafe(result) {
                     tableId: currentGameRef.id,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     players: gameState.players.map(p => p.uid),
-                    winner: winningPlayer.uid // Garantido que existe
+                    winner: winningPlayer.uid
                 });
                 
                 await db.collection('platformEarnings').add(earningsData);
-                showNotification(`Ganhador recebeu R$ ${calculation.winnerPrize} (Taxa: R$ ${calculation.platformFee})`, 'success');
+                showNotification(`Ganhador recebeu ${calculation.winnerPrize} moedas`, 'success');
             }
         }
         
@@ -2517,11 +2614,15 @@ async function endGameSafe(result) {
         setTimeout(() => leaveGame(), 3000);
         
     } catch (error) {
-        console.error('Erro ao finalizar jogo:', error);
+        console.error('Erro ao finalizar jogo (safe):', error);
         showNotification('Erro ao finalizar jogo', 'error');
+    } finally {
+        // Liberar o bloqueio após um tempo
+        setTimeout(() => {
+            isGameEnding = false;
+        }, 5000);
     }
 }
-
 
 // ===== MOSTRAR TAXAS PARA O USUÁRIO =====
 function updateBetDisplay(betAmount) {
@@ -2755,8 +2856,13 @@ async function loadFriends() {
   }
 }
 
-// ===== FUNÇÃO CHECK GAME END (CORRIGIDA) =====
+// ===== FUNÇÃO CHECK GAME END CORRIGIDA =====
 function checkGameEnd(board, currentTurn) {
+    // Verificar se o jogo já está finalizado
+    if (gameState && (gameState.status === 'finished' || gameState.status === 'draw')) {
+        return;
+    }
+    
     // Verificar se algum jogador não tem mais peças
     let redPieces = 0;
     let blackPieces = 0;
@@ -2785,14 +2891,12 @@ function checkGameEnd(board, currentTurn) {
     }
     
     // Verificar condições de vitória
-    if (redPieces === 0 || !redCanMove) {
-        if (currentGameRef) {
-            endGame('black');
-        }
-    } else if (blackPieces === 0 || !blackCanMove) {
-        if (currentGameRef) {
-            endGame('red');
-        }
+    if ((redPieces === 0 || !redCanMove) && currentGameRef && !isGameEnding) {
+        console.log('Jogo terminado - vitória das pretas');
+        endGame('black');
+    } else if ((blackPieces === 0 || !blackCanMove) && currentGameRef && !isGameEnding) {
+        console.log('Jogo terminado - vitória das vermelhas');
+        endGame('red');
     }
 }
  // ===== SISTEMA DE CAPTURA OBRIGATÓRIA E MÚLTIPLA =====
