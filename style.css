@@ -2479,3 +2479,62 @@ input:checked + .slider:before {
      align-items: center;
      gap: 10px;
  }
+
+ /* ESTILOS PARA PROPOSTA DE EMPATE */
+.draw-proposal-modal .modal-content {
+    max-width: 400px;
+    text-align: center;
+}
+
+.draw-proposal-content {
+    padding: 20px 0;
+}
+
+.draw-proposal-content .draw-icon {
+    font-size: 3rem;
+    color: #3498db;
+    margin-bottom: 15px;
+}
+
+.draw-timer {
+    background: #e74c3c;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.draw-offer-indicator {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin: 10px 0;
+    animation: pulse 2s infinite;
+}
+
+.draw-offer-indicator.waiting {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.draw-offer-indicator.incoming {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.draw-offer-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.draw-offer-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}

@@ -1726,8 +1726,7 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-
-// ===== SETUP GAME LISTENER COMPLETO =====
+// ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
 function setupGameListener(tableId) {
     // Remover listener anterior se existir
     if (gameListener) {
@@ -1744,18 +1743,41 @@ function setupGameListener(tableId) {
     
     currentGameRef = db.collection('tables').doc(tableId);
     
-    gameListener = currentGameRef.onSnapshot((doc) => {
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
         // Verificar se a referência ainda é a mesma (evitar race conditions)
         if (!currentGameRef || currentGameRef.id !== tableId) {
             console.log('Listener ignorado - referência mudou');
             return;
         }
         
-        if (doc.exists) {
-            gameState = doc.data();
-
+        if (!doc.exists) {
+            console.log('Documento não existe mais');
+            showNotification('A mesa foi encerrada', 'info');
+            leaveGame();
+            return;
+        }
+        
+        const previousGameState = gameState;
+        gameState = doc.data();
+        
+        // Verificar se gameState é válido
+        if (!gameState) {
+            console.error('Dados do jogo inválidos');
+            return;
+        }
+        
+        // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado, não processar mais
+        if (gameState.status === 'finished' || gameState.status === 'draw') {
+            console.log('Jogo finalizado, ignorando atualizações');
+            
+            // Apenas atualizar a UI se necessário
+            if (gameState.board && typeof gameState.board === 'object') {
+                gameState.board = convertFirestoreFormatToBoard(gameState.board);
+                renderBoard(gameState.board);
+            }
+            
             // VERIFICAR SE HOUVE DESISTÊNCIA (APENAS PARA O JOGADOR QUE FICOU)
-            if (gameState.status === 'finished' && gameState.surrendered) {
+            if (gameState.surrendered) {
                 const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
                 
                 // Se o currentUser é o vencedor (não foi quem desistiu)
@@ -1769,56 +1791,167 @@ function setupGameListener(tableId) {
                 }
             }
             
-            // Verificar se gameState é válido
-            if (!gameState) {
-                console.error('Dados do jogo inválidos');
-                return;
-            }
-            
-            // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado, não processar mais
-            if (gameState.status === 'finished' || gameState.status === 'draw') {
-                console.log('Jogo finalizado, ignorando atualizações');
-                
-                // Apenas atualizar a UI se necessário
-                if (gameState.board && typeof gameState.board === 'object') {
-                    gameState.board = convertFirestoreFormatToBoard(gameState.board);
-                    renderBoard(gameState.board);
-                }
-                return;
-            }
-            
-            if (gameState.board && typeof gameState.board === 'object') {
-                gameState.board = convertFirestoreFormatToBoard(gameState.board);
-            }
-            
-            // Verificar se players existe
-            if (!gameState.players) {
-                console.error('gameState.players não existe');
-                return;
-            }
-            
-            renderBoard(gameState.board);
-            updatePlayerInfo();
-            checkGlobalMandatoryCaptures();
-            updateTurnInfo();
-            
-            if (gameState.status === 'playing') {
-                setupChatListener();
-                setupSpectatorsListener(tableId);
-            }
-            
-            // Verificar fim de jogo (apenas se não estiver finalizado)
-            checkGameEnd(gameState.board, gameState.currentTurn);
+            return;
         }
+        
+        // DETECTAR NOVA PROPOSTA DE EMPATE
+        if (gameState.drawOffer && (!previousGameState || !previousGameState.drawOffer)) {
+            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            
+            // Se a proposta é para o usuário atual (não é dele)
+            if (currentPlayer && gameState.drawOffer.from !== currentUser.uid) {
+                console.log('Nova proposta de empate recebida');
+                
+                // Mostrar modal de proposta
+                showDrawProposalModal(
+                    'Proposta de Empate', 
+                    `${gameState.drawOffer.senderName} ofereceu empate. Aceitar?`
+                ).then(async (accepted) => {
+                    if (accepted) {
+                        await endGame('draw');
+                    }
+                    
+                    // Limpar a proposta independente da resposta
+                    await currentGameRef.update({
+                        drawOffer: null
+                    });
+                });
+            }
+        }
+        
+        // DETECTAR EXPIRAÇÃO DE PROPOSTA
+        if (gameState.drawOffer && gameState.drawOffer.expiresAt) {
+            const expiresAt = gameState.drawOffer.expiresAt.toDate ? 
+                             gameState.drawOffer.expiresAt.toDate() : 
+                             new Date(gameState.drawOffer.expiresAt);
+            
+            if (new Date() > expiresAt) {
+                // Proposta expirada - limpar
+                try {
+                    await currentGameRef.update({
+                        drawOffer: null
+                    });
+                    showNotification('Proposta de empate expirada', 'info');
+                } catch (error) {
+                    console.error('Erro ao limpar proposta expirada:', error);
+                }
+            }
+        }
+        
+        // Processar tabuleiro
+        if (gameState.board && typeof gameState.board === 'object') {
+            gameState.board = convertFirestoreFormatToBoard(gameState.board);
+        }
+        
+        // Verificar se players existe
+        if (!gameState.players) {
+            console.error('gameState.players não existe');
+            return;
+        }
+        
+        // Atualizar interface
+        renderBoard(gameState.board);
+        updatePlayerInfo();
+        checkGlobalMandatoryCaptures();
+        updateTurnInfo();
+        
+        if (gameState.status === 'playing') {
+            setupChatListener();
+            setupSpectatorsListener(tableId);
+        }
+        
+        // Verificar fim de jogo (apenas se não estiver finalizado)
+        checkGameEnd(gameState.board, gameState.currentTurn);
+        
     }, (error) => {
         console.error('Erro no listener do jogo:', error);
         
         // Não mostrar erro para o usuário se for apenas cancelamento
         if (error.code !== 'cancelled') {
             showNotification('Erro de conexão com o jogo', 'error');
+            
+            // Se for erro grave, sair do jogo
+            if (error.code === 'permission-denied' || error.code === 'not-found') {
+                setTimeout(() => {
+                    leaveGame();
+                }, 2000);
+            }
         }
     });
 }
+
+// ===== RENDERIZAR INDICADOR DE PROPOSTA DE EMPATE =====
+function renderDrawOfferIndicator() {
+    if (!gameState || !gameState.drawOffer) return;
+    
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    
+    // Se a proposta é do usuário atual (ele está esperando)
+    if (gameState.drawOffer.from === currentUser.uid) {
+        const drawOfferEl = document.createElement('div');
+        drawOfferEl.className = 'draw-offer-indicator waiting';
+        drawOfferEl.innerHTML = `
+            <div class="draw-offer-content">
+                <i class="fas fa-clock"></i>
+                <span>Proposta de empate enviada...</span>
+                <button class="btn btn-small btn-secondary" id="btn-cancel-draw">Cancelar</button>
+            </div>
+        `;
+        
+        const gameHeader = document.querySelector('.game-header');
+        if (gameHeader && !document.getElementById('draw-offer-indicator')) {
+            drawOfferEl.id = 'draw-offer-indicator';
+            gameHeader.appendChild(drawOfferEl);
+            
+            // Event listener para cancelar
+            document.getElementById('btn-cancel-draw').addEventListener('click', async () => {
+                await currentGameRef.update({
+                    drawOffer: null
+                });
+                showNotification('Proposta de empate cancelada', 'info');
+            });
+        }
+    }
+    
+    // Se a proposta é para o usuário atual (ele precisa responder)
+    else if (currentPlayer && gameState.drawOffer.from !== currentUser.uid) {
+        const drawOfferEl = document.createElement('div');
+        drawOfferEl.className = 'draw-offer-indicator incoming';
+        drawOfferEl.innerHTML = `
+            <div class="draw-offer-content">
+                <i class="fas fa-handshake"></i>
+                <span>${gameState.drawOffer.senderName} ofereceu empate</span>
+                <div class="draw-offer-buttons">
+                    <button class="btn btn-small btn-success" id="btn-accept-draw">Aceitar</button>
+                    <button class="btn btn-small btn-danger" id="btn-decline-draw">Recusar</button>
+                </div>
+            </div>
+        `;
+        
+        const gameHeader = document.querySelector('.game-header');
+        if (gameHeader && !document.getElementById('draw-offer-indicator')) {
+            drawOfferEl.id = 'draw-offer-indicator';
+            gameHeader.appendChild(drawOfferEl);
+            
+            // Event listeners
+            document.getElementById('btn-accept-draw').addEventListener('click', async () => {
+                await endGame('draw');
+                await currentGameRef.update({
+                    drawOffer: null
+                });
+            });
+            
+            document.getElementById('btn-decline-draw').addEventListener('click', async () => {
+                await currentGameRef.update({
+                    drawOffer: null
+                });
+                showNotification('Proposta de empate recusada', 'info');
+            });
+        }
+    }
+}
+
+
 // ===== SISTEMA DE NOTIFICAÇÕES =====
 function initializeNotifications() {
     // Verificar se usuário está logado
@@ -1987,6 +2120,7 @@ function leaveGame() {
     // Voltar para a tela principal
     showScreen('main-screen');
     loadTables();
+    cleanupDrawOffer();
     
     console.log('Jogo finalizado e recursos limpos');
 }
@@ -2348,7 +2482,7 @@ async function showConfirmModal(title, message) {
   });
 }
 
-// ===== FUNÇÃO OFFER DRAW (COMPLETA) =====
+// ===== FUNÇÃO OFFER DRAW COMPLETA =====
 async function offerDraw() {
     console.log('Ofertando empate...');
     
@@ -2363,7 +2497,7 @@ async function offerDraw() {
         // Verificar se já existe uma oferta de empate pendente do oponente
         if (gameState.drawOffer && gameState.drawOffer.from !== currentUser.uid) {
             // Aceitar empate do oponente
-            const confirm = await showConfirmModal(
+            const confirm = await showDrawProposalModal(
                 'Proposta de Empate', 
                 `${gameState.drawOffer.senderName} ofereceu empate. Aceitar?`
             );
@@ -2374,6 +2508,12 @@ async function offerDraw() {
                 await currentGameRef.update({
                     drawOffer: null
                 });
+            } else {
+                // Recusar empate
+                await currentGameRef.update({
+                    drawOffer: null
+                });
+                showNotification('Proposta de empate recusada', 'info');
             }
             return;
         }
@@ -2389,6 +2529,7 @@ async function offerDraw() {
             drawOffer: {
                 from: currentUser.uid,
                 senderName: currentPlayer.displayName,
+                senderColor: currentPlayer.color,
                 at: firebase.firestore.FieldValue.serverTimestamp(),
                 expiresAt: new Date(Date.now() + 30000) // 30 segundos para expirar
             }
@@ -2417,8 +2558,84 @@ async function offerDraw() {
     }
 }
 
-
-
+// ===== MODAL DE PROPOSTA DE EMPATE =====
+async function showDrawProposalModal(title, message) {
+    return new Promise((resolve) => {
+        // Criar modal de proposta de empate
+        const modal = document.createElement('div');
+        modal.id = 'modal-draw-proposal';
+        modal.className = 'modal draw-proposal-modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🤝 ${title}</h3>
+                    <div class="draw-timer" id="draw-timer">30s</div>
+                </div>
+                <div class="modal-body">
+                    <div class="draw-proposal-content">
+                        <div class="draw-icon">
+                            <i class="fas fa-handshake"></i>
+                        </div>
+                        <p>${message}</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-danger" id="btn-draw-decline">Recusar</button>
+                    <button class="btn btn-success" id="btn-draw-accept">Aceitar Empate</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Mostrar modal
+        modal.classList.add('active');
+        
+        // Timer de 30 segundos
+        let timeLeft = 30;
+        const timerElement = document.getElementById('draw-timer');
+        const timerInterval = setInterval(() => {
+            timeLeft--;
+            if (timerElement) {
+                timerElement.textContent = `${timeLeft}s`;
+            }
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                cleanupModal();
+                resolve(false);
+            }
+        }, 1000);
+        
+        const cleanupModal = () => {
+            clearInterval(timerInterval);
+            modal.classList.remove('active');
+            setTimeout(() => {
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                }
+            }, 300);
+        };
+        
+        // Event listeners
+        document.getElementById('btn-draw-accept').addEventListener('click', () => {
+            cleanupModal();
+            resolve(true);
+        });
+        
+        document.getElementById('btn-draw-decline').addEventListener('click', () => {
+            cleanupModal();
+            resolve(false);
+        });
+        
+        // Fechar modal clicando fora
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cleanupModal();
+                resolve(false);
+            }
+        });
+    });
+}
 
 // ===== FUNÇÃO ENDGAME COMPLETA E CORRIGIDA =====
 let isGameEnding = false; // Variável global para controle
@@ -3558,7 +3775,18 @@ function renderBoard(boardState) {
     }
     
     updateTurnInfo();
+    renderDrawOfferIndicator();
 }
+
+
+// ===== LIMPAR PROPOSTA DE EMPATE =====
+function cleanupDrawOffer() {
+    const indicator = document.getElementById('draw-offer-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
 
 // ===== FUNÇÃO GET NORMAL MOVES (ATUALIZADA PARA DAMAS) =====
 function getNormalMoves(fromRow, fromCol, piece) {
