@@ -55,6 +55,9 @@ function initializeApp() {
   initializeUI();
   initializeRegisterForm();
   initializeGame();
+  initializeNotifications(); // ← ADICIONE ESTA LINHA
+    
+  
   
   // Verificar elementos (apenas para debug)
   checkRequiredElements();
@@ -1750,6 +1753,21 @@ function setupGameListener(tableId) {
         
         if (doc.exists) {
             gameState = doc.data();
+
+            // VERIFICAR SE HOUVE DESISTÊNCIA (APENAS PARA O JOGADOR QUE FICOU)
+            if (gameState.status === 'finished' && gameState.surrendered) {
+                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+                
+                // Se o currentUser é o vencedor (não foi quem desistiu)
+                if (currentPlayer && currentPlayer.color === gameState.winner) {
+                    showNotification(`${gameState.surrenderedByName} desistiu da partida. Você venceu!`, 'success');
+                    
+                    // Fechar o jogo automaticamente após notificação
+                    setTimeout(() => {
+                        leaveGame();
+                    }, 3000);
+                }
+            }
             
             // Verificar se gameState é válido
             if (!gameState) {
@@ -1801,8 +1819,61 @@ function setupGameListener(tableId) {
         }
     });
 }
+// ===== SISTEMA DE NOTIFICAÇÕES =====
+function initializeNotifications() {
+    // Verificar se usuário está logado
+    if (!currentUser) return;
+    
+    // Listener para notificações
+    db.collection('notifications')
+        .where('userId', '==', currentUser.uid)
+        .where('read', '==', false)
+        .orderBy('timestamp', 'desc')
+        .onSnapshot((snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === 'added') {
+                    const notification = change.doc.data();
+                    showGameNotification(notification.message);
+                    
+                    // Marcar como lida
+                    db.collection('notifications').doc(change.doc.id).update({
+                        read: true
+                    });
+                }
+            });
+        });
+}
 
-// ===== FUNÇÃO AUXILIAR PARA VERIFICAR REFERÊNCIAS =====
+// ===== FUNÇÃO PARA MOSTRAR NOTIFICAÇÃO DE JOGO =====
+function showGameNotification(message) {
+    const notification = document.createElement('div');
+    notification.className = 'game-notification';
+    notification.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-info-circle"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 100);
+    
+    // Remover após 5 segundos
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 5000);
+}
+
+
 function isGameRefValid() {
     return currentGameRef !== null && 
            currentGameRef !== undefined && 
@@ -2127,68 +2198,90 @@ function updatePlayerInfo() {
     }
   }
 }
-
-// ===== FUNÇÃO SURRENDER GAME =====
+// ===== FUNÇÃO SURRENDER GAME CORRIGIDA =====
 async function surrenderGame() {
-  console.log('Iniciando processo de desistência...');
-  
-  if (!currentGameRef || !gameState) {
-    showNotification('Nenhum jogo ativo para desistir', 'error');
-    return;
-  }
-  
-  try {
-    // Mostrar confirmação
-    const confirm = await showConfirmModal('Desistir', 'Tem certeza que deseja desistir desta partida?');
-    if (!confirm) return;
+    console.log('Iniciando processo de desistência...');
     
-    // Determinar o vencedor (oponente)
-    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-    const winner = currentPlayer.color === 'red' ? 'black' : 'red';
-    
-    // Calcular recompensas
-    const betAmount = gameState.bet || 0;
-    const reward = betAmount * 2; // O vencedor recebe o dobro da aposta
-    
-    // Atualizar estatísticas dos jogadores
-    const winningPlayer = gameState.players.find(p => p.color === winner);
-    const losingPlayer = currentPlayer;
-    
-    if (winningPlayer) {
-      await db.collection('users').doc(winningPlayer.uid).update({
-        wins: firebase.firestore.FieldValue.increment(1),
-        rating: firebase.firestore.FieldValue.increment(10), // Menos pontos por desistência
-        coins: firebase.firestore.FieldValue.increment(reward)
-      });
+    if (!currentGameRef || !gameState) {
+        showNotification('Nenhum jogo ativo para desistir', 'error');
+        return;
     }
     
-    if (losingPlayer) {
-      await db.collection('users').doc(losingPlayer.uid).update({
-        losses: firebase.firestore.FieldValue.increment(1),
-        rating: firebase.firestore.FieldValue.increment(-15) // Mais penalidade por desistir
-      });
+    try {
+        // Mostrar confirmação
+        const confirm = await showConfirmModal('Desistir', 'Tem certeza que deseja desistir desta partida?');
+        if (!confirm) return;
+        
+        // Determinar o vencedor (oponente)
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        const winner = currentPlayer.color === 'red' ? 'black' : 'red';
+        const winnerPlayer = gameState.players.find(p => p.color === winner);
+        
+        if (!winnerPlayer) {
+            showNotification('Erro: oponente não encontrado', 'error');
+            return;
+        }
+        
+        // Calcular recompensas
+        const betAmount = gameState.bet || 0;
+        const reward = betAmount * 2; // O vencedor recebe o dobro da aposta
+        
+        // Atualizar estatísticas dos jogadores
+        const updates = {};
+        
+        // Vencedor
+        updates[`users/${winnerPlayer.uid}`] = {
+            wins: firebase.firestore.FieldValue.increment(1),
+            rating: firebase.firestore.FieldValue.increment(10),
+            coins: firebase.firestore.FieldValue.increment(reward)
+        };
+        
+        // Perdedor (quem desistiu)
+        updates[`users/${currentUser.uid}`] = {
+            losses: firebase.firestore.FieldValue.increment(1),
+            rating: firebase.firestore.FieldValue.increment(-15)
+        };
+        
+        // Executar atualizações em batch
+        const batch = db.batch();
+        Object.keys(updates).forEach(path => {
+            const ref = db.doc(path);
+            batch.update(ref, updates[path]);
+        });
+        await batch.commit();
+        
+        // ENVIAR NOTIFICAÇÃO PARA O OPONENTE
+        await db.collection('notifications').add({
+            type: 'game_surrender',
+            userId: winnerPlayer.uid,
+            message: `${currentPlayer.displayName} desistiu da partida. Você venceu!`,
+            tableId: currentGameRef.id,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+        
+        // Atualizar estado do jogo com informação de desistência
+        await currentGameRef.update({
+            status: 'finished',
+            winner: winner,
+            finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            surrendered: true,
+            surrenderedBy: currentUser.uid,
+            surrenderedByName: currentPlayer.displayName,
+            resultText: `Desistência - Vitória das ${winner}`
+        });
+        
+        showNotification('Você desistiu da partida', 'info');
+        
+        // Voltar para o lobby após 2 segundos
+        setTimeout(() => {
+            leaveGame();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Erro ao desistir do jogo:', error);
+        showNotification('Erro ao desistir: ' + error.message, 'error');
     }
-    
-    // Atualizar estado do jogo
-    await currentGameRef.update({
-      status: 'finished',
-      winner: winner,
-      finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      surrendered: true,
-      surrenderedBy: currentUser.uid
-    });
-    
-    showNotification('Você desistiu da partida', 'info');
-    
-    // Voltar para o lobby após 2 segundos
-    setTimeout(() => {
-      leaveGame();
-    }, 2000);
-    
-  } catch (error) {
-    console.error('Erro ao desistir do jogo:', error);
-    showNotification('Erro ao desistir: ' + error.message, 'error');
-  }
 }
 
 // ===== FUNÇÃO SHOW CONFIRM MODAL =====
