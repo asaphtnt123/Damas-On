@@ -22,11 +22,15 @@ let selectedPiece = null;
 let currentGameRef = null;
 let gameListener = null;
 let tablesListener = null;
+let userActiveTable = null;
 
-// ===== VARIÁVEIS DE CONTROLE DE TEMPO =====
 let moveTimer = null;
 let timeLeft = 0;
 let currentTimeLimit = 0;
+
+
+// Executar limpeza periodicamente
+setInterval(cleanupAbandonedTables, 10 * 60 * 1000); // A cada 10 minutos
 
 // ===== INICIALIZAÇÃO =====
 document.addEventListener('DOMContentLoaded', function() {
@@ -63,6 +67,7 @@ function initializeApp() {
   initializeNotifications(); // ← ADICIONE ESTA LINHA
   setupConnectionMonitoring();
       setupTimerPause();
+       initializeTableCheck();
 
     
   
@@ -540,8 +545,8 @@ function initializeUI() {
   // Jogo - verificar se os botões existem
   const leaveGameBtn = document.getElementById('btn-leave-game');
   if (leaveGameBtn) {
-    leaveGameBtn.addEventListener('click', leaveGame);
-  }
+        leaveGameBtn.addEventListener('click', confirmLeaveWaitingRoom);
+    }
   
   const surrenderBtn = document.getElementById('btn-surrender');
   if (surrenderBtn) {
@@ -1370,8 +1375,24 @@ function initializeBrazilianCheckersBoard() {
   
   return board;
 }
-// ===== FUNÇÃO ATUALIZADA PARA CRIAR MESA =====
+
+// ===== FUNÇÃO CREATE NEW TABLE COM VERIFICAÇÃO =====
 async function createNewTable() {
+
+
+    // Verificar se já tem mesa ativa
+    const hasActiveTable = await checkUserActiveTable();
+    if (hasActiveTable) {
+        showNotification('Você já tem uma mesa ativa! Finalize-a antes de criar outra.', 'error');
+        
+        // Opcional: redirecionar para a mesa existente
+        setTimeout(() => {
+            joinTable(userActiveTable);
+        }, 2000);
+        
+        return;
+    }
+    
     const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
     const timeLimit = parseInt(document.getElementById('table-time').value);
     const bet = parseInt(document.getElementById('table-bet').value) || 0;
@@ -1381,12 +1402,12 @@ async function createNewTable() {
         return;
     }
     
-      try {
+    try {
         const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
         
         const tableRef = await db.collection('tables').add({
             name: tableName,
-            timeLimit: timeLimit, // ← SALVAR O LIMITE DE TEMPO
+            timeLimit: timeLimit,
             bet: bet,
             status: 'waiting',
             players: [{
@@ -1400,10 +1421,11 @@ async function createNewTable() {
             currentTurn: 'black',
             board: boardData,
             waitingForOpponent: true,
-            platformFee: calculatePlatformFee(bet),
-            // Adicionar timestamp da última jogada
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+            platformFee: calculatePlatformFee(bet)
         });
+        
+        // Salvar referência da mesa ativa
+        userActiveTable = tableRef.id;
         
         if (bet > 0) {
             await db.collection('users').doc(currentUser.uid).update({
@@ -1426,8 +1448,12 @@ async function createNewTable() {
 // ===== CORRIGIR JOIN TABLE =====
 async function joinTable(tableId) {
   try {
+    userActiveTable = tableId;
+    
+    
     const tableRef = db.collection('tables').doc(tableId);
     const tableDoc = await tableRef.get();
+     
     
     if (!tableDoc.exists) {
       showNotification('Mesa não encontrada', 'error');
@@ -1488,11 +1514,59 @@ async function joinTable(tableId) {
     setupGameListener(tableId);
     showScreen('game-screen');
     showNotification('Jogo iniciado! As peças pretas começam.', 'success');
+    updateCreateButtonStatus();
+    
+
     
   } catch (error) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
+
+
+// ===== LIMPEZA DE MESAS ABANDONADAS =====
+async function cleanupAbandonedTables() {
+    if (!currentUser) return;
+    
+    try {
+        // Procurar mesas antigas do usuário
+        const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
+        
+        const snapshot = await db.collection('tables')
+            .where('createdBy', '==', currentUser.uid)
+            .where('status', 'in', ['waiting'])
+            .where('createdAt', '<', twentyMinutesAgo)
+            .get();
+        
+        const batch = db.batch();
+        
+        snapshot.forEach(doc => {
+            // Devolver apostas se houver
+            const table = doc.data();
+            if (table.bet > 0) {
+                batch.update(db.collection('users').doc(currentUser.uid), {
+                    coins: firebase.firestore.FieldValue.increment(table.bet)
+                });
+            }
+            
+            // Excluir mesa
+            batch.delete(doc.ref);
+        });
+        
+        if (snapshot.size > 0) {
+            await batch.commit();
+            console.log(`Limpeza: ${snapshot.size} mesas abandonadas removidas`);
+        }
+    } catch (error) {
+        console.error('Erro na limpeza de mesas:', error);
+    }
+}
+
+
+
+
+
+
 
 // ===== VERIFICAR SE JOGO COMEÇOU =====
 function hasGameStarted() {
@@ -1558,18 +1632,24 @@ async function joinAsSpectator(tableId) {
         showNotification('Erro ao assistir jogo: ' + error.message, 'error');
     }
 }
-// ===== ATUALIZAR SETUP SPECTATORS LISTENER =====
+
+// ===== SETUP SPECTATORS LISTENER CORRIGIDA =====
 function setupSpectatorsListener(tableId) {
     if (spectatorsListener) spectatorsListener();
     
     spectatorsListener = db.collection('tables')
         .doc(tableId)
         .collection('spectators')
-        .onSnapshot((snapshot) => {
+        .onSnapshot(async (snapshot) => {
+            const oldSpectators = [...currentSpectators];
             currentSpectators = [];
+            
             snapshot.forEach((doc) => {
                 currentSpectators.push({ id: doc.id, ...doc.data() });
             });
+            
+            // Atualizar contagem na mesa principal
+            await updateTableSpectatorsCount(tableId, currentSpectators.length);
             
             // Atualizar badge do botão
             const badge = document.getElementById('spectators-count');
@@ -1582,11 +1662,16 @@ function setupSpectatorsListener(tableId) {
             if (spectatorsModal && spectatorsModal.classList.contains('active')) {
                 updateSpectatorsModal();
             }
+            
+            // Atualizar UI dos espectadores
+            updateSpectatorsUI(oldSpectators);
+            
+        }, (error) => {
+            console.error('Erro no listener de espectadores:', error);
         });
 }
-
-// ===== ATUALIZAR UPDATE SPECTATORS UI PARA JOGADORES =====
-function updateSpectatorsUI() {
+// ===== ATUALIZAR SPECTATORS UI CORRIGIDA =====
+function updateSpectatorsUI(oldSpectators = []) {
     const spectatorsContainer = document.getElementById('spectators-container');
     const supportersContainer = document.getElementById('supporters-container');
     const spectatorsCountBadge = document.querySelector('.spectators-count-badge');
@@ -1603,35 +1688,42 @@ function updateSpectatorsUI() {
         <div class="spectators-list">
             ${currentSpectators.map(spec => `
                 <div class="spectator-item">
-                    <i class="fas fa-user"></i>
+                    <div class="spectator-avatar">
+                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(spec.displayName)}&background=random" alt="${spec.displayName}">
+                    </div>
                     <span class="spectator-name">${spec.displayName}</span>
                     ${spec.supporting ? `
-                        <span class="supporting-badge" style="background: ${spec.supporting === 'black' ? '#000' : '#e74c3c'}">
+                        <span class="supporting-badge" style="background: ${spec.supporting === 'black' ? '#2c3e50' : '#e74c3c'}">
                             <i class="fas fa-flag"></i> Torcendo
                         </span>
                     ` : ''}
                 </div>
             `).join('')}
-            ${currentSpectators.length === 0 ? '<div class="no-spectators">Nenhum espectador</div>' : ''}
+            ${currentSpectators.length === 0 ? 
+                '<div class="no-spectators"><i class="fas fa-eye-slash"></i> Nenhum espectador</div>' : ''}
         </div>
     `;
     
     // Lista de torcedores por jogador
     const blackSupporters = currentSpectators.filter(s => s.supporting === 'black');
     const redSupporters = currentSpectators.filter(s => s.supporting === 'red');
+    const neutralSpectators = currentSpectators.filter(s => !s.supporting);
     
     supportersContainer.innerHTML = `
         <div class="supporters-section">
-            <h5 class="supporters-title" style="color: #000;">
+            <h5 class="supporters-title" style="color: #2c3e50;">
                 <i class="fas fa-chess-pawn"></i> Pretas (${blackSupporters.length})
             </h5>
             <div class="supporters-list">
                 ${blackSupporters.map(s => `
                     <div class="supporter-item">
-                        <i class="fas fa-user"></i> ${s.displayName}
+                        <div class="supporter-avatar">
+                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(s.displayName)}&background=2c3e50&color=fff" alt="${s.displayName}">
+                        </div>
+                        <span class="supporter-name">${s.displayName}</span>
                     </div>
                 `).join('')}
-                ${blackSupporters.length === 0 ? '<div class="no-supporters">Ninguém torcendo</div>' : ''}
+                ${blackSupporters.length === 0 ? '<div class="no-supporters"><i class="fas fa-heart-broken"></i> Ninguém torcendo</div>' : ''}
             </div>
         </div>
         
@@ -1642,33 +1734,61 @@ function updateSpectatorsUI() {
             <div class="supporters-list">
                 ${redSupporters.map(s => `
                     <div class="supporter-item">
-                        <i class="fas fa-user"></i> ${s.displayName}
+                        <div class="supporter-avatar">
+                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(s.displayName)}&background=e74c3c&color=fff" alt="${s.displayName}">
+                        </div>
+                        <span class="supporter-name">${s.displayName}</span>
                     </div>
                 `).join('')}
-                ${redSupporters.length === 0 ? '<div class="no-supporters">Ninguém torcendo</div>' : ''}
+                ${redSupporters.length === 0 ? '<div class="no-supporters"><i class="fas fa-heart-broken"></i> Ninguém torcendo</div>' : ''}
+            </div>
+        </div>
+        
+        <div class="supporters-section">
+            <h5 class="supporters-title" style="color: #7f8c8d;">
+                <i class="fas fa-eye"></i> Neutros (${neutralSpectators.length})
+            </h5>
+            <div class="supporters-list">
+                ${neutralSpectators.map(s => `
+                    <div class="supporter-item">
+                        <div class="supporter-avatar">
+                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(s.displayName)}&background=7f8c8d&color=fff" alt="${s.displayName}">
+                        </div>
+                        <span class="supporter-name">${s.displayName}</span>
+                    </div>
+                `).join('')}
+                ${neutralSpectators.length === 0 ? '<div class="no-supporters"><i class="fas fa-user"></i> Nenhum espectador neutro</div>' : ''}
             </div>
         </div>
     `;
     
     // Mostrar notificação para jogadores quando alguém torce por eles
-    const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
+    const isPlayer = gameState && gameState.players && gameState.players.some(p => p.uid === currentUser.uid);
     if (isPlayer) {
         const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-        const newSupporters = currentSpectators.filter(s => 
-            s.supporting === currentPlayer.color && 
-            !currentSpectators.some(oldSpec => oldSpec.id === s.id && oldSpec.supporting === currentPlayer.color)
+        
+        // Encontrar novos torcedores
+        const newSupporters = currentSpectators.filter(newSpec => 
+            newSpec.supporting === currentPlayer.color && 
+            !oldSpectators.some(oldSpec => oldSpec.id === newSpec.id && oldSpec.supporting === currentPlayer.color)
         );
         
         newSupporters.forEach(supporter => {
-            showNotification(`${supporter.displayName} está torcendo por você! 🎉`, 'success', 3000);
+            showNotification(`🎉 ${supporter.displayName} está torcendo por você!`, 'success', 3000);
         });
     }
 }
-
-// ===== FUNÇÃO SUPPORT PLAYER =====
+// ===== FUNÇÃO SUPPORT PLAYER CORRIGIDA =====
 async function supportPlayer(playerColor) {
-    if (!currentGameRef || !currentUser) {
+    if (!currentGameRef || !currentUser || !gameState) {
         showNotification('Você precisa estar assistindo um jogo', 'error');
+        return;
+    }
+    
+    // Verificar se a cor é válida
+    const validColors = ['black', 'red'];
+    if (!validColors.includes(playerColor)) {
+        showNotification('Cor de jogador inválida', 'error');
         return;
     }
     
@@ -1678,6 +1798,7 @@ async function supportPlayer(playerColor) {
             .collection('spectators')
             .doc(currentUser.uid);
         
+        // Verificar se já está torcendo para esta cor
         if (userSupporting === playerColor) {
             // Parar de torcer
             await spectatorRef.update({
@@ -1688,20 +1809,34 @@ async function supportPlayer(playerColor) {
         } else {
             // Torcer para o jogador
             await spectatorRef.update({
-                supporting: playerColor
+                supporting: playerColor,
+                supportedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             userSupporting = playerColor;
             
-            const playerName = gameState.players.find(p => p.color === playerColor)?.displayName || playerColor;
-            showNotification(`Você está torcendo para ${playerName}!`, 'success');
+            const player = gameState.players.find(p => p.color === playerColor);
+            const playerName = player?.displayName || (playerColor === 'black' ? 'Pretas' : 'Vermelhas');
+            
+            showNotification(`🎯 Você está torcendo para ${playerName}!`, 'success');
+            
+            // Notificar o jogador se estiver online
+            if (player && player.uid !== currentUser.uid) {
+                await db.collection('notifications').add({
+                    type: 'new_supporter',
+                    userId: player.uid,
+                    message: `${userData.displayName} está torcendo por você!`,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    read: false
+                });
+            }
         }
         
     } catch (error) {
         console.error('Erro ao torcer:', error);
         showNotification('Erro ao torcer: ' + error.message, 'error');
     }
-}
-// ===== FUNÇÃO UPDATE RENDER TABLE PARA ESPECTADORES (CORRIGIDA) =====
+}// ===== RENDER TABLE COM ESPECTADORES CORRIGIDA =====
 function renderTable(table, container) {
     const tableEl = document.createElement('div');
     tableEl.className = 'table-item';
@@ -1747,7 +1882,7 @@ function renderTable(table, container) {
         } else {
             actionButton = `
                 <button class="btn btn-info btn-small watch-btn">
-                    <i class="fas fa-eye"></i> Assistir
+                    <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
                 </button>
             `;
         }
@@ -1793,6 +1928,7 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
+
 // ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
 function setupGameListener(tableId) {
     // Remover listener anterior se existir
@@ -1810,6 +1946,9 @@ function setupGameListener(tableId) {
     
     currentGameRef = db.collection('tables').doc(tableId);
     
+    // Inicializar previousGameState
+    let previousGameState = null;
+    
     gameListener = currentGameRef.onSnapshot(async (doc) => {
         // Verificar se a referência ainda é a mesma (evitar race conditions)
         if (!currentGameRef || currentGameRef.id !== tableId) {
@@ -1823,76 +1962,70 @@ function setupGameListener(tableId) {
             leaveGame();
             return;
         }
-        
-        const previousGameState = gameState;
+
+        // Salvar o estado anterior ANTES de atualizar
+        const oldGameState = gameState;
         gameState = doc.data();
 
-         // DETECTAR TIMEOUT (PARA O JOGADOR QUE FICOU)
-            if (gameState.status === 'finished' && gameState.timeout) {
-                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-                
-                // Se o currentUser é o vencedor (não foi quem ficou sem tempo)
-                if (currentPlayer && currentPlayer.color === gameState.winner) {
-                    showNotification(`${gameState.timeoutByName} ficou sem tempo! Você venceu! 🎉`, 'success');
-                    
-                    // Fechar o jogo automaticamente após notificação
-                    setTimeout(() => {
-                        leaveGame();
-                    }, 5000);
-                }
-                
-                // Se o currentUser é quem perdeu por tempo
-                else if (currentPlayer && gameState.timeoutBy === currentUser.uid) {
-                    showNotification('Você ficou sem tempo e perdeu o jogo! ⏰', 'error');
-                    
-                    // Fechar o jogo automaticamente após notificação
-                    setTimeout(() => {
-                        leaveGame();
-                    }, 5000);
-                }
+        // DETECTAR SE OPONENTE ENTROU NA MESA EM ESPERA
+        if (oldGameState && oldGameState.status === 'waiting' && 
+            gameState.status === 'playing' && gameState.players && gameState.players.length === 2) {
+            
+            const newPlayer = gameState.players.find(p => 
+                !oldGameState.players.some(prevP => prevP.uid === p.uid)
+            );
+            
+            if (newPlayer) {
+                showGameNotification(`🎉 ${newPlayer.displayName} entrou na sua mesa! Clique para jogar.`, () => {
+                    showScreen('game-screen');
+                });
             }
+        }
+
+        // DETECTAR TIMEOUT (PARA O JOGADOR QUE FICOU)
+        if (gameState.status === 'finished' && gameState.timeout) {
+            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            
+            if (currentPlayer && currentPlayer.color === gameState.winner) {
+                showNotification(`${gameState.timeoutByName} ficou sem tempo! Você venceu! 🎉`, 'success');
+                setTimeout(() => leaveGame(), 5000);
+            } else if (currentPlayer && gameState.timeoutBy === currentUser.uid) {
+                showNotification('Você ficou sem tempo e perdeu o jogo! ⏰', 'error');
+                setTimeout(() => leaveGame(), 5000);
+            }
+        }
         
-  // CONFIGURAR LIMITE DE TEMPO APENAS QUANDO O JOGO COMEÇAR
-            if (gameState.timeLimit !== undefined) {
-                currentTimeLimit = gameState.timeLimit;
+        // CONFIGURAR LIMITE DE TEMPO
+        if (gameState.timeLimit !== undefined) {
+            currentTimeLimit = gameState.timeLimit;
+            
+            const gameStarted = gameState.status === 'playing' && 
+                              gameState.players && 
+                              gameState.players.length === 2;
+            
+            if (gameStarted) {
+                const turnChanged = !oldGameState || 
+                                  oldGameState.currentTurn !== gameState.currentTurn;
                 
-                // SÓ INICIAR TIMER QUANDO:
-                // 1. O jogo estiver em andamento (status = 'playing')
-                // 2. Houver dois jogadores
-                // 3. O turno mudar
-                const gameStarted = gameState.status === 'playing' && 
-                                  gameState.players && 
-                                  gameState.players.length === 2;
+                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+                const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
                 
-                if (gameStarted) {
-                    const turnChanged = !previousGameState || 
-                                      previousGameState.currentTurn !== gameState.currentTurn;
-                    
-                    // Iniciar timer apenas se:
-                    // - É a primeira vez que o jogo começa
-                    // - O turno mudou
-                    // - É a vez do jogador atual
-                    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-                    const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
-                    
-                    if ((!previousGameState || turnChanged) && isMyTurn) {
-                        startMoveTimer();
-                    }
-                    
-                    // Se não é minha vez, parar o timer
-                    if (!isMyTurn) {
-                        stopMoveTimer();
-                    }
-                } else {
-                    // Jogo não começou ainda, parar timer
+                if ((!oldGameState || turnChanged) && isMyTurn) {
+                    startMoveTimer();
+                }
+                
+                if (!isMyTurn) {
                     stopMoveTimer();
                 }
+            } else {
+                stopMoveTimer();
             }
+        }
+        
         // ATUALIZAR HEADER COM NOMES DOS JOGADORES
-            const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-            updateGameHeader(currentPlayer, opponent);
-
+        const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        updateGameHeader(currentPlayer, opponent);
 
         // Verificar se gameState é válido
         if (!gameState) {
@@ -1900,28 +2033,21 @@ function setupGameListener(tableId) {
             return;
         }
         
-        // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado, não processar mais
+        // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado
         if (gameState.status === 'finished' || gameState.status === 'draw') {
             console.log('Jogo finalizado, ignorando atualizações');
             
-            // Apenas atualizar a UI se necessário
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
                 renderBoard(gameState.board);
             }
             
-            // VERIFICAR SE HOUVE DESISTÊNCIA (APENAS PARA O JOGADOR QUE FICOU)
             if (gameState.surrendered) {
                 const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
                 
-                // Se o currentUser é o vencedor (não foi quem desistiu)
                 if (currentPlayer && currentPlayer.color === gameState.winner) {
                     showNotification(`${gameState.surrenderedByName} desistiu da partida. Você venceu!`, 'success');
-                    
-                    // Fechar o jogo automaticamente após notificação
-                    setTimeout(() => {
-                        leaveGame();
-                    }, 3000);
+                    setTimeout(() => leaveGame(), 3000);
                 }
             }
             
@@ -1929,14 +2055,12 @@ function setupGameListener(tableId) {
         }
         
         // DETECTAR NOVA PROPOSTA DE EMPATE
-        if (gameState.drawOffer && (!previousGameState || !previousGameState.drawOffer)) {
+        if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
             const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
             
-            // Se a proposta é para o usuário atual (não é dele)
             if (currentPlayer && gameState.drawOffer.from !== currentUser.uid) {
                 console.log('Nova proposta de empate recebida');
                 
-                // Mostrar modal de proposta
                 showDrawProposalModal(
                     'Proposta de Empate', 
                     `${gameState.drawOffer.senderName} ofereceu empate. Aceitar?`
@@ -1944,11 +2068,7 @@ function setupGameListener(tableId) {
                     if (accepted) {
                         await endGame('draw');
                     }
-                    
-                    // Limpar a proposta independente da resposta
-                    await currentGameRef.update({
-                        drawOffer: null
-                    });
+                    await currentGameRef.update({ drawOffer: null });
                 });
             }
         }
@@ -1960,11 +2080,8 @@ function setupGameListener(tableId) {
                              new Date(gameState.drawOffer.expiresAt);
             
             if (new Date() > expiresAt) {
-                // Proposta expirada - limpar
                 try {
-                    await currentGameRef.update({
-                        drawOffer: null
-                    });
+                    await currentGameRef.update({ drawOffer: null });
                     showNotification('Proposta de empate expirada', 'info');
                 } catch (error) {
                     console.error('Erro ao limpar proposta expirada:', error);
@@ -1983,34 +2100,41 @@ function setupGameListener(tableId) {
             return;
         }
         
-        // Atualizar interface
+        // DEBUG: Verificar se o tabuleiro está sendo processado
+        console.log('Tabuleiro processado:', gameState.board ? 'Sim' : 'Não');
+        if (gameState.board) {
+            console.log('Dimensões do tabuleiro:', gameState.board.length, 'x', gameState.board[0].length);
+        }
+        
+        // Atualizar interface - ADICIONE ESTES LOGS PARA DEBUG
+        console.log('Chamando renderBoard...');
         renderBoard(gameState.board);
+        console.log('RenderBoard concluído');
+        
         updatePlayerInfo();
         checkGlobalMandatoryCaptures();
         updateTurnInfo();
-            updatePiecesCount();
-
+        updatePiecesCount();
         
         if (gameState.status === 'playing') {
             setupChatListener();
             setupSpectatorsListener(tableId);
         }
         
-        // Verificar fim de jogo (apenas se não estiver finalizado)
+        // Verificar fim de jogo
         checkGameEnd(gameState.board, gameState.currentTurn);
+        
+        // Atualizar previousGameState para a próxima iteração
+        previousGameState = gameState;
         
     }, (error) => {
         console.error('Erro no listener do jogo:', error);
         
-        // Não mostrar erro para o usuário se for apenas cancelamento
         if (error.code !== 'cancelled') {
             showNotification('Erro de conexão com o jogo', 'error');
             
-            // Se for erro grave, sair do jogo
             if (error.code === 'permission-denied' || error.code === 'not-found') {
-                setTimeout(() => {
-                    leaveGame();
-                }, 2000);
+                setTimeout(() => leaveGame(), 2000);
             }
         }
     });
@@ -2148,6 +2272,11 @@ function showGameNotification(message) {
             <span>${message}</span>
         </div>
     `;
+     if (onClick) {
+        notification.style.cursor = 'pointer';
+        notification.addEventListener('click', onClick);
+    }
+
     
     document.body.appendChild(notification);
     
@@ -2277,15 +2406,35 @@ function leaveGame() {
     selectedPiece = null;
     currentSpectators = [];
     userSupporting = null;
-    
+    userActiveTable = null;
     // Voltar para a tela principal
     showScreen('main-screen');
     loadTables();
     cleanupDrawOffer();
     stopMoveTimer();
+    updateCreateButtonStatus();
+
+    
     
     console.log('Jogo finalizado e recursos limpos');
 }
+
+
+// ===== INICIALIZAR VERIFICAÇÃO DE MESA ATIVA =====
+async function initializeTableCheck() {
+    if (currentUser) {
+        const hasActiveTable = await checkUserActiveTable();
+        if (hasActiveTable) {
+            showNotification('Você tem uma mesa ativa. Redirecionando...', 'info');
+            
+            // Entrar automaticamente na mesa existente
+            setTimeout(() => {
+                joinTable(userActiveTable);
+            }, 2000);
+        }
+    }
+}
+
 
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
 let hasGlobalMandatoryCaptures = false;
@@ -2568,6 +2717,8 @@ function updateGameHeader(currentPlayer, opponent) {
         `;
     }
 }
+
+
 // ===== FUNÇÃO SURRENDER GAME CORRIGIDA =====
 async function surrenderGame() {
     console.log('Iniciando processo de desistência...');
@@ -4002,6 +4153,23 @@ function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
     
+      console.log('=== RENDER BOARD DEBUG ===');
+    console.log('Elemento board encontrado:', !!board);
+    
+    if (!board) {
+        console.error('ERRO: Elemento checkers-board não existe no DOM!');
+        return;
+    }
+    
+    console.log('Board state recebido:', boardState);
+    
+    if (!boardState) {
+        console.error('ERRO: boardState é null ou undefined');
+        return;
+    }
+    
+    console.log('Dimensões do board:', boardState.length, 'x', boardState[0].length);
+    
     board.innerHTML = '';
      // Limpar apenas se necessário
     if (board.children.length > 0) {
@@ -5084,3 +5252,341 @@ function setupConnectionMonitoring() {
     });
 }
 
+
+
+// ===== VERIFICAR SE USUÁRIO JÁ TEM MESA ATIVA =====
+async function checkUserActiveTable() {
+    if (!currentUser) return false;
+    
+    try {
+        // Procurar mesas onde o usuário é jogador e o status não é finalizado
+        const snapshot = await db.collection('tables')
+            .where('players', 'array-contains', {
+                uid: currentUser.uid
+            })
+            .where('status', 'in', ['waiting', 'playing'])
+            .limit(1)
+            .get();
+        
+        if (!snapshot.empty) {
+            const table = snapshot.docs[0];
+            userActiveTable = table.id;
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Erro ao verificar mesas ativas:', error);
+        return false;
+    }
+}
+
+
+
+// ===== ATUALIZAR UI COM STATUS DE MESA ATIVA =====
+function updateCreateButtonStatus() {
+    const createButton = document.getElementById('btn-create-table');
+    if (!createButton) return;
+    
+    if (userActiveTable) {
+        createButton.disabled = true;
+        createButton.title = 'Você já tem uma mesa ativa';
+        createButton.innerHTML = '<i class="fas fa-ban"></i> Mesa Ativa';
+        createButton.classList.add('disabled');
+    } else {
+        createButton.disabled = false;
+        createButton.title = 'Criar nova mesa';
+        createButton.innerHTML = '<i class="fas fa-plus"></i> Criar Mesa';
+        createButton.classList.remove('disabled');
+    }
+}
+
+// Chamar esta função quando o estado mudar
+function setUserActiveTable(tableId) {
+    userActiveTable = tableId;
+    updateCreateButtonStatus();
+}
+
+
+
+// ===== FORÇAR SAÍDA DE MESA =====
+async function forceLeaveTable() {
+    if (!userActiveTable) return;
+    
+    try {
+        const confirm = await showConfirmModal(
+            'Sair da Mesa', 
+            'Tem certeza que deseja sair da mesa atual? Isso pode resultar em derrota.'
+        );
+        
+        if (confirm) {
+            const tableRef = db.collection('tables').doc(userActiveTable);
+            const tableDoc = await tableRef.get();
+            
+            if (tableDoc.exists) {
+                const table = tableDoc.data();
+                
+                if (table.status === 'waiting') {
+                    // Mesa em espera - apenas remover
+                    await tableRef.delete();
+                    showNotification('Mesa removida', 'info');
+                } else if (table.status === 'playing') {
+                    // Mesa em jogo - marcar como desistência
+                    const winner = table.players.find(p => p.uid !== currentUser.uid)?.color;
+                    if (winner) {
+                        await endGame(winner);
+                    }
+                }
+            }
+            
+            userActiveTable = null;
+            updateCreateButtonStatus();
+        }
+    } catch (error) {
+        console.error('Erro ao forçar saída:', error);
+        showNotification('Erro ao sair da mesa', 'error');
+    }
+}
+
+
+
+// ===== CONFIRMAR SAÍDA DO JOGO =====
+async function confirmLeaveGame() {
+    if (!currentGameRef || !gameState) return;
+    
+    let message = '';
+    let confirmText = 'Sair';
+    let cancelText = 'Ficar';
+    
+    // Mensagens diferentes dependendo do status do jogo
+    if (gameState.status === 'waiting') {
+        message = 'Tem certeza que deseja sair da mesa? A mesa será excluída e qualquer aposta será perdida.';
+        confirmText = 'Excluir Mesa';
+    } else if (gameState.status === 'playing') {
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+        
+        if (isMyTurn) {
+            message = 'Tem certeza que deseja sair do jogo? Isso será considerado uma desistência e você perderá a partida!';
+            confirmText = 'Desistir';
+        } else {
+            message = 'Tem certeza que deseja sair do jogo? Isso será considerado uma desistência!';
+            confirmText = 'Desistir';
+        }
+    } else {
+        message = 'Tem certeza que deseja sair do jogo?';
+    }
+    
+    const confirm = await showConfirmModal('Confirmar Saída', message, confirmText, cancelText);
+    
+    if (confirm) {
+        await handleActualLeave();
+    }
+}
+
+
+// ===== TRATAR SAÍDA REAL =====
+async function handleActualLeave() {
+    try {
+        console.log('Processando saída do jogo...');
+        
+        if (!currentGameRef || !gameState) {
+            leaveGame();
+            return;
+        }
+        
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        
+        // Diferentes ações dependendo do status
+        if (gameState.status === 'waiting') {
+            // Mesa em espera - excluir completamente
+            await deleteWaitingTable();
+        } else if (gameState.status === 'playing' && currentPlayer) {
+            // Mesa em jogo - marcar como desistência
+            await surrenderFromGame();
+        } else {
+            // Outros casos - apenas sair
+            leaveGame();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar saída:', error);
+        showNotification('Erro ao sair do jogo', 'error');
+        leaveGame(); // Fallback
+    }
+}
+// ===== EXCLUIR MESA EM ESPERA =====
+async function deleteWaitingTable() {
+    try {
+        const tableDoc = await currentGameRef.get();
+        if (!tableDoc.exists) {
+            leaveGame();
+            return;
+        }
+        
+        const table = tableDoc.data();
+        
+        // Devolver aposta se houver
+        if (table.bet > 0) {
+            await db.collection('users').doc(currentUser.uid).update({
+                coins: firebase.firestore.FieldValue.increment(table.bet)
+            });
+            userData.coins += table.bet;
+            showNotification(`Aposta de ${table.bet} moedas devolvida`, 'info');
+        }
+        
+        // Excluir mesa
+        await currentGameRef.delete();
+        showNotification('Mesa excluída', 'info');
+        
+        leaveGame();
+        
+    } catch (error) {
+        console.error('Erro ao excluir mesa:', error);
+        showNotification('Erro ao excluir mesa', 'error');
+        leaveGame();
+    }
+}
+
+// ===== CONFIRMAR SAÍDA DA MESA DE ESPERA =====
+async function confirmLeaveWaitingRoom() {
+    if (!currentGameRef || !gameState) return;
+    
+    // Se a mesa está esperando oponente, oferecer opções
+    if (gameState.status === 'waiting') {
+        const choice = await showWaitingRoomOptions();
+        
+        switch (choice) {
+            case 'stay':
+                // Ficar na mesa (não fazer nada)
+                return;
+            case 'browse':
+                // Navegar mantendo a mesa aberta
+                await minimizeWaitingRoom();
+                break;
+            case 'leave':
+                // Sair e deletar a mesa
+                await deleteWaitingTable();
+                break;
+        }
+    } else {
+        // Para jogos em andamento, usar confirmação normal
+        confirmLeaveGame();
+    }
+}
+
+// ===== MODAL DE OPÇÕES PARA MESA EM ESPERA =====
+async function showWaitingRoomOptions() {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.className = 'modal waiting-room-modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>⏳ Esperando Oponente</h3>
+                </div>
+                <div class="modal-body">
+                    <div class="waiting-options">
+                        <div class="option" data-option="stay">
+                            <i class="fas fa-eye"></i>
+                            <div>
+                                <h4>Ficar Assistindo</h4>
+                                <p>Continue nesta tela aguardando um oponente</p>
+                            </div>
+                        </div>
+                        
+                        <div class="option" data-option="browse">
+                            <i class="fas fa-list"></i>
+                            <div>
+                                <h4>Navegar nas Mesas</h4>
+                                <p>Volte à lista de mesas enquanto espera</p>
+                                <small>Você será notificado quando alguém entrar</small>
+                            </div>
+                        </div>
+                        
+                        <div class="option" data-option="leave">
+                            <i class="fas fa-times"></i>
+                            <div>
+                                <h4>Cancelar Mesa</h4>
+                                <p>Excluir esta mesa e voltar ao início</p>
+                                <small>Sua aposta será devolvida</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        modal.classList.add('active');
+        
+        // Event listeners para as opções
+        const options = modal.querySelectorAll('.option');
+        options.forEach(option => {
+            option.addEventListener('click', () => {
+                const selectedOption = option.dataset.option;
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 300);
+                resolve(selectedOption);
+            });
+        });
+        
+        // Fechar ao clicar fora
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 300);
+                resolve('stay');
+            }
+        });
+    });
+}
+
+// ===== MINIMIZAR SALA DE ESPERA =====
+async function minimizeWaitingRoom() {
+    // Manter o listener ativo para detectar quando oponente entrar
+    if (gameListener) {
+        // Não remover o listener - manter monitorando
+        console.log('Mantendo mesa em espera em segundo plano');
+    }
+    
+    // Mostrar notificação
+    showNotification('Mesa mantida em espera. Você será notificado quando um oponente entrar.', 'info');
+    
+    // Voltar para a lista de mesas
+    showScreen('main-screen');
+    loadTables();
+    
+    // Adicionar badge indicando mesa ativa
+    addWaitingTableBadge();
+}
+
+// ===== BADGE DE MESA EM ESPERA =====
+function addWaitingTableBadge() {
+    // Adicionar badge no botão de mesas
+    const tablesBtn = document.querySelector('[data-tab="tables"]');
+    if (tablesBtn && !tablesBtn.querySelector('.waiting-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'waiting-badge';
+        badge.innerHTML = '<i class="fas fa-clock"></i>';
+        badge.title = 'Você tem uma mesa em espera';
+        tablesBtn.appendChild(badge);
+    }
+}
+
+
+
+
+
+
+// ===== ATUALIZAR CONTAGEM DE ESPECTADORES NA MESA =====
+async function updateTableSpectatorsCount(tableId, spectatorsCount) {
+    try {
+        await db.collection('tables').doc(tableId).update({
+            spectatorsCount: spectatorsCount,
+            lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error('Erro ao atualizar contagem de espectadores:', error);
+    }
+}

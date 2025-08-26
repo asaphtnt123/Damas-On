@@ -635,7 +635,6 @@ input:checked + .slider:before {
   font-size: 1.4rem;
   font-weight: 600;
   background: linear-gradient(45deg, var(--primary), var(--secondary));
-  -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -2922,8 +2921,161 @@ input:checked + .slider:before {
 
 
 
-// CSS para timer pausado
 .game-timer.paused {
     opacity: 0.6;
     background: #7f8c8d;
+}
+
+/* ESTILOS PARA BOTÃO DESABILITADO */
+.btn.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: #95a5a6;
+    border-color: #7f8c8d;
+}
+
+.btn.disabled:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+
+/* ESTILOS PARA MODAL DE ESPERA */
+.waiting-room-modal .modal-content {
+    max-width: 500px;
+}
+
+.waiting-options {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.option {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    gap: 15px;
+}
+
+.option:hover {
+    border-color: #3498db;
+    background: #f8f9fa;
+    transform: translateY(-2px);
+}
+
+.option i {
+    font-size: 1.5rem;
+    color: #3498db;
+}
+
+.option h4 {
+    margin: 0 0 5px 0;
+    color: #2c3e50;
+}
+
+.option p {
+    margin: 0;
+    color: #6c757d;
+}
+
+.option small {
+    color: #28a745;
+    font-style: italic;
+}
+
+/* Badge de mesa em espera */
+.waiting-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #f39c12;
+    color: white;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    animation: pulse 2s infinite;
+}
+
+
+/* ESTILOS PARA ESPECTADORES */
+.spectator-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    margin: 5px 0;
+    background: #f8f9fa;
+    border-radius: 8px;
+    gap: 10px;
+}
+
+.spectator-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.spectator-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.spectator-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.supporting-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.supporter-item {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    gap: 8px;
+}
+
+.supporter-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.supporter-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.supporter-name {
+    font-size: 0.9rem;
+}
+
+.no-spectators,
+.no-supporters {
+    text-align: center;
+    padding: 20px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+.no-spectators i,
+.no-supporters i {
+    margin-right: 5px;
 }
