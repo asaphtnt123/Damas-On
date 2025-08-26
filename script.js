@@ -2229,37 +2229,65 @@ function highlightCapturingPieces() {
     });
 }
 
-// ===== FUNÇÃO HANDLE PIECE CLICK (COM VERIFICAÇÃO DE CAPTURA) =====
+// ===== FUNÇÃO HANDLE PIECE CLICK (ATUALIZADA) =====
 function handlePieceClick(row, col) {
+    console.log('Peça clicada:', row, col);
+    
+    if (!gameState || !gameState.board) {
+        showNotification('Jogo não carregado', 'error');
+        return;
+    }
+    
     const piece = gameState.board[row][col];
-    if (!piece || piece.color !== gameState.currentTurn) return;
+    if (!piece) return;
+    
+    // Verificar se é a vez do jogador
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    if (!currentPlayer || piece.color !== currentPlayer.color) {
+        showNotification('Não é sua vez de jogar', 'warning');
+        return;
+    }
+    
+    // Verificar se é a vez deste jogador
+    if (piece.color !== gameState.currentTurn) {
+        showNotification('Aguarde sua vez', 'info');
+        return;
+    }
     
     // Verificar capturas obrigatórias
     if (hasGlobalMandatoryCaptures) {
-        // Verificar se esta peça específica pode capturar
         const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-        
         if (!canThisPieceCapture) {
             showNotification('Você deve selecionar uma peça que possa capturar!', 'error');
             return;
         }
     }
     
-    // Selecionar peça
+    // Limpar seleção anterior
     clearSelection();
+    
+    // Selecionar nova peça
     selectedPiece = { row, col };
     
+    // Aplicar efeito visual de seleção
     const pieceEl = document.querySelector(`.checker-piece[data-row="${row}"][data-col="${col}"]`);
     if (pieceEl) {
         pieceEl.classList.add('selected');
         showPossibleMoves(row, col);
+        
+        // Feedback sonoro (opcional)
+        playSelectionSound();
     }
+    
+    console.log('Peça selecionada:', selectedPiece);
 }
-// ===== FUNÇÃO SHOW POSSIBLE MOVES (INDICAÇÃO CLARA DE CAPTURAS) =====
+
+// ===== FUNÇÃO SHOW POSSIBLE MOVES (ATUALIZADA) =====
 function showPossibleMoves(row, col) {
     clearHighlights();
     
     const moves = getPossibleMoves(row, col);
+    console.log('Movimentos possíveis:', moves);
     
     moves.forEach(move => {
         const cell = document.querySelector(`.board-cell[data-row="${move.toRow}"][data-col="${move.toCol}"]`);
@@ -2267,29 +2295,59 @@ function showPossibleMoves(row, col) {
             if (move.captures && move.captures.length > 0) {
                 cell.classList.add('capture-highlight');
                 cell.title = `Captura ${move.captures.length} peça(s)`;
+                
+                // Destacar peças que serão capturadas
+                move.captures.forEach(capture => {
+                    const pieceEl = document.querySelector(`.checker-piece[data-row="${capture.row}"][data-col="${capture.col}"]`);
+                    if (pieceEl) {
+                        pieceEl.classList.add('capture-target');
+                    }
+                });
             } else {
                 cell.classList.add('highlighted');
+                cell.title = 'Movimento simples';
             }
-        }
-        
-        // Destacar peças que serão capturadas
-        if (move.captures) {
-            move.captures.forEach(capture => {
-                const pieceEl = document.querySelector(`.checker-piece[data-row="${capture.row}"][data-col="${capture.col}"]`);
-                if (pieceEl) {
-                    pieceEl.classList.add('capture-target');
-                }
-            });
         }
     });
 }
 
 
-// ===== FUNÇÃO CLEAR HIGHLIGHTS =====
+// ===== FEEDBACK SONORO (OPCIONAL) =====
+function playSelectionSound() {
+    try {
+        // Criar um som simples de seleção
+        const context = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = context.createOscillator();
+        const gainNode = context.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(context.destination);
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 800;
+        gainNode.gain.value = 0.1;
+        
+        oscillator.start();
+        gainNode.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.1);
+        oscillator.stop(context.currentTime + 0.1);
+        
+    } catch (error) {
+        console.log('Áudio não disponível');
+    }
+}
+
+
+// ===== FUNÇÃO CLEAR HIGHLIGHTS (ATUALIZADA) =====
 function clearHighlights() {
-  document.querySelectorAll('.board-cell.highlighted').forEach(cell => {
-    cell.classList.remove('highlighted');
-  });
+    // Remover highlights das células
+    document.querySelectorAll('.board-cell.highlighted, .board-cell.capture-highlight').forEach(cell => {
+        cell.classList.remove('highlighted', 'capture-highlight');
+    });
+    
+    // Remover highlights das peças
+    document.querySelectorAll('.checker-piece.capture-target').forEach(piece => {
+        piece.classList.remove('capture-target');
+    });
 }
 
 // ===== FUNÇÃO CLEAR SELECTION =====
@@ -2520,7 +2578,19 @@ async function showConfirmModal(title, message) {
     closeBtn.addEventListener('click', onCancel);
   });
 }
-
+// ===== FUNÇÃO CLEAR SELECTION (ATUALIZADA) =====
+function clearSelection() {
+    // Remover seleção visual de todas as peças
+    document.querySelectorAll('.checker-piece.selected').forEach(piece => {
+        piece.classList.remove('selected');
+    });
+    
+    // Limpar highlights do tabuleiro
+    clearHighlights();
+    
+    // Limpar variável de seleção
+    selectedPiece = null;
+}
 // ===== FUNÇÃO OFFER DRAW COMPLETA =====
 async function offerDraw() {
     console.log('Ofertando empate...');
@@ -3786,13 +3856,16 @@ function getKingCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, 
     
     return captures;
 }
-
-// ===== ATUALIZAR RENDER BOARD PARA MOSTRAR TORCIDA =====
+// ===== ATUALIZAR RENDER BOARD CORRIGIDA =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
     
     board.innerHTML = '';
+     // Limpar apenas se necessário
+    if (board.children.length > 0) {
+        board.innerHTML = '';
+    }
     
     if (!gameState || !gameState.players) return;
     
@@ -3820,32 +3893,19 @@ function renderBoard(boardState) {
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
                 
-
-                
                 // Adicionar indicador de torcida se houver muitos torcedores
                 const supportersCount = currentSpectators.filter(s => s.supporting === piece.color).length;
                 if (supportersCount > 2) {
                     pieceEl.innerHTML = `<span class="supporters-indicator">${supportersCount}👏</span>`;
                 }
                 
-                  // VERIFICAR SE É A VEZ DO JOGADOR
-                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-                const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
-                const canSelect = isMyTurn && piece.color === currentPlayer.color;
+                // VERIFICAR SE É A VEZ DO JOGADOR
+                let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
-                if (canSelect) {
-                    pieceEl.style.cursor = 'pointer';
-                    pieceEl.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        handlePieceClick(row, col);
-                    });
-                } else {
-                    pieceEl.style.cursor = 'not-allowed';
-                    pieceEl.style.opacity = '0.7';
-                }
+                // Se há capturas obrigatórias, verificar se esta peça pode capturar
                 if (canSelect && hasMandatoryCaptures) {
                     const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-                    canSelect = canThisPieceCapture;
+                    canSelect = canThisPieceCapture; // CORREÇÃO: usar let em vez de const
                     
                     if (!canSelect) {
                         pieceEl.classList.add('disabled-piece');
@@ -3860,8 +3920,10 @@ function renderBoard(boardState) {
                         handlePieceClick(row, col);
                     });
                     pieceEl.style.cursor = 'pointer';
+                    pieceEl.title = 'Clique para selecionar';
                 } else {
                     pieceEl.style.cursor = 'not-allowed';
+                    pieceEl.style.opacity = '0.6';
                 }
                 
                 cell.appendChild(pieceEl);
@@ -3878,7 +3940,39 @@ function renderBoard(boardState) {
     
     updateTurnInfo();
     renderDrawOfferIndicator();
+    setTimeout(enhanceMobileExperience, 100);
 }
+
+
+// ===== MELHORAR EXPERIÊNCIA MOBILE =====
+function enhanceMobileExperience() {
+    // Aumentar área de toque para peças em dispositivos móveis
+    if ('ontouchstart' in window) {
+        document.querySelectorAll('.checker-piece').forEach(piece => {
+            piece.style.minWidth = '44px';
+            piece.style.minHeight = '44px';
+            piece.style.margin = '-8px';
+        });
+        
+        // Adicionar feedback visual para toque
+        document.addEventListener('touchstart', function(e) {
+            if (e.target.classList.contains('checker-piece')) {
+                e.target.classList.add('touch-active');
+            }
+        });
+        
+        document.addEventListener('touchend', function(e) {
+            document.querySelectorAll('.checker-piece.touch-active').forEach(piece => {
+                piece.classList.remove('touch-active');
+            });
+        });
+    }
+}
+
+
+
+
+
 
 // ===== FUNÇÃO COUNT PIECES =====
 function countPieces(color) {
