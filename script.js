@@ -1428,17 +1428,20 @@ async function joinTable(tableId) {
       return;
     }
     
-    // CORREÇÃO: Segundo jogador é VERMELHO (base)
-    await tableRef.update({
-      players: firebase.firestore.FieldValue.arrayUnion({
-        uid: currentUser.uid,
-        displayName: userData.displayName,
-        rating: userData.rating,
-        color: 'red' // Segundo jogador é vermelho
-      }),
-      status: 'playing',
-      waitingForOpponent: false
-    });
+   // CORREÇÃO: Segundo jogador é VERMELHO (base)
+        await tableRef.update({
+            players: firebase.firestore.FieldValue.arrayUnion({
+                uid: currentUser.uid,
+                displayName: userData.displayName,
+                rating: userData.rating,
+                color: 'red' // Segundo jogador é vermelho
+            }),
+            status: 'playing',
+            waitingForOpponent: false,
+            // Iniciar o tempo da primeira jogada
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
     
     // Deduzir aposta se houver
     if (table.bet > 0) {
@@ -1457,6 +1460,16 @@ async function joinTable(tableId) {
     showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
   }
 }
+
+// ===== VERIFICAR SE JOGO COMEÇOU =====
+function hasGameStarted() {
+    return gameState && 
+           gameState.status === 'playing' && 
+           gameState.players && 
+           gameState.players.length === 2;
+}
+
+
 // ===== FUNÇÃO UPDATE TABLES LIST (NOVA) =====
 function updateTablesList() {
     // Forçar recarregamento das mesas
@@ -1781,13 +1794,40 @@ function setupGameListener(tableId) {
         const previousGameState = gameState;
         gameState = doc.data();
         
- // CONFIGURAR LIMITE DE TEMPO
+  // CONFIGURAR LIMITE DE TEMPO APENAS QUANDO O JOGO COMEÇAR
             if (gameState.timeLimit !== undefined) {
                 currentTimeLimit = gameState.timeLimit;
                 
-                // Reiniciar timer quando mudar a vez
-                if (!previousGameState || previousGameState.currentTurn !== gameState.currentTurn) {
-                    startMoveTimer();
+                // SÓ INICIAR TIMER QUANDO:
+                // 1. O jogo estiver em andamento (status = 'playing')
+                // 2. Houver dois jogadores
+                // 3. O turno mudar
+                const gameStarted = gameState.status === 'playing' && 
+                                  gameState.players && 
+                                  gameState.players.length === 2;
+                
+                if (gameStarted) {
+                    const turnChanged = !previousGameState || 
+                                      previousGameState.currentTurn !== gameState.currentTurn;
+                    
+                    // Iniciar timer apenas se:
+                    // - É a primeira vez que o jogo começa
+                    // - O turno mudou
+                    // - É a vez do jogador atual
+                    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+                    const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+                    
+                    if ((!previousGameState || turnChanged) && isMyTurn) {
+                        startMoveTimer();
+                    }
+                    
+                    // Se não é minha vez, parar o timer
+                    if (!isMyTurn) {
+                        stopMoveTimer();
+                    }
+                } else {
+                    // Jogo não começou ainda, parar timer
+                    stopMoveTimer();
                 }
             }
         // ATUALIZAR HEADER COM NOMES DOS JOGADORES
@@ -3384,6 +3424,10 @@ function updateTurnInfo() {
     const isMyTurn = currentPlayer.color === gameState.currentTurn;
     
     if (isMyTurn) {
+       // Só iniciar timer se o jogo começou
+        if (hasGameStarted()) {
+            startMoveTimer();
+        }
         turnText.textContent = 'Sua vez!';
         turnIndicator.classList.add('my-turn');
         turnIndicator.classList.remove('opponent-turn');
@@ -3394,6 +3438,8 @@ function updateTurnInfo() {
         turnIndicator.classList.add('opponent-turn');
         turnIndicator.classList.remove('my-turn');
         turnDot.style.backgroundColor = '#e74c3c'; // Vermelho para vez do oponente
+                stopMoveTimer();
+
     }
     
     // Atualizar também as cartas dos jogadores
@@ -3430,8 +3476,7 @@ function updatePlayerCards(currentPlayer, isMyTurn) {
         }
     }
 }
-
-// ===== FUNÇÃO MAKE MOVE (DEBUG ADICIONAL PARA DAMAS) =====
+// ===== FUNÇÃO MAKE MOVE CORRIGIDA =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
         if (!gameState || !gameState.board || !currentGameRef) {
@@ -3462,31 +3507,12 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             console.log('Peça promovida a dama!');
         }
         
-         // Atualizar jogo com timestamp da jogada
-        const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
-        await currentGameRef.update({
-            board: firestoreBoard,
-            currentTurn: nextTurn,
-            lastMove: {
-                fromRow, fromCol, toRow, toCol, captures
-            },
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp() // ← ATUALIZAR TIMESTAMP
-        });
-
-        // DEBUG: Informações da peça
-        console.log('Peça movida:', movingPiece);
-        console.log('É dama?', movingPiece.king);
-        console.log('Capturas realizadas:', capturedPieces);
-        
-        // Verificar capturas adicionais NO TABULEIRO ATUALIZADO
+        // Verificar capturas adicionais
         const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], []);
-        console.log('Mais capturas possíveis:', moreCaptures.length);
-        
-        // REGRA IMPORTANTE: Para damas, só continuar se houver capturas adicionais
-        // que sejam na mesma jogada (captura múltipla)
         const shouldContinue = capturedPieces > 0 && moreCaptures.length > 0;
         
-        console.log('Continuar jogada?', shouldContinue);
+        // CORREÇÃO: Definir nextTurn corretamente
+        const nextTurn = shouldContinue ? gameState.currentTurn : (gameState.currentTurn === 'red' ? 'black' : 'red');
         
         if (shouldContinue) {
             console.log('CONTINUAR CAPTURA MÚLTIPLA');
@@ -3496,7 +3522,8 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                 board: firestoreBoard,
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
-                }
+                },
+                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
             });
             
             gameState.board = newBoard;
@@ -3514,18 +3541,17 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             }, 100);
             
         } else {
-            console.log('PASSAR TURNO');
+            console.log('PASSAR TURNO para:', nextTurn);
             
             // PASSAR TURNO
-            const nextTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
-            
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
                 board: firestoreBoard,
                 currentTurn: nextTurn,
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
-                }
+                },
+                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
             });
             
             gameState.board = newBoard;
@@ -3541,7 +3567,6 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
     }
 }
-
 
 // ===== FUNÇÃO GET CAPTURE MOVES FROM BOARD (ATUALIZADA PARA DAMAS) =====
 function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
@@ -4763,9 +4788,22 @@ function formatTimeAgo(timestamp) {
     return `Há ${Math.floor(minutes / 1440)} d`;
 }
 
-
-// ===== INICIAR TIMER DE JOGADA =====
+// ===== START MOVE TIMER COM VERIFICAÇÕES =====
 function startMoveTimer() {
+    // Verificar condições antes de iniciar
+    if (!gameState || 
+        gameState.status !== 'playing' || 
+        !gameState.players || 
+        gameState.players.length < 2) {
+        return;
+    }
+    
+    // Verificar se é realmente a vez do jogador
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    if (!currentPlayer || currentPlayer.color !== gameState.currentTurn) {
+        return;
+    }
+    
     // Limpar timer anterior
     stopMoveTimer();
     
@@ -4790,8 +4828,9 @@ function startMoveTimer() {
             showNotification('10 segundos restantes!', 'error');
         }
     }, 1000);
+    
+    console.log('Timer iniciado para jogador:', currentPlayer.displayName);
 }
-
 // ===== PARAR TIMER =====
 function stopMoveTimer() {
     if (moveTimer) {
@@ -4827,15 +4866,15 @@ function updateTimerDisplay() {
     }
 }
 
-// ===== TEMPO EXPIRADO =====
+// ===== TIME EXPIRED COM VERIFICAÇÕES =====
 async function timeExpired() {
     stopMoveTimer();
     
-    if (!currentGameRef || !gameState) return;
+    if (!currentGameRef || !gameState || !hasGameStarted()) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     
-    // Se é a vez do usuário atual (ele perdeu por tempo)
+    // Verificar se ainda é a vez do jogador (pode ter mudado durante o tempo)
     if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
         showNotification('Tempo esgotado! Você perdeu.', 'error');
         
