@@ -2046,20 +2046,8 @@ function setupGameListener(tableId) {
             
             if (gameState.board && typeof gameState.board === 'object') {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
-
- // Renderizar apenas se o tabuleiro mudou
-        const boardChanged = !oldGameState || 
-                           !oldGameState.board || 
-                           JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
-        
-        if (boardChanged) {
-            renderBoard(gameState.board);
-        } else {
-            // Apenas atualizar informações da UI
-            updatePlayerInfo();
-            updateTurnInfo();
-            updatePiecesCount();
-        }            }
+                renderBoard(gameState.board);
+            }
             
             if (gameState.surrendered) {
                 const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
@@ -2461,6 +2449,12 @@ function leaveGame() {
     cleanupDrawOffer();
     stopMoveTimer();
     updateCreateButtonStatus();
+     // Limpar variáveis de otimização
+    lastCaptureCheckTime = 0;
+    lastBoardStateHash = '';
+    lastRenderedBoardHash = '';
+    lastGameStateHash = '';
+    mobileEnhanced = false;
 
     
     
