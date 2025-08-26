@@ -1928,207 +1928,135 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-
-// ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
+// ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
 function setupGameListener(tableId) {
+    console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
+    
     // Remover listener anterior se existir
     if (gameListener) {
+        console.log('🗑️ Removendo listener anterior');
         gameListener();
         gameListener = null;
     }
     
     // Verificar se tableId é válido
     if (!tableId) {
-        console.error('ID da mesa inválido');
+        console.error('❌ ID da mesa inválido');
         showNotification('Erro ao entrar na mesa', 'error');
         return;
     }
     
     currentGameRef = db.collection('tables').doc(tableId);
-    
-    // Inicializar previousGameState
-    let previousGameState = null;
+    let lastProcessedStateHash = '';
+    let isProcessing = false;
     
     gameListener = currentGameRef.onSnapshot(async (doc) => {
-        // Verificar se a referência ainda é a mesma (evitar race conditions)
-        if (!currentGameRef || currentGameRef.id !== tableId) {
-            console.log('Listener ignorado - referência mudou');
+        // Evitar processamento simultâneo
+        if (isProcessing) {
+            console.log('⏳ Já processando, ignorando chamada duplicada');
             return;
         }
         
-        if (!doc.exists) {
-            console.log('Documento não existe mais');
-            showNotification('A mesa foi encerrada', 'info');
-            leaveGame();
-            return;
-        }
-
-        // Salvar o estado anterior ANTES de atualizar
-        const oldGameState = gameState;
-        gameState = doc.data();
-
-        // DETECTAR SE OPONENTE ENTROU NA MESA EM ESPERA
-        if (oldGameState && oldGameState.status === 'waiting' && 
-            gameState.status === 'playing' && gameState.players && gameState.players.length === 2) {
-            
-            const newPlayer = gameState.players.find(p => 
-                !oldGameState.players.some(prevP => prevP.uid === p.uid)
-            );
-            
-            if (newPlayer) {
-                showGameNotification(`🎉 ${newPlayer.displayName} entrou na sua mesa! Clique para jogar.`, () => {
-                    showScreen('game-screen');
-                });
-            }
-        }
-
-        // DETECTAR TIMEOUT (PARA O JOGADOR QUE FICOU)
-        if (gameState.status === 'finished' && gameState.timeout) {
-            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-            
-            if (currentPlayer && currentPlayer.color === gameState.winner) {
-                showNotification(`${gameState.timeoutByName} ficou sem tempo! Você venceu! 🎉`, 'success');
-                setTimeout(() => leaveGame(), 5000);
-            } else if (currentPlayer && gameState.timeoutBy === currentUser.uid) {
-                showNotification('Você ficou sem tempo e perdeu o jogo! ⏰', 'error');
-                setTimeout(() => leaveGame(), 5000);
-            }
-        }
+        isProcessing = true;
         
-        // CONFIGURAR LIMITE DE TEMPO
-        if (gameState.timeLimit !== undefined) {
-            currentTimeLimit = gameState.timeLimit;
-            
-            const gameStarted = gameState.status === 'playing' && 
-                              gameState.players && 
-                              gameState.players.length === 2;
-            
-            if (gameStarted) {
-                const turnChanged = !oldGameState || 
-                                  oldGameState.currentTurn !== gameState.currentTurn;
-                
-                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-                const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
-                
-                if ((!oldGameState || turnChanged) && isMyTurn) {
-                    startMoveTimer();
-                }
-                
-                if (!isMyTurn) {
-                    stopMoveTimer();
-                }
-            } else {
-                stopMoveTimer();
+        try {
+            // Verificar se a referência ainda é a mesma
+            if (!currentGameRef || currentGameRef.id !== tableId) {
+                console.log('🔀 Referência mudou, ignorando listener');
+                isProcessing = false;
+                return;
             }
-        }
-        
-        // ATUALIZAR HEADER COM NOMES DOS JOGADORES
-        const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-        updateGameHeader(currentPlayer, opponent);
-
-        // Verificar se gameState é válido
-        if (!gameState) {
-            console.error('Dados do jogo inválidos');
-            return;
-        }
-        
-        // VERIFICAÇÃO CRÍTICA: Se o jogo já está finalizado
-        if (gameState.status === 'finished' || gameState.status === 'draw') {
-            console.log('Jogo finalizado, ignorando atualizações');
             
-            if (gameState.board && typeof gameState.board === 'object') {
+            if (!doc.exists) {
+                console.log('❌ Documento não existe mais');
+                showNotification('A mesa foi encerrada', 'info');
+                leaveGame();
+                isProcessing = false;
+                return;
+            }
+            
+            const newGameState = doc.data();
+            const newStateHash = JSON.stringify(newGameState);
+            
+            // Verificar se o estado realmente mudou
+            if (newStateHash === lastProcessedStateHash) {
+                console.log('⚡ Estado inalterado, ignorando update');
+                isProcessing = false;
+                return;
+            }
+            
+            lastProcessedStateHash = newStateHash;
+            const oldGameState = gameState;
+            gameState = newGameState;
+            
+            console.log('🔄 Novo estado do jogo recebido:', gameState.status);
+            
+            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
+            if (!gameState.players) gameState.players = [];
+            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
+            
+            // 2. CONVERSÃO DO TABULEIRO (se necessário)
+            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
-                renderBoard(gameState.board);
             }
             
-            if (gameState.surrendered) {
-                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-                
-                if (currentPlayer && currentPlayer.color === gameState.winner) {
-                    showNotification(`${gameState.surrenderedByName} desistiu da partida. Você venceu!`, 'success');
-                    setTimeout(() => leaveGame(), 3000);
-                }
+            // 3. VERIFICAR SE JOGO TERMINOU
+            if (gameState.status === 'finished' || gameState.status === 'draw') {
+                console.log('🏁 Jogo finalizado, processando estado final');
+                await handleFinishedGame(oldGameState, gameState);
+                isProcessing = false;
+                return;
             }
             
-            return;
-        }
-        
-        // DETECTAR NOVA PROPOSTA DE EMPATE
-        if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
-            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            // 4. DETECTAR MUDANÇAS IMPORTANTES
+            const boardChanged = !oldGameState || 
+                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
             
-            if (currentPlayer && gameState.drawOffer.from !== currentUser.uid) {
-                console.log('Nova proposta de empate recebida');
-                
-                showDrawProposalModal(
-                    'Proposta de Empate', 
-                    `${gameState.drawOffer.senderName} ofereceu empate. Aceitar?`
-                ).then(async (accepted) => {
-                    if (accepted) {
-                        await endGame('draw');
-                    }
-                    await currentGameRef.update({ drawOffer: null });
-                });
-            }
-        }
-        
-        // DETECTAR EXPIRAÇÃO DE PROPOSTA
-        if (gameState.drawOffer && gameState.drawOffer.expiresAt) {
-            const expiresAt = gameState.drawOffer.expiresAt.toDate ? 
-                             gameState.drawOffer.expiresAt.toDate() : 
-                             new Date(gameState.drawOffer.expiresAt);
+            const turnChanged = !oldGameState || 
+                              oldGameState.currentTurn !== gameState.currentTurn;
             
-            if (new Date() > expiresAt) {
-                try {
-                    await currentGameRef.update({ drawOffer: null });
-                    showNotification('Proposta de empate expirada', 'info');
-                } catch (error) {
-                    console.error('Erro ao limpar proposta expirada:', error);
-                }
+            const playersChanged = !oldGameState || 
+                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
+            
+            // 5. PROCESSAR EVENTOS ESPECÍFICOS
+            if (playersChanged && oldGameState) {
+                await handlePlayersChange(oldGameState, gameState);
             }
+            
+            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
+                await handleDrawOffer(gameState.drawOffer);
+            }
+            
+            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+            if (boardChanged || turnChanged || playersChanged) {
+                console.log('🎨 Atualizando interface');
+                updateGameInterface();
+            }
+            
+            // 7. GERENCIAR TIMER
+            manageGameTimer(oldGameState, gameState);
+            
+            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+                console.log('🎮 Jogo iniciado, configurando sistemas');
+                setupChatListener();
+                setupSpectatorsListener(tableId);
+            }
+            
+            // 9. VERIFICAR FIM DE JOGO
+            if (boardChanged && gameState.status === 'playing') {
+                checkGameEnd(gameState.board, gameState.currentTurn);
+            }
+            
+        } catch (error) {
+            console.error('💥 Erro crítico no listener:', error);
+            showNotification('Erro de conexão com o jogo', 'error');
+        } finally {
+            isProcessing = false;
         }
-        
-        // Processar tabuleiro
-        if (gameState.board && typeof gameState.board === 'object') {
-            gameState.board = convertFirestoreFormatToBoard(gameState.board);
-        }
-        
-        // Verificar se players existe
-        if (!gameState.players) {
-            console.error('gameState.players não existe');
-            return;
-        }
-        
-        // DEBUG: Verificar se o tabuleiro está sendo processado
-        console.log('Tabuleiro processado:', gameState.board ? 'Sim' : 'Não');
-        if (gameState.board) {
-            console.log('Dimensões do tabuleiro:', gameState.board.length, 'x', gameState.board[0].length);
-        }
-        
-        // Atualizar interface - ADICIONE ESTES LOGS PARA DEBUG
-        console.log('Chamando renderBoard...');
-        renderBoard(gameState.board);
-        console.log('RenderBoard concluído');
-        
-        updatePlayerInfo();
-        checkGlobalMandatoryCaptures();
-        updateTurnInfo();
-        updatePiecesCount();
-        
-        if (gameState.status === 'playing') {
-            setupChatListener();
-            setupSpectatorsListener(tableId);
-        }
-        
-        // Verificar fim de jogo
-        checkGameEnd(gameState.board, gameState.currentTurn);
-        
-        // Atualizar previousGameState para a próxima iteração
-        previousGameState = gameState;
         
     }, (error) => {
-        console.error('Erro no listener do jogo:', error);
+        console.error('📡 Erro no listener:', error);
         
         if (error.code !== 'cancelled') {
             showNotification('Erro de conexão com o jogo', 'error');
@@ -2138,6 +2066,36 @@ function setupGameListener(tableId) {
             }
         }
     });
+}
+
+// ===== FUNÇÕES AUXILIARES =====
+
+async function handleFinishedGame(oldGameState, newGameState) {
+    // Renderizar tabuleiro final
+    if (newGameState.board) {
+        renderBoard(newGameState.board);
+    }
+    
+    // Verificar desistência
+    if (newGameState.surrendered) {
+        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
+        if (currentPlayer && currentPlayer.color === newGameState.winner) {
+            showNotification(`${newGameState.surrenderedByName} desistiu! Você venceu! 🎉`, 'success');
+            setTimeout(() => leaveGame(), 3000);
+        }
+    }
+    
+    // Verificar timeout
+    if (newGameState.timeout) {
+        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
+        if (currentPlayer && currentPlayer.color === newGameState.winner) {
+            showNotification(`${newGameState.timeoutByName} ficou sem tempo! Você venceu! ⏰`, 'success');
+            setTimeout(() => leaveGame(), 3000);
+        } else if (currentPlayer && newGameState.timeoutBy === currentUser.uid) {
+            showNotification('Você ficou sem tempo! ⏰', 'error');
+            setTimeout(() => leaveGame(), 3000);
+        }
+    }
 }
 
 
@@ -2439,37 +2397,6 @@ async function initializeTableCheck() {
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
 let hasGlobalMandatoryCaptures = false;
 let capturingPieces = [];
-
-// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES (MELHORADA) =====
-function checkGlobalMandatoryCaptures() {
-    const currentColor = gameState.currentTurn;
-    capturingPieces = [];
-    hasGlobalMandatoryCaptures = false;
-    
-    // Verificar todas as peças da cor atual
-    for (let row = 0; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-            const piece = gameState.board[row][col];
-            if (piece && piece.color === currentColor) {
-                const captures = getCaptureMoves(row, col, piece, []);
-                if (captures.length > 0) {
-                    capturingPieces.push({ 
-                        row, 
-                        col, 
-                        captureCount: captures[0].captures.length 
-                    });
-                    hasGlobalMandatoryCaptures = true;
-                }
-            }
-        }
-    }
-    
-    // Ordenar por peças com mais capturas possíveis
-    capturingPieces.sort((a, b) => b.captureCount - a.captureCount);
-    
-    return hasGlobalMandatoryCaptures;
-}
-
 
 
 // ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
@@ -4148,41 +4075,54 @@ function getKingCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, 
     
     return captures;
 }
-// ===== ATUALIZAR RENDER BOARD CORRIGIDA =====
+
+// ===== RENDER BOARD OTIMIZADA =====
+let lastRenderTime = 0;
+let lastRenderedBoardHash = '';
+
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
-    if (!board) return;
-    
-      console.log('=== RENDER BOARD DEBUG ===');
-    console.log('Elemento board encontrado:', !!board);
-    
     if (!board) {
-        console.error('ERRO: Elemento checkers-board não existe no DOM!');
+        console.error('Elemento checkers-board não existe no DOM!');
         return;
     }
-    
-    console.log('Board state recebido:', boardState);
     
     if (!boardState) {
-        console.error('ERRO: boardState é null ou undefined');
+        console.error('boardState é null ou undefined');
         return;
     }
     
-    console.log('Dimensões do board:', boardState.length, 'x', boardState[0].length);
+    // Prevenir renderizações muito frequentes
+    const now = Date.now();
+    if (now - lastRenderTime < 300) { // Limitar a ~3 renderizações por segundo
+        return;
+    }
+    lastRenderTime = now;
     
-    board.innerHTML = '';
-     // Limpar apenas se necessário
+    // Verificar se o board realmente mudou
+    const currentBoardHash = JSON.stringify(boardState);
+    if (currentBoardHash === lastRenderedBoardHash && board.children.length > 0) {
+        // Apenas atualizar as peças existentes se necessário
+        updateExistingPieces(boardState);
+        return;
+    }
+    lastRenderedBoardHash = currentBoardHash;
+    
+    // Limpar o board apenas se necessário
     if (board.children.length > 0) {
         board.innerHTML = '';
     }
-
+    
     if (!gameState || !gameState.players) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
     
-    // Verificar capturas obrigatórias
-    const hasMandatoryCaptures = checkGlobalMandatoryCaptures();
+    // Verificar capturas obrigatórias apenas se for a vez do jogador
+    let hasMandatoryCaptures = false;
+    if (isMyTurn) {
+        hasMandatoryCaptures = checkGlobalMandatoryCaptures();
+    }
     
     for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
@@ -4202,24 +4142,22 @@ function renderBoard(boardState) {
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
                 
-                // Adicionar indicador de torcida se houver muitos torcedores
+                // Adicionar indicador de torcida
                 const supportersCount = currentSpectators.filter(s => s.supporting === piece.color).length;
                 if (supportersCount > 2) {
                     pieceEl.innerHTML = `<span class="supporters-indicator">${supportersCount}👏</span>`;
                 }
                 
-                // VERIFICAR SE É A VEZ DO JOGADOR
                 let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
-                // Se há capturas obrigatórias, verificar se esta peça pode capturar
                 if (canSelect && hasMandatoryCaptures) {
                     const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-                    canSelect = canThisPieceCapture; // CORREÇÃO: usar let em vez de const
+                    canSelect = canThisPieceCapture;
                     
                     if (!canSelect) {
                         pieceEl.classList.add('disabled-piece');
                         pieceEl.style.opacity = '0.4';
-                        pieceEl.style.cursor = 'not-allowed';
+                        pieceEl.title = 'Selecione uma peça que possa capturar';
                     }
                 }
                 
@@ -4249,9 +4187,53 @@ function renderBoard(boardState) {
     
     updateTurnInfo();
     renderDrawOfferIndicator();
-    setTimeout(enhanceMobileExperience, 100);
+    enhanceMobileExperience();
 }
 
+// ===== ATUALIZAR PEÇAS EXISTENTES =====
+function updateExistingPieces(boardState) {
+    let needsUpdate = false;
+    
+    document.querySelectorAll('.checker-piece').forEach(pieceEl => {
+        const row = parseInt(pieceEl.dataset.row);
+        const col = parseInt(pieceEl.dataset.col);
+        const piece = boardState[row][col];
+        
+        if (!piece) {
+            pieceEl.remove();
+            needsUpdate = true;
+            return;
+        }
+        
+        // Verificar se a peça mudou
+        const currentClass = `checker-piece ${piece.color} ${piece.king ? 'king' : ''}`;
+        if (pieceEl.className !== currentClass) {
+            pieceEl.className = currentClass;
+            needsUpdate = true;
+        }
+        
+        // Atualizar interatividade
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+        const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
+        let canSelect = isMyTurn && piece.color === currentPlayer.color;
+        
+        if (canSelect && hasGlobalMandatoryCaptures) {
+            const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
+            canSelect = canThisPieceCapture;
+        }
+        
+        const shouldBeClickable = canSelect ? 'pointer' : 'not-allowed';
+        const shouldBeOpaque = canSelect ? '1' : '0.6';
+        
+        if (pieceEl.style.cursor !== shouldBeClickable || pieceEl.style.opacity !== shouldBeOpaque) {
+            pieceEl.style.cursor = shouldBeClickable;
+            pieceEl.style.opacity = shouldBeOpaque;
+            needsUpdate = true;
+        }
+    });
+    
+    return needsUpdate;
+}
 
 // ===== MELHORAR EXPERIÊNCIA MOBILE =====
 function enhanceMobileExperience() {
@@ -4380,9 +4362,31 @@ function getNormalMoves(fromRow, fromCol, piece) {
     }
     
     return moves;
-}
-// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES (SIMPLIFICADA) =====
+}// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES OTIMIZADA =====
+let lastCaptureCheckTime = 0;
+let lastBoardStateHash = '';
+
 function checkGlobalMandatoryCaptures() {
+    // Prevenir checks muito frequentes
+    const now = Date.now();
+    if (now - lastCaptureCheckTime < 500) { // Só verificar a cada 500ms
+        return hasGlobalMandatoryCaptures;
+    }
+    lastCaptureCheckTime = now;
+    
+    if (!gameState || !gameState.board || !gameState.players) {
+        hasGlobalMandatoryCaptures = false;
+        capturingPieces = [];
+        return false;
+    }
+    
+    // Calcular hash do estado atual do tabuleiro para evitar recálculos desnecessários
+    const currentBoardHash = JSON.stringify(gameState.board);
+    if (currentBoardHash === lastBoardStateHash && hasGlobalMandatoryCaptures !== undefined) {
+        return hasGlobalMandatoryCaptures;
+    }
+    lastBoardStateHash = currentBoardHash;
+    
     const currentColor = gameState.currentTurn;
     capturingPieces = [];
     hasGlobalMandatoryCaptures = false;
@@ -4394,12 +4398,19 @@ function checkGlobalMandatoryCaptures() {
             if (piece && piece.color === currentColor) {
                 const captures = getCaptureMoves(row, col, piece, []);
                 if (captures.length > 0) {
-                    capturingPieces.push({ row, col });
+                    capturingPieces.push({ 
+                        row, 
+                        col, 
+                        captureCount: captures[0].captures.length 
+                    });
                     hasGlobalMandatoryCaptures = true;
                 }
             }
         }
     }
+    
+    // Ordenar por peças com mais capturas possíveis
+    capturingPieces.sort((a, b) => b.captureCount - a.captureCount);
     
     return hasGlobalMandatoryCaptures;
 }
