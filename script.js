@@ -1931,16 +1931,6 @@ function renderTable(table, container) {
 
 // ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
 function setupGameListener(tableId) {
-    let lastUpdate = 0;
-
-     // Prevenir updates muito rápidos
-        const now = Date.now();
-        if (now - lastUpdate < 500) { // Limitar a 2 updates por segundo
-            return;
-        }
-        lastUpdate = now;
-
-
     // Remover listener anterior se existir
     if (gameListener) {
         gameListener();
@@ -1977,7 +1967,6 @@ function setupGameListener(tableId) {
         const oldGameState = gameState;
         gameState = doc.data();
 
-           debouncedRenderBoard(gameState.board);
         // DETECTAR SE OPONENTE ENTROU NA MESA EM ESPERA
         if (oldGameState && oldGameState.status === 'waiting' && 
             gameState.status === 'playing' && gameState.players && gameState.players.length === 2) {
@@ -2099,14 +2088,6 @@ function setupGameListener(tableId) {
                 }
             }
         }
-
-         // Renderizar o board apenas se necessário
-            const boardChanged = !previousGameState || 
-                               JSON.stringify(previousGameState.board) !== JSON.stringify(gameState.board);
-            
-            if (boardChanged) {
-                renderBoard(gameState.board);
-            }
         
         // Processar tabuleiro
         if (gameState.board && typeof gameState.board === 'object') {
@@ -2158,24 +2139,6 @@ function setupGameListener(tableId) {
         }
     });
 }
-
-// ===== FUNÇÃO DEBOUNCE =====
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// ===== FUNÇÕES COM DEBOUNCE =====
-const debouncedRenderBoard = debounce(renderBoard, 300);
-const debouncedCheckCaptures = debounce(checkGlobalMandatoryCaptures, 500);
-
 
 
 // ===== NOTIFICAR AMBOS OS JOGADORES =====
@@ -2476,23 +2439,9 @@ async function initializeTableCheck() {
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
 let hasGlobalMandatoryCaptures = false;
 let capturingPieces = [];
-let lastCaptureCheck = null;
 
-
+// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES (MELHORADA) =====
 function checkGlobalMandatoryCaptures() {
-    // Prevenir checks desnecessários
-    const now = Date.now();
-    if (lastCaptureCheck && now - lastCaptureCheck < 1000) {
-        return hasGlobalMandatoryCaptures;
-    }
-    lastCaptureCheck = now;
-    
-    if (!gameState || !gameState.board || !gameState.players) {
-        hasGlobalMandatoryCaptures = false;
-        capturingPieces = [];
-        return false;
-    }
-    
     const currentColor = gameState.currentTurn;
     capturingPieces = [];
     hasGlobalMandatoryCaptures = false;
@@ -4199,32 +4148,41 @@ function getKingCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, 
     
     return captures;
 }
-
-// ===== RENDER BOARD CORRIGIDA =====
+// ===== ATUALIZAR RENDER BOARD CORRIGIDA =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
     if (!board) return;
     
-    // Limpar apenas se necessário
-    if (board.children.length === 0 || 
-        JSON.stringify(gameState.board) !== JSON.stringify(boardState)) {
-        board.innerHTML = '';
-    } else {
-        // Apenas atualizar as peças existentes
-        updateExistingPieces(boardState);
+      console.log('=== RENDER BOARD DEBUG ===');
+    console.log('Elemento board encontrado:', !!board);
+    
+    if (!board) {
+        console.error('ERRO: Elemento checkers-board não existe no DOM!');
         return;
     }
     
+    console.log('Board state recebido:', boardState);
+    
+    if (!boardState) {
+        console.error('ERRO: boardState é null ou undefined');
+        return;
+    }
+    
+    console.log('Dimensões do board:', boardState.length, 'x', boardState[0].length);
+    
+    board.innerHTML = '';
+     // Limpar apenas se necessário
+    if (board.children.length > 0) {
+        board.innerHTML = '';
+    }
+
     if (!gameState || !gameState.players) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
     
-    // Verificar capturas obrigatórias APENAS se for a vez do jogador
-    let hasMandatoryCaptures = false;
-    if (isMyTurn) {
-        hasMandatoryCaptures = checkGlobalMandatoryCaptures();
-    }
+    // Verificar capturas obrigatórias
+    const hasMandatoryCaptures = checkGlobalMandatoryCaptures();
     
     for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
@@ -4244,7 +4202,7 @@ function renderBoard(boardState) {
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
                 
-                // Adicionar indicador de torcida
+                // Adicionar indicador de torcida se houver muitos torcedores
                 const supportersCount = currentSpectators.filter(s => s.supporting === piece.color).length;
                 if (supportersCount > 2) {
                     pieceEl.innerHTML = `<span class="supporters-indicator">${supportersCount}👏</span>`;
@@ -4253,14 +4211,15 @@ function renderBoard(boardState) {
                 // VERIFICAR SE É A VEZ DO JOGADOR
                 let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
+                // Se há capturas obrigatórias, verificar se esta peça pode capturar
                 if (canSelect && hasMandatoryCaptures) {
                     const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-                    canSelect = canThisPieceCapture;
+                    canSelect = canThisPieceCapture; // CORREÇÃO: usar let em vez de const
                     
                     if (!canSelect) {
                         pieceEl.classList.add('disabled-piece');
                         pieceEl.style.opacity = '0.4';
-                        pieceEl.title = 'Selecione uma peça que possa capturar';
+                        pieceEl.style.cursor = 'not-allowed';
                     }
                 }
                 
@@ -4285,45 +4244,14 @@ function renderBoard(boardState) {
     
     if (hasMandatoryCaptures) {
         highlightCapturingPieces();
-        // Mostrar notificação apenas uma vez
-        if (!window.captureNotificationShown) {
-            showNotification('Captura obrigatória! Selecione uma peça que possa capturar.', 'warning');
-            window.captureNotificationShown = true;
-            setTimeout(() => { window.captureNotificationShown = false; }, 5000);
-        }
+        showNotification('Captura obrigatória!', 'warning');
     }
     
     updateTurnInfo();
+    renderDrawOfferIndicator();
+    setTimeout(enhanceMobileExperience, 100);
 }
-// ===== ATUALIZAR PEÇAS EXISTENTES =====
-function updateExistingPieces(boardState) {
-    document.querySelectorAll('.checker-piece').forEach(pieceEl => {
-        const row = parseInt(pieceEl.dataset.row);
-        const col = parseInt(pieceEl.dataset.col);
-        const piece = boardState[row][col];
-        
-        if (!piece) {
-            pieceEl.remove();
-            return;
-        }
-        
-        // Atualizar classes
-        pieceEl.className = `checker-piece ${piece.color} ${piece.king ? 'king' : ''}`;
-        
-        // Atualizar interatividade
-        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-        const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
-        let canSelect = isMyTurn && piece.color === currentPlayer.color;
-        
-        if (canSelect && hasGlobalMandatoryCaptures) {
-            const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-            canSelect = canThisPieceCapture;
-        }
-        
-        pieceEl.style.cursor = canSelect ? 'pointer' : 'not-allowed';
-        pieceEl.style.opacity = canSelect ? '1' : '0.6';
-    });
-}
+
 
 // ===== MELHORAR EXPERIÊNCIA MOBILE =====
 function enhanceMobileExperience() {
