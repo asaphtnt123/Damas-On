@@ -23,6 +23,11 @@ let currentGameRef = null;
 let gameListener = null;
 let tablesListener = null;
 
+// ===== VARIÁVEIS DE CONTROLE DE TEMPO =====
+let moveTimer = null;
+let timeLeft = 0;
+let currentTimeLimit = 0;
+
 // ===== INICIALIZAÇÃO =====
 document.addEventListener('DOMContentLoaded', function() {
   console.log('DOM carregado, inicializando aplicação...');
@@ -1343,12 +1348,12 @@ async function createNewTable() {
         return;
     }
     
-    try {
+      try {
         const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
         
         const tableRef = await db.collection('tables').add({
             name: tableName,
-            timeLimit: timeLimit,
+            timeLimit: timeLimit, // ← SALVAR O LIMITE DE TEMPO
             bet: bet,
             status: 'waiting',
             players: [{
@@ -1362,7 +1367,9 @@ async function createNewTable() {
             currentTurn: 'black',
             board: boardData,
             waitingForOpponent: true,
-            platformFee: calculatePlatformFee(bet) // Adicionar taxa calculada
+            platformFee: calculatePlatformFee(bet),
+            // Adicionar timestamp da última jogada
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         if (bet > 0) {
@@ -1774,7 +1781,15 @@ function setupGameListener(tableId) {
         const previousGameState = gameState;
         gameState = doc.data();
         
-
+ // CONFIGURAR LIMITE DE TEMPO
+            if (gameState.timeLimit !== undefined) {
+                currentTimeLimit = gameState.timeLimit;
+                
+                // Reiniciar timer quando mudar a vez
+                if (!previousGameState || previousGameState.currentTurn !== gameState.currentTurn) {
+                    startMoveTimer();
+                }
+            }
         // ATUALIZAR HEADER COM NOMES DOS JOGADORES
             const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
             const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
@@ -2144,6 +2159,7 @@ function leaveGame() {
     showScreen('main-screen');
     loadTables();
     cleanupDrawOffer();
+    stopMoveTimer();
     
     console.log('Jogo finalizado e recursos limpos');
 }
@@ -3446,6 +3462,17 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             console.log('Peça promovida a dama!');
         }
         
+         // Atualizar jogo com timestamp da jogada
+        const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
+        await currentGameRef.update({
+            board: firestoreBoard,
+            currentTurn: nextTurn,
+            lastMove: {
+                fromRow, fromCol, toRow, toCol, captures
+            },
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp() // ← ATUALIZAR TIMESTAMP
+        });
+
         // DEBUG: Informações da peça
         console.log('Peça movida:', movingPiece);
         console.log('É dama?', movingPiece.king);
@@ -3866,7 +3893,7 @@ function renderBoard(boardState) {
     if (board.children.length > 0) {
         board.innerHTML = '';
     }
-    
+
     if (!gameState || !gameState.players) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
@@ -4734,4 +4761,86 @@ function formatTimeAgo(timestamp) {
     if (minutes < 60) return `Há ${minutes} min`;
     if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
     return `Há ${Math.floor(minutes / 1440)} d`;
+}
+
+
+// ===== INICIAR TIMER DE JOGADA =====
+function startMoveTimer() {
+    // Limpar timer anterior
+    stopMoveTimer();
+    
+    // Verificar se há limite de tempo
+    if (currentTimeLimit <= 0) return;
+    
+    timeLeft = currentTimeLimit;
+    updateTimerDisplay();
+    
+    moveTimer = setInterval(() => {
+        timeLeft--;
+        updateTimerDisplay();
+        
+        if (timeLeft <= 0) {
+            timeExpired();
+        }
+        
+        // Alertas visuais
+        if (timeLeft === 30) {
+            showNotification('30 segundos restantes!', 'warning');
+        } else if (timeLeft === 10) {
+            showNotification('10 segundos restantes!', 'error');
+        }
+    }, 1000);
+}
+
+// ===== PARAR TIMER =====
+function stopMoveTimer() {
+    if (moveTimer) {
+        clearInterval(moveTimer);
+        moveTimer = null;
+    }
+}
+
+
+// ===== ATUALIZAR DISPLAY DO TIMER =====
+function updateTimerDisplay() {
+    const timerElement = document.getElementById('game-timer');
+    if (!timerElement) return;
+    
+    if (currentTimeLimit <= 0) {
+        timerElement.textContent = '∞';
+        timerElement.className = 'game-timer infinite';
+        return;
+    }
+    
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    
+    timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    
+    // Mudar cor conforme o tempo diminui
+    if (timeLeft <= 10) {
+        timerElement.className = 'game-timer critical';
+    } else if (timeLeft <= 30) {
+        timerElement.className = 'game-timer warning';
+    } else {
+        timerElement.className = 'game-timer';
+    }
+}
+
+// ===== TEMPO EXPIRADO =====
+async function timeExpired() {
+    stopMoveTimer();
+    
+    if (!currentGameRef || !gameState) return;
+    
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    
+    // Se é a vez do usuário atual (ele perdeu por tempo)
+    if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
+        showNotification('Tempo esgotado! Você perdeu.', 'error');
+        
+        // Determinar vencedor (oponente)
+        const winner = currentPlayer.color === 'red' ? 'black' : 'red';
+        await endGame(winner);
+    }
 }
