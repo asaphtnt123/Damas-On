@@ -314,27 +314,31 @@
         <!-- Tela de Jogo -->
        <section id="game-screen" class="screen">
     <!-- Header -->
-    <div class="game-header">
-        <button id="btn-leave-game" class="btn btn-icon btn-back">
-            <i class="fas fa-arrow-left"></i>
-        </button>
-        
-        <div class="game-info-mobile">
-            <div class="mobile-score">
-                <span class="player-badge red">12</span>
-                <span class="vs">VS</span>
-                <span class="player-badge black">12</span>
-            </div>
-            <div class="game-timer" id="game-timer">05:00</div>
+   <div class="game-header">
+    <button id="btn-leave-game" class="btn btn-icon btn-back">
+        <i class="fas fa-arrow-left"></i>
+    </button>
+    
+    <div class="game-info-mobile">
+        <div class="mobile-score">
+            <!-- Será preenchido dinamicamente pelo JavaScript -->
+            <span class="player-badge red">Oponente</span>
+            <span class="vs">VS</span>
+            <span class="player-badge black">Você</span>
         </div>
-        
-        <div class="header-actions">
-            <button id="btn-spectators" class="btn btn-icon" title="Espectadores">
-                <i class="fas fa-users"></i>
-                <span class="badge" id="spectators-count">0</span>
-            </button>
-        </div>
+        <div class="game-timer" id="game-timer">05:00</div>
     </div>
+    
+    <!-- Esta div será inserida dinamicamente pelo JavaScript -->
+    <!-- <div class="players-names"></div> -->
+    
+    <div class="header-actions">
+        <button id="btn-spectators" class="btn btn-icon" title="Espectadores">
+            <i class="fas fa-users"></i>
+            <span class="badge" id="spectators-count">0</span>
+        </button>
+    </div>
+</div>
 
     <!-- Conteúdo Principal -->
     <div class="game-content">

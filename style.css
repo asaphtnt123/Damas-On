@@ -2538,3 +2538,136 @@ input:checked + .slider:before {
     50% { transform: scale(1.02); }
     100% { transform: scale(1); }
 }
+
+/* ESTILOS PARA NOMES DOS JOGADORES NAS MESAS */
+.table-players {
+    margin: 8px 0;
+    font-size: 0.9rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.player-name-tag {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.player-name-tag.black {
+    background-color: #2c3e50;
+    color: white;
+    border: 1px solid #34495e;
+}
+
+.player-name-tag.red {
+    background-color: #e74c3c;
+    color: white;
+    border: 1px solid #c0392b;
+}
+
+.player-name-tag:not(.black):not(.red) {
+    background-color: #7f8c8d;
+    color: white;
+    border: 1px solid #95a5a6;
+}
+
+/* Melhorar visualização da mesa */
+.table-item {
+    transition: transform 0.2s ease;
+}
+
+.table-item:hover {
+    transform: translateY(-2px);
+}
+
+.table-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.table-name {
+    font-weight: 600;
+    margin-bottom: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.table-details {
+    display: flex;
+    gap: 12px;
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.table-details span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ESTILOS PARA INDICADOR DE VEZ */
+.turn-indicator-mobile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    margin-bottom: 15px;
+    font-weight: 600;
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+}
+
+.turn-indicator-mobile.my-turn {
+    background: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.turn-indicator-mobile.opponent-turn {
+    background: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+.turn-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Destacar carta do jogador da vez */
+.player-card.active-turn {
+    border: 2px solid #2ecc71 !important;
+    box-shadow: 0 4px 12px rgba(46, 204, 113, 0.2);
+    transform: translateY(-2px);
+    transition: all 0.3s ease;
+}
+
+.player-card.active-turn .player-name {
+    color: #2ecc71 !important;
+    font-weight: 700;
+}
+
+/* Estilos específicos para cada jogador */
+.player-card.me.active-turn {
+    border-left: 4px solid #2ecc71 !important;
+}
+
+.player-card.opponent.active-turn {
+    border-right: 4px solid #2ecc71 !important;
+}
+
