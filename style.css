@@ -2898,3 +2898,32 @@ input:checked + .slider:before {
         font-size: 1.2rem;
     }
 }
+
+
+/* ESTILOS PARA NOTIFICAÇÕES DE TIMEOUT */
+.notification.timeout {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    border-left: 4px solid #f39c12;
+}
+
+.notification.timeout-win {
+    background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+    border-left: 4px solid #f1c40f;
+}
+
+/* Ícones específicos */
+.notification.timeout .fas {
+    color: #f39c12;
+}
+
+.notification.timeout-win .fas {
+    color: #f1c40f;
+}
+
+
+
+// CSS para timer pausado
+.game-timer.paused {
+    opacity: 0.6;
+    background: #7f8c8d;
+}

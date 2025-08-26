@@ -61,12 +61,45 @@ function initializeApp() {
   initializeRegisterForm();
   initializeGame();
   initializeNotifications(); // ← ADICIONE ESTA LINHA
+  setupConnectionMonitoring();
+      setupTimerPause();
+
     
   
   
   // Verificar elementos (apenas para debug)
   checkRequiredElements();
 }
+
+// ===== PAUSAR TIMER EM MODAIS =====
+function setupTimerPause() {
+    // Observar abertura de modais
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+                const modals = document.querySelectorAll('.modal.active');
+                if (modals.length > 0 && moveTimer) {
+                    // Modal aberto - pausar timer
+                    stopMoveTimer();
+                    document.getElementById('game-timer').classList.add('paused');
+                } else if (modals.length === 0 && hasGameStarted()) {
+                    // Modal fechado - retomar timer se for a vez
+                    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+                    if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
+                        startMoveTimer();
+                        document.getElementById('game-timer').classList.remove('paused');
+                    }
+                }
+            }
+        });
+    });
+    
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
+
+
+
 // ===== AUTENTICAÇÃO =====
 function initializeAuth() {
   console.log('Inicializando autenticação...');
@@ -1793,6 +1826,31 @@ function setupGameListener(tableId) {
         
         const previousGameState = gameState;
         gameState = doc.data();
+
+         // DETECTAR TIMEOUT (PARA O JOGADOR QUE FICOU)
+            if (gameState.status === 'finished' && gameState.timeout) {
+                const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+                
+                // Se o currentUser é o vencedor (não foi quem ficou sem tempo)
+                if (currentPlayer && currentPlayer.color === gameState.winner) {
+                    showNotification(`${gameState.timeoutByName} ficou sem tempo! Você venceu! 🎉`, 'success');
+                    
+                    // Fechar o jogo automaticamente após notificação
+                    setTimeout(() => {
+                        leaveGame();
+                    }, 5000);
+                }
+                
+                // Se o currentUser é quem perdeu por tempo
+                else if (currentPlayer && gameState.timeoutBy === currentUser.uid) {
+                    showNotification('Você ficou sem tempo e perdeu o jogo! ⏰', 'error');
+                    
+                    // Fechar o jogo automaticamente após notificação
+                    setTimeout(() => {
+                        leaveGame();
+                    }, 5000);
+                }
+            }
         
   // CONFIGURAR LIMITE DE TEMPO APENAS QUANDO O JOGO COMEÇAR
             if (gameState.timeLimit !== undefined) {
@@ -1957,6 +2015,31 @@ function setupGameListener(tableId) {
         }
     });
 }
+
+
+// ===== NOTIFICAR AMBOS OS JOGADORES =====
+async function notifyBothPlayers(message, type = 'info') {
+    if (!gameState || !gameState.players) return;
+    
+    try {
+        for (const player of gameState.players) {
+            if (player.uid) {
+                await db.collection('notifications').add({
+                    type: 'game_notification',
+                    userId: player.uid,
+                    message: message,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    notificationType: type,
+                    read: false
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao enviar notificações:', error);
+    }
+}
+
 
 // ===== RENDERIZAR INDICADOR DE PROPOSTA DE EMPATE =====
 function renderDrawOfferIndicator() {
@@ -2818,6 +2901,12 @@ async function endGame(result) {
         return;
     }
     
+    if (isTimeout) {
+        // Lógica específica para timeout
+        updateData.resultText = `Vitória por tempo - ${winningPlayer.displayName}`;
+        updateData.timeout = true;
+        updateData.timeoutBy = currentUser.uid;
+    }
     isGameEnding = true;
     console.log('Iniciando endGame para resultado:', result);
     
@@ -4865,9 +4954,9 @@ function updateTimerDisplay() {
         timerElement.className = 'game-timer';
     }
 }
-
-// ===== TIME EXPIRED COM VERIFICAÇÕES =====
+// ===== TIME EXPIRED COMPLETA =====
 async function timeExpired() {
+    console.log('Tempo esgotado! Finalizando jogo...');
     stopMoveTimer();
     
     if (!currentGameRef || !gameState || !hasGameStarted()) return;
@@ -4876,10 +4965,122 @@ async function timeExpired() {
     
     // Verificar se ainda é a vez do jogador (pode ter mudado durante o tempo)
     if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
-        showNotification('Tempo esgotado! Você perdeu.', 'error');
-        
-        // Determinar vencedor (oponente)
-        const winner = currentPlayer.color === 'red' ? 'black' : 'red';
-        await endGame(winner);
+        try {
+            showNotification('Tempo esgotado! Você perdeu.', 'error');
+            
+            // Determinar vencedor (oponente)
+            const winner = currentPlayer.color === 'red' ? 'black' : 'red';
+            const winningPlayer = gameState.players.find(p => p.color === winner);
+            
+            if (!winningPlayer) {
+                console.error('Jogador vencedor não encontrado');
+                return;
+            }
+            
+            // Calcular recompensas
+            const betAmount = gameState.bet || 0;
+            const reward = betAmount * 2; // O vencedor recebe o dobro
+            
+            // Preparar atualizações em batch
+            const batch = db.batch();
+            const usersRef = db.collection('users');
+            
+            // Atualizar perdedor (quem ficou sem tempo)
+            batch.update(usersRef.doc(currentPlayer.uid), {
+                losses: firebase.firestore.FieldValue.increment(1),
+                rating: firebase.firestore.FieldValue.increment(-15),
+                coins: firebase.firestore.FieldValue.increment(-betAmount)
+            });
+            
+            // Atualizar vencedor
+            batch.update(usersRef.doc(winningPlayer.uid), {
+                wins: firebase.firestore.FieldValue.increment(1),
+                rating: firebase.firestore.FieldValue.increment(10),
+                coins: firebase.firestore.FieldValue.increment(reward)
+            });
+            
+            // Executar atualizações
+            await batch.commit();
+            
+            // Atualizar estado do jogo com vitória por tempo
+            await currentGameRef.update({
+                status: 'finished',
+                winner: winner,
+                finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                resultText: `Vitória por tempo - ${winningPlayer.displayName}`,
+                timeout: true,
+                timeoutBy: currentUser.uid,
+                timeoutByName: currentPlayer.displayName
+            });
+            
+            console.log('Jogo finalizado por tempo esgotado');
+            
+            // Notificar ambos os jogadores
+            if (winningPlayer.uid) {
+                await db.collection('notifications').add({
+                    type: 'timeout_win',
+                    userId: winningPlayer.uid,
+                    message: `${currentPlayer.displayName} ficou sem tempo! Você venceu!`,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    read: false
+                });
+            }
+            
+            // Redirecionar após 3 segundos
+            setTimeout(() => {
+                leaveGame();
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Erro ao finalizar jogo por tempo:', error);
+            showNotification('Erro ao processar fim de tempo', 'error');
+        }
     }
 }
+
+// ===== SISTEMA DE RECONEXÃO =====
+let connectionLostTime = null;
+
+function setupConnectionMonitoring() {
+    // Monitorar perda de conexão
+    const databaseRef = firebase.database().ref('.info/connected');
+    databaseRef.on('value', (snap) => {
+        if (snap.val() === true) {
+            console.log('Conectado ao Firebase');
+            connectionLostTime = null;
+        } else {
+            console.log('Desconectado do Firebase');
+            connectionLostTime = new Date();
+            
+            // Pausar timer se estiver ativo
+            if (moveTimer && hasGameStarted()) {
+                stopMoveTimer();
+                showNotification('Conexão perdida - timer pausado', 'warning');
+            }
+        }
+    });
+    
+    // Monitorar reconexão
+    window.addEventListener('online', () => {
+        if (connectionLostTime && hasGameStarted()) {
+            const disconnectTime = (new Date() - connectionLostTime) / 1000;
+            console.log('Tempo desconectado:', disconnectTime, 'segundos');
+            
+            // Recuperar tempo perdido (máximo 30 segundos de compensação)
+            const compensation = Math.min(disconnectTime, 30);
+            if (compensation > 5) {
+                timeLeft += Math.floor(compensation);
+                updateTimerDisplay();
+                showNotification(`Compensação de ${Math.floor(compensation)}s por perda de conexão`, 'info');
+            }
+            
+            // Reiniciar timer se for a vez do jogador
+            const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+            if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
+                startMoveTimer();
+            }
+        }
+    });
+}
+
