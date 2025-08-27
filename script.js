@@ -1928,8 +1928,9 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-
 // ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
+let lastGameStateHash = ''; // VARIÁVEL GLOBAL ADICIONADA
+
 function setupGameListener(tableId) {
     // Remover listener anterior se existir
     if (gameListener) {
@@ -1946,9 +1947,6 @@ function setupGameListener(tableId) {
     
     currentGameRef = db.collection('tables').doc(tableId);
     
-    // Inicializar previousGameState
-    let previousGameState = null;
-    
     gameListener = currentGameRef.onSnapshot(async (doc) => {
         // Verificar se a referência ainda é a mesma (evitar race conditions)
         if (!currentGameRef || currentGameRef.id !== tableId) {
@@ -1963,16 +1961,19 @@ function setupGameListener(tableId) {
             return;
         }
 
-         // Verificar se o estado realmente mudou
-        const currentStateHash = JSON.stringify(gameState);
-        if (currentStateHash === lastGameStateHash) {
-            return; // Nada mudou, não precisa processar
-        }
-        lastGameStateHash = currentStateHash;
-
         // Salvar o estado anterior ANTES de atualizar
         const oldGameState = gameState;
-        gameState = doc.data();
+        const newGameState = doc.data();
+        
+        // Verificar se o estado realmente mudou
+        const newStateHash = JSON.stringify(newGameState);
+        if (newStateHash === lastGameStateHash) {
+            console.log('Estado inalterado, ignorando update');
+            return; // Nada mudou, não precisa processar
+        }
+        lastGameStateHash = newStateHash;
+        
+        gameState = newGameState;
 
         // DETECTAR SE OPONENTE ENTROU NA MESA EM ESPERA
         if (oldGameState && oldGameState.status === 'waiting' && 
@@ -2107,17 +2108,8 @@ function setupGameListener(tableId) {
             return;
         }
         
-        // DEBUG: Verificar se o tabuleiro está sendo processado
-        console.log('Tabuleiro processado:', gameState.board ? 'Sim' : 'Não');
-        if (gameState.board) {
-            console.log('Dimensões do tabuleiro:', gameState.board.length, 'x', gameState.board[0].length);
-        }
-        
-        // Atualizar interface - ADICIONE ESTES LOGS PARA DEBUG
-        console.log('Chamando renderBoard...');
+        // Atualizar interface
         renderBoard(gameState.board);
-        console.log('RenderBoard concluído');
-        
         updatePlayerInfo();
         checkGlobalMandatoryCaptures();
         updateTurnInfo();
@@ -2131,9 +2123,6 @@ function setupGameListener(tableId) {
         // Verificar fim de jogo
         checkGameEnd(gameState.board, gameState.currentTurn);
         
-        // Atualizar previousGameState para a próxima iteração
-        previousGameState = gameState;
-        
     }, (error) => {
         console.error('Erro no listener do jogo:', error);
         
@@ -2146,6 +2135,8 @@ function setupGameListener(tableId) {
         }
     });
 }
+
+
 // ===== FUNÇÕES AUXILIARES =====
 
 async function handleFinishedGame(oldGameState, newGameState) {
