@@ -1568,13 +1568,6 @@ async function cleanupAbandonedTables() {
 
 
 
-// ===== VERIFICAR SE JOGO COMEÇOU =====
-function hasGameStarted() {
-    return gameState && 
-           gameState.status === 'playing' && 
-           gameState.players && 
-           gameState.players.length === 2;
-}
 
 
 // ===== FUNÇÃO UPDATE TABLES LIST (NOVA) =====
@@ -5199,8 +5192,60 @@ function formatTimeAgo(timestamp) {
     if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
     return `Há ${Math.floor(minutes / 1440)} d`;
 }
+// ===== FUNÇÃO MANAGE GAME TIMER =====
+function manageGameTimer(oldGameState, newGameState) {
+    if (!newGameState || !oldGameState) return;
+    
+    // Verificar se houve mudança de turno
+    const turnChanged = oldGameState.currentTurn !== newGameState.currentTurn;
+    const timeLimitChanged = oldGameState.timeLimit !== newGameState.timeLimit;
+    const lastMoveTimeChanged = oldGameState.lastMoveTime !== newGameState.lastMoveTime;
+    
+    // Se o jogo começou agora
+    const gameJustStarted = oldGameState.status !== 'playing' && newGameState.status === 'playing';
+    
+    // Se precisamos gerenciar o timer
+    if (turnChanged || timeLimitChanged || lastMoveTimeChanged || gameJustStarted) {
+        console.log('⏰ Gerenciando timer do jogo');
+        
+        // Parar timer anterior
+        stopMoveTimer();
+        
+        // Configurar novo time limit se disponível
+        if (newGameState.timeLimit) {
+            currentTimeLimit = newGameState.timeLimit;
+        }
+        
+        // Verificar se é a vez do jogador atual
+        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
+        const isMyTurn = currentPlayer && currentPlayer.color === newGameState.currentTurn;
+        
+        if (isMyTurn && newGameState.status === 'playing') {
+            // Calcular tempo restante baseado no lastMoveTime
+            if (newGameState.lastMoveTime) {
+                const lastMoveTime = newGameState.lastMoveTime.toDate 
+                    ? newGameState.lastMoveTime.toDate() 
+                    : new Date(newGameState.lastMoveTime);
+                
+                const elapsedSeconds = Math.floor((new Date() - lastMoveTime) / 1000);
+                timeLeft = Math.max(0, currentTimeLimit - elapsedSeconds);
+                
+                console.log(`Tempo decorrido: ${elapsedSeconds}s, Tempo restante: ${timeLeft}s`);
+            } else {
+                timeLeft = currentTimeLimit;
+            }
+            
+            // Iniciar timer
+            startMoveTimer();
+        } else {
+            // Não é a vez do jogador ou jogo não está em andamento
+            stopMoveTimer();
+            updateTimerDisplay();
+        }
+    }
+}
 
-// ===== START MOVE TIMER COM VERIFICAÇÕES =====
+// ===== FUNÇÃO START MOVE TIMER (ATUALIZADA) =====
 function startMoveTimer() {
     // Verificar condições antes de iniciar
     if (!gameState || 
@@ -5220,9 +5265,11 @@ function startMoveTimer() {
     stopMoveTimer();
     
     // Verificar se há limite de tempo
-    if (currentTimeLimit <= 0) return;
+    if (currentTimeLimit <= 0) {
+        updateTimerDisplay();
+        return;
+    }
     
-    timeLeft = currentTimeLimit;
     updateTimerDisplay();
     
     moveTimer = setInterval(() => {
@@ -5243,7 +5290,8 @@ function startMoveTimer() {
     
     console.log('Timer iniciado para jogador:', currentPlayer.displayName);
 }
-// ===== PARAR TIMER =====
+
+// ===== FUNÇÃO STOP MOVE TIMER =====
 function stopMoveTimer() {
     if (moveTimer) {
         clearInterval(moveTimer);
@@ -5251,8 +5299,7 @@ function stopMoveTimer() {
     }
 }
 
-
-// ===== ATUALIZAR DISPLAY DO TIMER =====
+// ===== FUNÇÃO UPDATE TIMER DISPLAY =====
 function updateTimerDisplay() {
     const timerElement = document.getElementById('game-timer');
     if (!timerElement) return;
@@ -5277,7 +5324,8 @@ function updateTimerDisplay() {
         timerElement.className = 'game-timer';
     }
 }
-// ===== TIME EXPIRED COMPLETA =====
+
+// ===== FUNÇÃO TIME EXPIRED =====
 async function timeExpired() {
     console.log('Tempo esgotado! Finalizando jogo...');
     stopMoveTimer();
@@ -5360,6 +5408,14 @@ async function timeExpired() {
             showNotification('Erro ao processar fim de tempo', 'error');
         }
     }
+}
+
+// ===== FUNÇÃO HAS GAME STARTED =====
+function hasGameStarted() {
+    return gameState && 
+           gameState.status === 'playing' && 
+           gameState.players && 
+           gameState.players.length === 2;
 }
 
 // ===== SISTEMA DE RECONEXÃO =====
