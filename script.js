@@ -29,6 +29,8 @@ let timeLeft = 0;
 let currentTimeLimit = 0;
 
 
+
+
 // Executar limpeza periodicamente
 setInterval(cleanupAbandonedTables, 10 * 60 * 1000); // A cada 10 minutos
 
@@ -3259,7 +3261,7 @@ async function showDrawProposalModal(title, message) {
 
 // ===== FUNÇÃO ENDGAME COMPLETA E CORRIGIDA =====
 let isGameEnding = false; // Variável global para controle
-
+// ===== FUNÇÃO ENDGAME CORRIGIDA =====
 async function endGame(result) {
     // Prevenir múltiplas execuções
     if (isGameEnding) {
@@ -3273,12 +3275,6 @@ async function endGame(result) {
         return;
     }
     
-    if (isTimeout) {
-        // Lógica específica para timeout
-        updateData.resultText = `Vitória por tempo - ${winningPlayer.displayName}`;
-        updateData.timeout = true;
-        updateData.timeoutBy = currentUser.uid;
-    }
     isGameEnding = true;
     console.log('Iniciando endGame para resultado:', result);
     
@@ -3451,6 +3447,23 @@ async function endGame(result) {
     }
 }
 
+// ===== FUNÇÃO CALCULATE PLATFORM FEE =====
+function calculatePlatformFee(betAmount) {
+    const PLATFORM_FEES = {
+        feePercentage: 0.15, // 15% de taxa da plataforma
+        minFee: 1.00,        // Taxa mínima de 1 moeda
+        maxFee: 50.00        // Taxa máxima de 50 moedas
+    };
+    
+    const fee = betAmount * PLATFORM_FEES.feePercentage;
+    
+    // Aplicar limites
+    return Math.min(
+        Math.max(fee, PLATFORM_FEES.minFee),
+        PLATFORM_FEES.maxFee
+    );
+}
+
 // ===== FUNÇÃO AUXILIAR PARA LIMPAR DADOS UNDEFINED =====
 function cleanFirestoreData(data) {
     const cleaned = {...data};
@@ -3617,16 +3630,6 @@ const PLATFORM_FEES = {
     maxFee: 50.00        // Taxa máxima de R$ 50,00
 };
 
-// ===== FUNÇÃO PARA CALCULAR TAXA =====
-function calculatePlatformFee(betAmount) {
-    const fee = betAmount * PLATFORM_FEES.feePercentage;
-    
-    // Aplicar limites
-    return Math.min(
-        Math.max(fee, PLATFORM_FEES.minFee),
-        PLATFORM_FEES.maxFee
-    );
-}
 
 
 
