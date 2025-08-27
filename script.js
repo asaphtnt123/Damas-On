@@ -1928,9 +1928,8 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
-// ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
-let lastGameStateHash = ''; // VARIÁVEL GLOBAL ADICIONADA
 
+// ===== SETUP GAME LISTENER COMPLETO E CORRIGIDO =====
 function setupGameListener(tableId) {
     // Remover listener anterior se existir
     if (gameListener) {
@@ -1946,6 +1945,9 @@ function setupGameListener(tableId) {
     }
     
     currentGameRef = db.collection('tables').doc(tableId);
+    
+    // Inicializar previousGameState
+    let previousGameState = null;
     
     gameListener = currentGameRef.onSnapshot(async (doc) => {
         // Verificar se a referência ainda é a mesma (evitar race conditions)
@@ -1963,17 +1965,7 @@ function setupGameListener(tableId) {
 
         // Salvar o estado anterior ANTES de atualizar
         const oldGameState = gameState;
-        const newGameState = doc.data();
-        
-        // Verificar se o estado realmente mudou
-        const newStateHash = JSON.stringify(newGameState);
-        if (newStateHash === lastGameStateHash) {
-            console.log('Estado inalterado, ignorando update');
-            return; // Nada mudou, não precisa processar
-        }
-        lastGameStateHash = newStateHash;
-        
-        gameState = newGameState;
+        gameState = doc.data();
 
         // DETECTAR SE OPONENTE ENTROU NA MESA EM ESPERA
         if (oldGameState && oldGameState.status === 'waiting' && 
@@ -2108,8 +2100,17 @@ function setupGameListener(tableId) {
             return;
         }
         
-        // Atualizar interface
+        // DEBUG: Verificar se o tabuleiro está sendo processado
+        console.log('Tabuleiro processado:', gameState.board ? 'Sim' : 'Não');
+        if (gameState.board) {
+            console.log('Dimensões do tabuleiro:', gameState.board.length, 'x', gameState.board[0].length);
+        }
+        
+        // Atualizar interface - ADICIONE ESTES LOGS PARA DEBUG
+        console.log('Chamando renderBoard...');
         renderBoard(gameState.board);
+        console.log('RenderBoard concluído');
+        
         updatePlayerInfo();
         checkGlobalMandatoryCaptures();
         updateTurnInfo();
@@ -2123,6 +2124,9 @@ function setupGameListener(tableId) {
         // Verificar fim de jogo
         checkGameEnd(gameState.board, gameState.currentTurn);
         
+        // Atualizar previousGameState para a próxima iteração
+        previousGameState = gameState;
+        
     }, (error) => {
         console.error('Erro no listener do jogo:', error);
         
@@ -2134,37 +2138,6 @@ function setupGameListener(tableId) {
             }
         }
     });
-}
-
-
-// ===== FUNÇÕES AUXILIARES =====
-
-async function handleFinishedGame(oldGameState, newGameState) {
-    // Renderizar tabuleiro final
-    if (newGameState.board) {
-        renderBoard(newGameState.board);
-    }
-    
-    // Verificar desistência
-    if (newGameState.surrendered) {
-        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
-        if (currentPlayer && currentPlayer.color === newGameState.winner) {
-            showNotification(`${newGameState.surrenderedByName} desistiu! Você venceu! 🎉`, 'success');
-            setTimeout(() => leaveGame(), 3000);
-        }
-    }
-    
-    // Verificar timeout
-    if (newGameState.timeout) {
-        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
-        if (currentPlayer && currentPlayer.color === newGameState.winner) {
-            showNotification(`${newGameState.timeoutByName} ficou sem tempo! Você venceu! ⏰`, 'success');
-            setTimeout(() => leaveGame(), 3000);
-        } else if (currentPlayer && newGameState.timeoutBy === currentUser.uid) {
-            showNotification('Você ficou sem tempo! ⏰', 'error');
-            setTimeout(() => leaveGame(), 3000);
-        }
-    }
 }
 
 
@@ -2440,12 +2413,6 @@ function leaveGame() {
     cleanupDrawOffer();
     stopMoveTimer();
     updateCreateButtonStatus();
-     // Limpar variáveis de otimização
-    lastCaptureCheckTime = 0;
-    lastBoardStateHash = '';
-    lastRenderedBoardHash = '';
-    lastGameStateHash = '';
-    mobileEnhanced = false;
 
     
     
@@ -2472,6 +2439,37 @@ async function initializeTableCheck() {
 // ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
 let hasGlobalMandatoryCaptures = false;
 let capturingPieces = [];
+
+// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES (MELHORADA) =====
+function checkGlobalMandatoryCaptures() {
+    const currentColor = gameState.currentTurn;
+    capturingPieces = [];
+    hasGlobalMandatoryCaptures = false;
+    
+    // Verificar todas as peças da cor atual
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            const piece = gameState.board[row][col];
+            if (piece && piece.color === currentColor) {
+                const captures = getCaptureMoves(row, col, piece, []);
+                if (captures.length > 0) {
+                    capturingPieces.push({ 
+                        row, 
+                        col, 
+                        captureCount: captures[0].captures.length 
+                    });
+                    hasGlobalMandatoryCaptures = true;
+                }
+            }
+        }
+    }
+    
+    // Ordenar por peças com mais capturas possíveis
+    capturingPieces.sort((a, b) => b.captureCount - a.captureCount);
+    
+    return hasGlobalMandatoryCaptures;
+}
+
 
 
 // ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
@@ -4150,54 +4148,41 @@ function getKingCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, 
     
     return captures;
 }
-
-// ===== RENDER BOARD OTIMIZADA =====
-let lastRenderTime = 0;
-let lastRenderedBoardHash = '';
-
+// ===== ATUALIZAR RENDER BOARD CORRIGIDA =====
 function renderBoard(boardState) {
     const board = document.getElementById('checkers-board');
+    if (!board) return;
+    
+      console.log('=== RENDER BOARD DEBUG ===');
+    console.log('Elemento board encontrado:', !!board);
+    
     if (!board) {
-        console.error('Elemento checkers-board não existe no DOM!');
+        console.error('ERRO: Elemento checkers-board não existe no DOM!');
         return;
     }
+    
+    console.log('Board state recebido:', boardState);
     
     if (!boardState) {
-        console.error('boardState é null ou undefined');
+        console.error('ERRO: boardState é null ou undefined');
         return;
     }
     
-    // Prevenir renderizações muito frequentes
-    const now = Date.now();
-    if (now - lastRenderTime < 300) { // Limitar a ~3 renderizações por segundo
-        return;
-    }
-    lastRenderTime = now;
+    console.log('Dimensões do board:', boardState.length, 'x', boardState[0].length);
     
-    // Verificar se o board realmente mudou
-    const currentBoardHash = JSON.stringify(boardState);
-    if (currentBoardHash === lastRenderedBoardHash && board.children.length > 0) {
-        // Apenas atualizar as peças existentes se necessário
-        updateExistingPieces(boardState);
-        return;
-    }
-    lastRenderedBoardHash = currentBoardHash;
-    
-    // Limpar o board apenas se necessário
+    board.innerHTML = '';
+     // Limpar apenas se necessário
     if (board.children.length > 0) {
         board.innerHTML = '';
     }
-    
+
     if (!gameState || !gameState.players) return;
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
     
-    // Verificar capturas obrigatórias apenas se for a vez do jogador
-    let hasMandatoryCaptures = false;
-    if (isMyTurn) {
-        hasMandatoryCaptures = checkGlobalMandatoryCaptures();
-    }
+    // Verificar capturas obrigatórias
+    const hasMandatoryCaptures = checkGlobalMandatoryCaptures();
     
     for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
@@ -4217,22 +4202,24 @@ function renderBoard(boardState) {
                 pieceEl.dataset.row = row;
                 pieceEl.dataset.col = col;
                 
-                // Adicionar indicador de torcida
+                // Adicionar indicador de torcida se houver muitos torcedores
                 const supportersCount = currentSpectators.filter(s => s.supporting === piece.color).length;
                 if (supportersCount > 2) {
                     pieceEl.innerHTML = `<span class="supporters-indicator">${supportersCount}👏</span>`;
                 }
                 
+                // VERIFICAR SE É A VEZ DO JOGADOR
                 let canSelect = isMyTurn && piece.color === currentPlayer.color;
                 
+                // Se há capturas obrigatórias, verificar se esta peça pode capturar
                 if (canSelect && hasMandatoryCaptures) {
                     const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-                    canSelect = canThisPieceCapture;
+                    canSelect = canThisPieceCapture; // CORREÇÃO: usar let em vez de const
                     
                     if (!canSelect) {
                         pieceEl.classList.add('disabled-piece');
                         pieceEl.style.opacity = '0.4';
-                        pieceEl.title = 'Selecione uma peça que possa capturar';
+                        pieceEl.style.cursor = 'not-allowed';
                     }
                 }
                 
@@ -4262,53 +4249,9 @@ function renderBoard(boardState) {
     
     updateTurnInfo();
     renderDrawOfferIndicator();
-    enhanceMobileExperience();
+    setTimeout(enhanceMobileExperience, 100);
 }
 
-// ===== ATUALIZAR PEÇAS EXISTENTES =====
-function updateExistingPieces(boardState) {
-    let needsUpdate = false;
-    
-    document.querySelectorAll('.checker-piece').forEach(pieceEl => {
-        const row = parseInt(pieceEl.dataset.row);
-        const col = parseInt(pieceEl.dataset.col);
-        const piece = boardState[row][col];
-        
-        if (!piece) {
-            pieceEl.remove();
-            needsUpdate = true;
-            return;
-        }
-        
-        // Verificar se a peça mudou
-        const currentClass = `checker-piece ${piece.color} ${piece.king ? 'king' : ''}`;
-        if (pieceEl.className !== currentClass) {
-            pieceEl.className = currentClass;
-            needsUpdate = true;
-        }
-        
-        // Atualizar interatividade
-        const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-        const isMyTurn = currentPlayer && currentPlayer.color === gameState.currentTurn;
-        let canSelect = isMyTurn && piece.color === currentPlayer.color;
-        
-        if (canSelect && hasGlobalMandatoryCaptures) {
-            const canThisPieceCapture = capturingPieces.some(p => p.row === row && p.col === col);
-            canSelect = canThisPieceCapture;
-        }
-        
-        const shouldBeClickable = canSelect ? 'pointer' : 'not-allowed';
-        const shouldBeOpaque = canSelect ? '1' : '0.6';
-        
-        if (pieceEl.style.cursor !== shouldBeClickable || pieceEl.style.opacity !== shouldBeOpaque) {
-            pieceEl.style.cursor = shouldBeClickable;
-            pieceEl.style.opacity = shouldBeOpaque;
-            needsUpdate = true;
-        }
-    });
-    
-    return needsUpdate;
-}
 
 // ===== MELHORAR EXPERIÊNCIA MOBILE =====
 function enhanceMobileExperience() {
@@ -4437,31 +4380,9 @@ function getNormalMoves(fromRow, fromCol, piece) {
     }
     
     return moves;
-}// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES OTIMIZADA =====
-let lastCaptureCheckTime = 0;
-let lastBoardStateHash = '';
-
+}
+// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES (SIMPLIFICADA) =====
 function checkGlobalMandatoryCaptures() {
-    // Prevenir checks muito frequentes
-    const now = Date.now();
-    if (now - lastCaptureCheckTime < 500) { // Só verificar a cada 500ms
-        return hasGlobalMandatoryCaptures;
-    }
-    lastCaptureCheckTime = now;
-    
-    if (!gameState || !gameState.board || !gameState.players) {
-        hasGlobalMandatoryCaptures = false;
-        capturingPieces = [];
-        return false;
-    }
-    
-    // Calcular hash do estado atual do tabuleiro para evitar recálculos desnecessários
-    const currentBoardHash = JSON.stringify(gameState.board);
-    if (currentBoardHash === lastBoardStateHash && hasGlobalMandatoryCaptures !== undefined) {
-        return hasGlobalMandatoryCaptures;
-    }
-    lastBoardStateHash = currentBoardHash;
-    
     const currentColor = gameState.currentTurn;
     capturingPieces = [];
     hasGlobalMandatoryCaptures = false;
@@ -4473,19 +4394,12 @@ function checkGlobalMandatoryCaptures() {
             if (piece && piece.color === currentColor) {
                 const captures = getCaptureMoves(row, col, piece, []);
                 if (captures.length > 0) {
-                    capturingPieces.push({ 
-                        row, 
-                        col, 
-                        captureCount: captures[0].captures.length 
-                    });
+                    capturingPieces.push({ row, col });
                     hasGlobalMandatoryCaptures = true;
                 }
             }
         }
     }
-    
-    // Ordenar por peças com mais capturas possíveis
-    capturingPieces.sort((a, b) => b.captureCount - a.captureCount);
     
     return hasGlobalMandatoryCaptures;
 }
