@@ -2027,25 +2027,26 @@ function setupGameListener(tableId) {
                 await handleDrawOffer(gameState.drawOffer);
             }
             
-            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-            if (boardChanged || turnChanged || playersChanged) {
-                console.log('🎨 Atualizando interface');
-    updateGameInterface(); // Esta linha deve chamar a função que agora existe            }
-            
-            // 7. GERENCIAR TIMER
-            manageGameTimer(oldGameState, gameState);
-            
-            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-                console.log('🎮 Jogo iniciado, configurando sistemas');
-                setupChatListener();
-                setupSpectatorsListener(tableId);
-            }
-            
-            // 9. VERIFICAR FIM DE JOGO
-            if (boardChanged && gameState.status === 'playing') {
-                checkGameEnd(gameState.board, gameState.currentTurn);
-            }
+           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+if (boardChanged || turnChanged || playersChanged) {
+    console.log('🎨 Atualizando interface');
+    updateGameInterface();
+}
+
+// 7. GERENCIAR TIMER
+manageGameTimer(oldGameState, gameState);
+
+// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+    console.log('🎮 Jogo iniciado, configurando sistemas');
+    setupChatListener();
+    setupSpectatorsListener(tableId);
+}
+
+// 9. VERIFICAR FIM DE JOGO
+if (boardChanged && gameState.status === 'playing') {
+    checkGameEnd(gameState.board, gameState.currentTurn);
+}
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
