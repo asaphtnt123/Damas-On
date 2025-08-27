@@ -2063,6 +2063,200 @@ if (boardChanged && gameState.status === 'playing') {
     });
 }
 
+// ===== FUNÇÃO COMPARE PLAYERS =====
+function comparePlayers(oldPlayers, newPlayers) {
+    if (!oldPlayers && !newPlayers) return { added: [], removed: [], changed: [] };
+    
+    const oldPlayersList = oldPlayers || [];
+    const newPlayersList = newPlayers || [];
+    
+    const added = newPlayersList.filter(newPlayer => 
+        !oldPlayersList.some(oldPlayer => oldPlayer.uid === newPlayer.uid)
+    );
+    
+    const removed = oldPlayersList.filter(oldPlayer => 
+        !newPlayersList.some(newPlayer => newPlayer.uid === oldPlayer.uid)
+    );
+    
+    const changed = newPlayersList.filter(newPlayer => {
+        const oldPlayer = oldPlayersList.find(p => p.uid === newPlayer.uid);
+        return oldPlayer && JSON.stringify(oldPlayer) !== JSON.stringify(newPlayer);
+    });
+    
+    return { added, removed, changed };
+}
+
+
+// ===== FUNÇÃO HANDLE PLAYERS CHANGE =====
+async function handlePlayersChange(oldGameState, newGameState) {
+    console.log('👥 Mudança detectada nos jogadores');
+    
+    if (!oldGameState || !newGameState || !newGameState.players) return;
+    
+    const oldPlayers = oldGameState.players || [];
+    const newPlayers = newGameState.players || [];
+    
+    // Verificar se um jogador entrou na mesa
+    if (newPlayers.length > oldPlayers.length) {
+        const newPlayer = newPlayers.find(player => 
+            !oldPlayers.some(oldPlayer => oldPlayer.uid === player.uid)
+        );
+        
+        if (newPlayer) {
+            console.log('🎉 Novo jogador entrou:', newPlayer.displayName);
+            
+            // Se o jogo estava esperando e agora tem 2 jogadores, iniciar
+            if (oldGameState.status === 'waiting' && newGameState.status === 'playing') {
+                showNotification(`Jogo iniciado! ${newPlayer.displayName} entrou na mesa.`, 'success');
+                
+                // Notificar ambos os jogadores
+                await notifyBothPlayers('O jogo começou! Boa sorte!', 'info');
+            }
+        }
+    }
+    
+    // Verificar se um jogador saiu da mesa
+    if (newPlayers.length < oldPlayers.length) {
+        const leftPlayer = oldPlayers.find(player => 
+            !newPlayers.some(newPlayer => newPlayer.uid === player.uid)
+        );
+        
+        if (leftPlayer) {
+            console.log('🚪 Jogador saiu:', leftPlayer.displayName);
+            
+            // Se era um jogo em andamento e alguém saiu
+            if (oldGameState.status === 'playing') {
+                showNotification(`${leftPlayer.displayName} saiu do jogo.`, 'warning');
+                
+                // Se o usuário atual ainda está no jogo, notificar
+                const currentPlayer = newPlayers.find(p => p.uid === currentUser.uid);
+                if (currentPlayer) {
+                    await db.collection('notifications').add({
+                        type: 'player_left',
+                        userId: currentUser.uid,
+                        message: `${leftPlayer.displayName} abandonou o jogo.`,
+                        tableId: currentGameRef.id,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        read: false
+                    });
+                }
+            }
+        }
+    }
+    
+    // Verificar mudanças nos dados dos jogadores (rating, nome, etc.)
+    newPlayers.forEach(newPlayer => {
+        const oldPlayer = oldPlayers.find(p => p.uid === newPlayer.uid);
+        if (oldPlayer && JSON.stringify(oldPlayer) !== JSON.stringify(newPlayer)) {
+            console.log('📊 Dados do jogador atualizados:', newPlayer.displayName);
+        }
+    });
+}
+
+// ===== FUNÇÃO HANDLE DRAW OFFER =====
+async function handleDrawOffer(drawOffer) {
+    console.log('🤝 Proposta de empate recebida');
+    
+    if (!drawOffer || !currentUser) return;
+    
+    // Verificar se a proposta é para o usuário atual
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    if (!currentPlayer || drawOffer.from === currentUser.uid) return;
+    
+    // Mostrar notificação da proposta
+    showNotification(`${drawOffer.senderName} ofereceu empate.`, 'info');
+    
+    // Adicionar notificação no sistema
+    await db.collection('notifications').add({
+        type: 'draw_offer',
+        userId: currentUser.uid,
+        message: `${drawOffer.senderName} ofereceu empate. Clique para responder.`,
+        tableId: currentGameRef.id,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        read: false,
+        drawOffer: drawOffer
+    });
+}
+
+// ===== FUNÇÃO HANDLE FINISHED GAME =====
+async function handleFinishedGame(oldGameState, newGameState) {
+    console.log('🏁 Processando jogo finalizado');
+    
+    if (!newGameState || newGameState.status !== 'finished') return;
+    
+    // Verificar se o usuário atual estava neste jogo
+    const wasPlayer = newGameState.players && newGameState.players.some(p => p.uid === currentUser.uid);
+    
+    if (wasPlayer) {
+        // Processar resultados para jogadores
+        await processGameResults(newGameState);
+    }
+    
+    // Renderizar estado final do tabuleiro
+    if (newGameState.board) {
+        renderBoard(newGameState.board);
+    }
+    
+    // Mostrar mensagem de resultado
+    showNotification(newGameState.resultText || 'Jogo finalizado', 'info');
+    
+    // Se foi um jogador, redirecionar após delay
+    if (wasPlayer) {
+        setTimeout(() => {
+            leaveGame();
+        }, 5000);
+    }
+}
+
+// ===== FUNÇÃO PROCESS GAME RESULTS =====
+async function processGameResults(gameState) {
+    if (!gameState || !currentUser) return;
+    
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    if (!currentPlayer) return;
+    
+    // Verificar resultado
+    if (gameState.status === 'draw') {
+        showNotification('Empate! A aposta foi devolvida.', 'info');
+    } else if (gameState.winner === currentPlayer.color) {
+        showNotification('Vitória! 🎉', 'success');
+        
+        // Adicionar notificação de vitória
+        await db.collection('notifications').add({
+            type: 'game_win',
+            userId: currentUser.uid,
+            message: `Você venceu contra ${gameState.players.find(p => p.uid !== currentUser.uid)?.displayName || 'oponente'}!`,
+            tableId: currentGameRef.id,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+    } else {
+        showNotification('Derrota. Melhor sorte na próxima!', 'error');
+    }
+}
+
+// ===== FUNÇÃO NOTIFY BOTH PLAYERS =====
+async function notifyBothPlayers(message, type = 'info') {
+    if (!gameState || !gameState.players) return;
+    
+    try {
+        for (const player of gameState.players) {
+            if (player.uid) {
+                await db.collection('notifications').add({
+                    type: 'game_notification',
+                    userId: player.uid,
+                    message: message,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    notificationType: type,
+                    read: false
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao enviar notificações:', error);
+    }
+}
 // ===== FUNÇÃO UPDATE GAME INTERFACE (COM VERIFICAÇÕES ROBUSTAS) =====
 function updateGameInterface() {
     if (!gameState) {
@@ -2157,58 +2351,6 @@ function updateGameStatusInfo() {
     }
 }
 // ===== FUNÇÕES AUXILIARES =====
-
-async function handleFinishedGame(oldGameState, newGameState) {
-    // Renderizar tabuleiro final
-    if (newGameState.board) {
-        renderBoard(newGameState.board);
-    }
-    
-    // Verificar desistência
-    if (newGameState.surrendered) {
-        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
-        if (currentPlayer && currentPlayer.color === newGameState.winner) {
-            showNotification(`${newGameState.surrenderedByName} desistiu! Você venceu! 🎉`, 'success');
-            setTimeout(() => leaveGame(), 3000);
-        }
-    }
-    
-    // Verificar timeout
-    if (newGameState.timeout) {
-        const currentPlayer = newGameState.players.find(p => p.uid === currentUser.uid);
-        if (currentPlayer && currentPlayer.color === newGameState.winner) {
-            showNotification(`${newGameState.timeoutByName} ficou sem tempo! Você venceu! ⏰`, 'success');
-            setTimeout(() => leaveGame(), 3000);
-        } else if (currentPlayer && newGameState.timeoutBy === currentUser.uid) {
-            showNotification('Você ficou sem tempo! ⏰', 'error');
-            setTimeout(() => leaveGame(), 3000);
-        }
-    }
-}
-
-
-// ===== NOTIFICAR AMBOS OS JOGADORES =====
-async function notifyBothPlayers(message, type = 'info') {
-    if (!gameState || !gameState.players) return;
-    
-    try {
-        for (const player of gameState.players) {
-            if (player.uid) {
-                await db.collection('notifications').add({
-                    type: 'game_notification',
-                    userId: player.uid,
-                    message: message,
-                    tableId: currentGameRef.id,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    notificationType: type,
-                    read: false
-                });
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao enviar notificações:', error);
-    }
-}
 
 
 // ===== RENDERIZAR INDICADOR DE PROPOSTA DE EMPATE =====
