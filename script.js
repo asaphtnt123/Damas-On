@@ -1928,6 +1928,8 @@ function renderTable(table, container) {
     
     container.appendChild(tableEl);
 }
+
+
 // ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
@@ -2068,38 +2070,51 @@ if (boardChanged && gameState.status === 'playing') {
     });
 }
 
-
-// ===== FUNÇÃO UPDATE GAME INTERFACE (NOVA) =====
+// ===== FUNÇÃO UPDATE GAME INTERFACE (COM VERIFICAÇÕES ROBUSTAS) =====
 function updateGameInterface() {
-    if (!gameState || !gameState.board) return;
+    if (!gameState) {
+        console.warn('gameState não definido em updateGameInterface');
+        return;
+    }
     
     console.log('Atualizando interface do jogo...');
     
-    // 1. Renderizar o tabuleiro
-    renderBoard(gameState.board);
-    
-    // 2. Atualizar informações dos jogadores
-    updatePlayerInfo();
-    
-    // 3. Atualizar informações do turno
-    updateTurnInfo();
-    
-    // 4. Atualizar contagem de peças
-    updatePiecesCount();
-    
-    // 5. Atualizar informações de espectadores
-    updateSpectatorsUI();
-    
-    // 6. Verificar e mostrar proposta de empate se existir
-    if (gameState.drawOffer) {
-        renderDrawOfferIndicator();
+    try {
+        // 1. Renderizar o tabuleiro (com verificação)
+        if (gameState.board) {
+            renderBoard(gameState.board);
+        } else {
+            console.warn('gameState.board não definido');
+        }
+        
+        // 2. Atualizar informações dos jogadores (com verificação)
+        if (gameState.players) {
+            updatePlayerInfo();
+        }
+        
+        // 3. Atualizar informações do turno
+        updateTurnInfo();
+        
+        // 4. Atualizar contagem de peças
+        updatePiecesCount();
+        
+        // 5. Atualizar informações de espectadores (se aplicável)
+        if (typeof updateSpectatorsUI === 'function') {
+            updateSpectatorsUI();
+        }
+        
+        // 6. Verificar e mostrar proposta de empate se existir
+        if (gameState.drawOffer) {
+            renderDrawOfferIndicator();
+        }
+        
+        // 7. Atualizar informações da partida
+        updateGameStatusInfo();
+        
+    } catch (error) {
+        console.error('Erro em updateGameInterface:', error);
     }
-    
-    // 7. Atualizar informações da partida
-    updateGameStatusInfo();
 }
-
-
 // ===== FUNÇÃO UPDATE GAME STATUS INFO =====
 function updateGameStatusInfo() {
     if (!gameState) return;
@@ -2693,37 +2708,47 @@ function updatePlayerInfo() {
     updatePlayerStats(currentPlayer, opponent);
 }
 
-// ===== FUNÇÃO UPDATE PLAYER CARDS =====
-function updatePlayerCards(currentPlayer, opponent) {
-    // Atualizar carta do jogador atual
-    const myCard = document.querySelector('.player-card.me');
-    if (myCard && currentPlayer) {
-        myCard.querySelector('.player-name').textContent = currentPlayer.displayName || 'Você';
-        myCard.querySelector('.player-rating').textContent = `Rating: ${currentPlayer.rating || 1000}`;
-        
-        // Adicionar cor da peça
-        const colorBadge = myCard.querySelector('.player-color');
-        if (colorBadge) {
-            colorBadge.textContent = currentPlayer.color === 'black' ? 'Pretas' : 'Vermelhas';
-            colorBadge.className = `player-color ${currentPlayer.color}`;
-        }
-    }
+// ===== FUNÇÃO AUXILIAR PARA UPDATE PLAYER CARDS =====
+function updatePlayerCards(currentPlayer, isMyTurn) {
+    // Esta função parece estar sendo chamada com parâmetros diferentes
+    // Vamos criar uma versão segura
     
-    // Atualizar carta do oponente
-    const opponentCard = document.querySelector('.player-card.opponent');
-    if (opponentCard && opponent) {
-        opponentCard.querySelector('.player-name').textContent = opponent.displayName || 'Oponente';
-        opponentCard.querySelector('.player-rating').textContent = `Rating: ${opponent.rating || 1000}`;
-        
-        // Adicionar cor da peça
-        const colorBadge = opponentCard.querySelector('.player-color');
-        if (colorBadge) {
-            colorBadge.textContent = opponent.color === 'black' ? 'Pretas' : 'Vermelhas';
-            colorBadge.className = `player-color ${opponent.color}`;
+    try {
+        // Atualizar carta do jogador atual
+        const myCard = document.querySelector('.player-card.me');
+        if (myCard) {
+            if (isMyTurn) {
+                myCard.classList.add('active-turn');
+                myCard.style.borderColor = '#2ecc71';
+                const nameElement = myCard.querySelector('.player-name');
+                if (nameElement) nameElement.style.color = '#2ecc71';
+            } else {
+                myCard.classList.remove('active-turn');
+                myCard.style.borderColor = '';
+                const nameElement = myCard.querySelector('.player-name');
+                if (nameElement) nameElement.style.color = '';
+            }
         }
+        
+        // Atualizar carta do oponente
+        const opponentCard = document.querySelector('.player-card.opponent');
+        if (opponentCard) {
+            if (!isMyTurn) {
+                opponentCard.classList.add('active-turn');
+                opponentCard.style.borderColor = '#2ecc71';
+                const nameElement = opponentCard.querySelector('.player-name');
+                if (nameElement) nameElement.style.color = '#2ecc71';
+            } else {
+                opponentCard.classList.remove('active-turn');
+                opponentCard.style.borderColor = '';
+                const nameElement = opponentCard.querySelector('.player-name');
+                if (nameElement) nameElement.style.color = '';
+            }
+        }
+    } catch (error) {
+        console.error('Erro em updatePlayerCards:', error);
     }
 }
-
 // ===== FUNÇÃO UPDATE PLAYER STATS =====
 function updatePlayerStats(currentPlayer, opponent) {
     // Esta função pode ser expandida para mostrar mais estatísticas
@@ -3703,7 +3728,8 @@ function getAllPossibleCapturesForColor(color) {
   
   return allCaptures;
 }
-// ===== FUNÇÃO UPDATE TURN INFO CORRIGIDA =====
+
+// ===== FUNÇÃO UPDATE TURN INFO (COM VERIFICAÇÕES DE SEGURANÇA) =====
 function updateTurnInfo() {
     if (!gameState || !currentUser) return;
     
@@ -3711,36 +3737,44 @@ function updateTurnInfo() {
     const turnText = document.getElementById('turn-text');
     const turnDot = document.getElementById('turn-dot');
     
+    // Verificar se os elementos existem antes de acessá-los
     if (!turnIndicator || !turnText || !turnDot) return;
     
     // Encontrar o jogador atual
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     
     if (!currentPlayer) {
-        turnText.textContent = 'Aguardando...';
-        turnIndicator.classList.remove('my-turn', 'opponent-turn');
+        if (turnText) turnText.textContent = 'Aguardando...';
+        if (turnIndicator) {
+            turnIndicator.classList.remove('my-turn', 'opponent-turn');
+        }
         return;
     }
     
     const isMyTurn = currentPlayer.color === gameState.currentTurn;
     
     if (isMyTurn) {
-       // Só iniciar timer se o jogo começou
+        // Só iniciar timer se o jogo começou
         if (hasGameStarted()) {
             startMoveTimer();
         }
-        turnText.textContent = 'Sua vez!';
-        turnIndicator.classList.add('my-turn');
-        turnIndicator.classList.remove('opponent-turn');
-        turnDot.style.backgroundColor = '#2ecc71'; // Verde para sua vez
+        if (turnText) turnText.textContent = 'Sua vez!';
+        if (turnIndicator) {
+            turnIndicator.classList.add('my-turn');
+            turnIndicator.classList.remove('opponent-turn');
+        }
+        if (turnDot) turnDot.style.backgroundColor = '#2ecc71';
     } else {
         const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-        turnText.textContent = opponent ? `Vez de ${opponent.displayName}` : 'Vez do oponente';
-        turnIndicator.classList.add('opponent-turn');
-        turnIndicator.classList.remove('my-turn');
-        turnDot.style.backgroundColor = '#e74c3c'; // Vermelho para vez do oponente
-                stopMoveTimer();
-
+        if (turnText) {
+            turnText.textContent = opponent ? `Vez de ${opponent.displayName}` : 'Vez do oponente';
+        }
+        if (turnIndicator) {
+            turnIndicator.classList.add('opponent-turn');
+            turnIndicator.classList.remove('my-turn');
+        }
+        if (turnDot) turnDot.style.backgroundColor = '#e74c3c';
+        stopMoveTimer();
     }
     
     // Atualizar também as cartas dos jogadores
@@ -4185,6 +4219,9 @@ let lastRenderTime = 0;
 let lastRenderedBoardHash = '';
 
 function renderBoard(boardState) {
+
+      try {
+        
     const board = document.getElementById('checkers-board');
     if (!board) {
         console.error('Elemento checkers-board não existe no DOM!');
@@ -4292,6 +4329,9 @@ function renderBoard(boardState) {
     updateTurnInfo();
     renderDrawOfferIndicator();
     enhanceMobileExperience();
+     } catch (error) {
+        console.error('Erro em renderBoard:', error);
+    }
 }
 
 // ===== ATUALIZAR PEÇAS EXISTENTES =====
