@@ -211,16 +211,20 @@ let currentTimeLimit = 0;
         document.getElementById('users-search').oninput = filterOnlineUsers;
     };
     
-    // Funções principais
-    window.openOnlineUsersModal = function() {
-        console.log('Abrindo modal...');
-        const modal = document.getElementById('online-users-modal');
-        if (modal) {
-            modal.style.display = 'flex';
-            document.body.style.overflow = 'hidden';
-            loadOnlineUsers();
-        }
-    };
+  window.openOnlineUsersModal = function() {
+    console.log('🎮 Abrindo modal de jogadores online...');
+    
+    const modal = document.getElementById('online-users-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        
+        // Chamar a função unificada
+        loadOnlineUsers();
+    } else {
+        console.error('❌ Modal não encontrado!');
+    }
+};
     
     window.closeOnlineUsersModal = function() {
         console.log('Fechando modal...');
@@ -231,51 +235,55 @@ let currentTimeLimit = 0;
         }
     };
     
-    window.loadOnlineUsers = function() {
-        console.log('Carregando usuários...');
-        // Simular dados temporários
-        const usersList = document.getElementById('online-users-list');
-        if (usersList) {
-            usersList.innerHTML = `
-                <div style="text-align: center; padding: 20px; color: #bdc3c7;">
-                    <div style="font-size: 48px; margin-bottom: 15px;">🔄</div>
-                    <p>Buscando jogadores online...</p>
-                </div>
-            `;
-        }
-        
-        // Carregar dados reais depois de 1 segundo
-        setTimeout(() => {
-            loadRealOnlineUsers();
-        }, 1000);
-    };
-    
-  window.loadRealOnlineUsers = async function() {
-    console.log('Carregando dados reais do Firebase...');
+window.loadOnlineUsers = async function() {
+    console.log('📡 Carregando usuários online...');
     
     const usersList = document.getElementById('online-users-list');
-    if (!usersList) return;
+    if (!usersList) {
+        console.error('Elemento online-users-list não encontrado!');
+        return;
+    }
     
     // Mostrar loading
     usersList.innerHTML = `
         <div style="text-align: center; padding: 30px; color: #bdc3c7;">
             <div style="font-size: 48px; margin-bottom: 15px;">🔄</div>
-            <p>Conectando ao servidor...</p>
+            <p>Buscando jogadores online...</p>
+            <small>Aguarde alguns segundos</small>
         </div>
     `;
     
     try {
-        // Verificar se Firebase está pronto
         if (!firebase.apps.length || !db) {
-            throw new Error('Firebase não inicializado');
+            throw new Error('Firebase não está conectado');
         }
         
-        // Carregar usuários online (últimos 15 minutos)
-        const snapshot = await db.collection('users')
-            .where('lastLogin', '>', new Date(Date.now() - 15 * 60 * 1000))
-            .get();
+        console.log('🔍 Procurando usuários online...');
         
-        if (snapshot.empty) {
+        // Tentar várias abordagens para encontrar usuários online
+        let snapshot;
+        
+        try {
+            // 1. Primeira tentativa: usuários com isOnline = true
+            snapshot = await db.collection('users')
+                .where('isOnline', '==', true)
+                .get();
+                
+            console.log(`✅ Encontrados ${snapshot.size} usuários online (isOnline=true)`);
+            
+        } catch (error) {
+            console.log('❌ Campo isOnline não disponível, tentando última atividade...', error);
+            
+            // 2. Segunda tentativa: última atividade recente (últimos 5 minutos)
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            snapshot = await db.collection('users')
+                .where('lastActivity', '>', fiveMinutesAgo)
+                .get();
+                
+            console.log(`✅ Encontrados ${snapshot.size} usuários com atividade recente`);
+        }
+        
+        if (!snapshot || snapshot.empty) {
             usersList.innerHTML = `
                 <div style="text-align: center; padding: 30px; color: #bdc3c7;">
                     <div style="font-size: 48px; margin-bottom: 15px;">👻</div>
@@ -286,16 +294,22 @@ let currentTimeLimit = 0;
             return;
         }
         
+        console.log(`🎯 Processando ${snapshot.size} usuários...`);
+        
         // Processar usuários
         const users = [];
-        const userPromises = [];
         
-        snapshot.forEach(doc => {
-            const userData = doc.data();
-            const userPromise = checkUserActiveTable(doc.id).then(activeTable => {
-                return {
+        for (const doc of snapshot.docs) {
+            try {
+                const userData = doc.data();
+                console.log('📋 Processando:', userData.displayName || 'Sem nome');
+                
+                const activeTable = await checkUserActiveTable(doc.id);
+                
+                users.push({
                     id: doc.id,
                     name: userData.displayName || 'Jogador',
+                    email: userData.email,
                     city: userData.city || 'Não informada',
                     country: userData.country || 'Não informado',
                     age: userData.age || 'N/A',
@@ -303,34 +317,142 @@ let currentTimeLimit = 0;
                     coins: userData.coins || 0,
                     wins: userData.wins || 0,
                     losses: userData.losses || 0,
+                    draws: userData.draws || 0,
+                    lastLogin: userData.lastLogin,
+                    lastActivity: userData.lastActivity,
+                    isOnline: userData.isOnline,
                     activeTable: activeTable
-                };
-            });
-            userPromises.push(userPromise);
-        });
+                });
+                
+            } catch (error) {
+                console.error('Erro ao processar usuário', doc.id, error);
+            }
+        }
         
-        // Aguardar todas as verificações de mesas
-        const usersWithTables = await Promise.all(userPromises);
-        usersWithTables.forEach(user => users.push(user));
+        console.log(`✅ ${users.length} usuários processados com sucesso`);
         
-        // Ordenar por rating (maior primeiro)
-        users.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        if (users.length === 0) {
+            usersList.innerHTML = `
+                <div style="text-align: center; padding: 30px; color: #bdc3c7;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">😵</div>
+                    <p>Nenhum usuário pode ser carregado</p>
+                    <small>Verifique as permissões do Firebase</small>
+                </div>
+            `;
+            return;
+        }
         
         // Renderizar usuários
         renderOnlineUsers(users);
         
     } catch (error) {
-        console.error('Erro ao carregar usuários:', error);
+        console.error('❌ Erro crítico ao carregar usuários:', error);
+        
         usersList.innerHTML = `
             <div style="text-align: center; padding: 30px; color: #e74c3c;">
-                <div style="font-size: 48px; margin-bottom: 15px;">❌</div>
-                <p>Erro ao carregar jogadores</p>
+                <div style="font-size: 48px; margin-bottom: 15px;">💥</div>
+                <p>Falha na conexão com o servidor</p>
                 <small>${error.message}</small>
+                <div style="margin-top: 20px;">
+                    <button onclick="loadOnlineUsers()" style="
+                        background: #3498db;
+                        color: white;
+                        border: none;
+                        padding: 12px 20px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">🔄 Tentar Novamente</button>
+                </div>
             </div>
         `;
     }
 };
+
+
+// ===== DEBUG DETALHADO =====
+async function debugFirebaseUsers() {
+    console.log('=== DEBUG DETALHADO DO FIREBASE ===');
     
+    try {
+        if (!db) {
+            console.log('❌ Firestore não inicializado');
+            return;
+        }
+        
+        // Buscar TODOS os usuários para debug
+        const allUsers = await db.collection('users').get();
+        console.log(`📊 Total de usuários no banco: ${allUsers.size}`);
+        
+        allUsers.forEach(doc => {
+            const data = doc.data();
+            console.log(`👤 ${doc.id}:`, {
+                nome: data.displayName,
+                online: data.isOnline,
+                lastActivity: data.lastActivity,
+                lastLogin: data.lastLogin,
+                cidade: data.city
+            });
+        });
+        
+        // Buscar usuários online especificamente
+        const onlineUsers = await db.collection('users')
+            .where('isOnline', '==', true)
+            .get();
+            
+        console.log(`🎯 Usuários online (isOnline=true): ${onlineUsers.size}`);
+        
+        onlineUsers.forEach(doc => {
+            const data = doc.data();
+            console.log(`✅ ONLINE: ${data.displayName} (${doc.id})`);
+        });
+        
+    } catch (error) {
+        console.error('Erro no debug:', error);
+    }
+}
+
+// Adicione um botão de debug
+function addFirebaseDebugButton() {
+    const debugBtn = document.createElement('button');
+    debugBtn.textContent = '🔥 Debug Firebase';
+    debugBtn.style.cssText = `
+        position: fixed;
+        bottom: 70px;
+        left: 20px;
+        background: #e67e22;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 10000;
+        font-size: 12px;
+    `;
+    
+    debugBtn.onclick = debugFirebaseUsers;
+    document.body.appendChild(debugBtn);
+}
+
+// Chamar após inicialização
+setTimeout(addFirebaseDebugButton, 4000);
+
+
+
+// ===== ATUALIZAR LAST LOGIN QUANDO USUÁRIO FAZ LOGIN =====
+function updateUserLastLogin() {
+    if (!currentUser || !db) return;
+    
+    try {
+        db.collection('users').doc(currentUser.uid).update({
+            lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+            lastActivity: new Date().toISOString()
+        });
+        console.log('Last login atualizado para:', currentUser.uid);
+    } catch (error) {
+        console.error('Erro ao atualizar last login:', error);
+    }
+}
 
 
 function renderOnlineUsers(users) {
@@ -619,24 +741,47 @@ function checkRequiredElements() {
   });
 }
 
-// Chame esta função no final do initializeApp()
 function initializeApp() {
-  initializeAuth();
-  initializeUI();
-  initializeRegisterForm();
-  initializeGame();
-  initializeNotifications(); // ← ADICIONE ESTA LINHA
-  setupConnectionMonitoring();
-      setupTimerPause();
-       initializeTableCheck();
-
+    console.log('🚀 Inicializando aplicação Damas Online...');
     
-  
-  
-  // Verificar elementos (apenas para debug)
-  checkRequiredElements();
+    // 1. Sistemas de autenticação e UI
+    initializeAuth();          // ✅ Já inclui o onAuthStateChanged
+    initializeUI();
+    initializeRegisterForm();
+    
+    // 2. Sistemas de jogo
+    initializeGame();
+    initializeNotifications();
+    setupConnectionMonitoring();
+    setupTimerPause();
+    initializeTableCheck();
+    
+    // 3. Sistemas de usuário e online
+    setupWindowCloseHandler();
+    initializeOnlineUsersModal();
+    
+    // 4. Outros sistemas
+    initializeChat();
+    initializeSpectatorsModal();
+    initializeProfileModal();
+    initializeCoinsModal();
+    
+    // 5. Configurações de manutenção
+    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
+    
+    // 6. Debug e verificação
+    checkRequiredElements();
+    
+    console.log('✅ Aplicação inicializada com sucesso!');
+    
+    // Debug adicional
+    setTimeout(() => {
+        console.log('=== STATUS DA APLICAÇÃO ===');
+        console.log('Firebase:', firebase.apps.length > 0 ? '✅ Conectado' : '❌ Não conectado');
+        console.log('Auth:', auth ? '✅ Inicializado' : '❌ Não inicializado');
+        console.log('Firestore:', db ? '✅ Inicializado' : '❌ Não inicializado');
+    }, 1000);
 }
-
 // ===== PAUSAR TIMER EM MODAIS =====
 function setupTimerPause() {
     // Observar abertura de modais
@@ -664,75 +809,124 @@ function setupTimerPause() {
 }
 
 
-
-
-// ===== AUTENTICAÇÃO =====
+// ===== INITIALIZEAUTH CORRIGIDA (sem duplicação) =====
 function initializeAuth() {
-  console.log('Inicializando autenticação...');
-  
-  // Observador de estado de autenticação
-  auth.onAuthStateChanged((user) => {
-    console.log('Estado de autenticação alterado:', user);
-    if (user) {
-      currentUser = user;
-      loadUserData(user.uid);
-      showScreen('main-screen');
-      loadTables();
-      loadRanking();
-      loadFriends();
-    } else {
-      currentUser = null;
-      userData = null;
-      showScreen('auth-screen');
-    }
-  });
+    console.log('Inicializando autenticação...');
+    
+    // Observador de estado de autenticação (APENAS UMA VEZ)
+    auth.onAuthStateChanged(async (user) => {
+        console.log('Estado de autenticação alterado:', user);
+        
+        if (user) {
+            currentUser = user;
+            
+            // ATUALIZAR PARA ONLINE ao fazer login
+            await updateUserOnlineStatus(user.uid, true);
+            
+            loadUserData(user.uid);
+            showScreen('main-screen');
+            loadTables();
+            loadRanking();
+            loadFriends();
+            
+            // Iniciar heartbeat para manter status online
+            startOnlineHeartbeat();
+            
+        } else {
+            // ATUALIZAR PARA OFFLINE ao fazer logout
+            if (currentUser) {
+                await updateUserOnlineStatus(currentUser.uid, false);
+            }
+            
+            stopOnlineHeartbeat();
+            currentUser = null;
+            userData = null;
+            showScreen('auth-screen');
+        }
+    });
 
-  // Verificar se os elementos existem antes de adicionar event listeners
-  const loginBtn = document.getElementById('btn-login');
-  const registerBtn = document.getElementById('btn-register');
-  const googleBtn = document.getElementById('btn-google');
-  const logoutBtn = document.getElementById('btn-logout');
-  const emailInput = document.getElementById('email');
-  const passwordInput = document.getElementById('password');
-  
-  // Adicionar event listeners apenas se os elementos existirem
-  if (loginBtn) {
-    loginBtn.addEventListener('click', signIn);
-  } else {
-    console.error('Botão de login não encontrado');
-  }
-  
-  if (registerBtn) {
-    registerBtn.addEventListener('click', showRegisterForm);
-  } else {
-    console.error('Botão de registro não encontrado');
-  }
-  
-  if (googleBtn) {
-    googleBtn.addEventListener('click', signInWithGoogle);
-  } else {
-    console.error('Botão do Google não encontrado');
-  }
-  
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', signOut);
-  } else {
-    console.error('Botão de logout não encontrado');
-  }
-  
-  // Permitir login com Enter
-  if (emailInput) {
-    emailInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') signIn();
-    });
-  }
-  
-  if (passwordInput) {
-    passwordInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') signIn();
-    });
-  }
+    // Configurar event listeners dos botões de auth
+    const loginBtn = document.getElementById('btn-login');
+    const registerBtn = document.getElementById('btn-register');
+    const googleBtn = document.getElementById('btn-google');
+    const logoutBtn = document.getElementById('btn-logout');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    
+    if (loginBtn) {
+        loginBtn.addEventListener('click', signIn);
+    } else {
+        console.error('Botão de login não encontrado');
+    }
+    
+    if (registerBtn) {
+        registerBtn.addEventListener('click', showRegisterForm);
+    } else {
+        console.error('Botão de registro não encontrado');
+    }
+    
+    if (googleBtn) {
+        googleBtn.addEventListener('click', signInWithGoogle);
+    } else {
+        console.error('Botão do Google não encontrado');
+    }
+    
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', signOut);
+    } else {
+        console.error('Botão de logout não encontrado');
+    }
+    
+    // Permitir login com Enter
+    if (emailInput) {
+        emailInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') signIn();
+        });
+    }
+    
+    if (passwordInput) {
+        passwordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') signIn();
+        });
+    }
 }
+
+// ===== SISTEMA DE ACTIVITY PING =====
+let activityInterval = null;
+
+function startActivityPing() {
+    if (activityInterval) clearInterval(activityInterval);
+    
+    activityInterval = setInterval(() => {
+        if (currentUser && db) {
+            // Atualizar atividade a cada 2 minutos
+            db.collection('users').doc(currentUser.uid).update({
+                lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+                isOnline: true
+            }).catch(error => {
+                console.error('Erro no activity ping:', error);
+            });
+        }
+    }, 2 * 60 * 1000); // 2 minutos
+}
+
+function stopActivityPing() {
+    if (activityInterval) {
+        clearInterval(activityInterval);
+        activityInterval = null;
+    }
+    
+    // Marcar como offline quando usuário sai
+    if (currentUser && db) {
+        db.collection('users').doc(currentUser.uid).update({
+            isOnline: false,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        }).catch(error => {
+            console.error('Erro ao marcar como offline:', error);
+        });
+    }
+}
+
 
 async function signIn() {
   const email = document.getElementById('email').value;
@@ -745,7 +939,12 @@ async function signIn() {
   
   try {
     showLoading(true);
-    await auth.signInWithEmailAndPassword(email, password);
+    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+    const user = userCredential.user;
+    
+    // ATUALIZAR STATUS ONLINE NO FIRESTORE
+    await updateUserOnlineStatus(user.uid, true);
+    
     showNotification('Login realizado com sucesso!', 'success');
   } catch (error) {
     showNotification(getAuthErrorMessage(error), 'error');
@@ -778,26 +977,63 @@ async function signUp() {
   // Rolar para o topo do formulário
   window.scrollTo(0, 0);
 }
-
 async function signInWithGoogle() {
-  try {
-    showLoading(true);
-    const provider = new firebase.auth.GoogleAuthProvider();
-    await auth.signInWithPopup(provider);
-    showNotification('Login com Google realizado!', 'success');
-  } catch (error) {
-    showNotification('Erro ao fazer login com Google: ' + error.message, 'error');
-    showLoading(false);
-  }
+    try {
+        showLoading(true);
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const userCredential = await auth.signInWithPopup(provider);
+        const user = userCredential.user;
+        
+        // ATUALIZAR STATUS ONLINE
+        await updateUserOnlineStatus(user.uid, true);
+        
+        showNotification('Login com Google realizado!', 'success');
+    } catch (error) {
+        showNotification('Erro ao fazer login com Google: ' + error.message, 'error');
+        showLoading(false);
+    }
 }
 
+// Botão para testar status online
+function addOnlineStatusDebugButton() {
+    const debugBtn = document.createElement('button');
+    debugBtn.textContent = '🟢 Testar Online';
+    debugBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #27ae60;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 10000;
+    `;
+    
+    debugBtn.onclick = async () => {
+        if (currentUser) {
+            await updateUserOnlineStatus(currentUser.uid, true);
+            showNotification('Status online atualizado!', 'success');
+        } else {
+            showNotification('Faça login primeiro', 'error');
+        }
+    };
+    
+    document.body.appendChild(debugBtn);
+}
 async function signOut() {
-  try {
-    await auth.signOut();
-    showNotification('Logout realizado com sucesso', 'info');
-  } catch (error) {
-    showNotification('Erro ao fazer logout', 'error');
-  }
+    try {
+        // Atualizar status para offline antes de sair
+        if (currentUser) {
+            await updateUserOnlineStatus(currentUser.uid, false);
+        }
+        
+        await auth.signOut();
+        showNotification('Logout realizado com sucesso', 'info');
+    } catch (error) {
+        showNotification('Erro ao fazer logout', 'error');
+    }
 }
 
 function getAuthErrorMessage(error) {
@@ -6537,3 +6773,118 @@ setTimeout(() => {
         document.body.appendChild(fallbackBtn);
     }
 }, 5000);
+
+
+
+// ===== GERENCIADOR DE STATUS ONLINE =====
+async function updateUserOnlineStatus(userId, isOnline) {
+    if (!userId || !db) {
+        console.error('Não é possível atualizar status online: userId ou db não disponível');
+        return;
+    }
+    
+    try {
+        const updateData = {
+            isOnline: isOnline,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        
+        // Se estiver online, atualizar também lastLogin
+        if (isOnline) {
+            updateData.lastLogin = firebase.firestore.FieldValue.serverTimestamp();
+        }
+        
+        await db.collection('users').doc(userId).update(updateData);
+        console.log(`Status online atualizado: ${userId} -> ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+        
+    } catch (error) {
+        console.error('Erro ao atualizar status online:', error);
+        
+        // Se o campo isOnline não existir, criá-lo
+        if (error.code === 'not-found') {
+            console.log('Campo isOnline não existe, criando...');
+            try {
+                await db.collection('users').doc(userId).set({
+                    isOnline: isOnline,
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastLogin: isOnline ? firebase.firestore.FieldValue.serverTimestamp() : null
+                }, { merge: true });
+            } catch (createError) {
+                console.error('Erro ao criar campo isOnline:', createError);
+            }
+        }
+    }
+}
+
+
+// ===== SISTEMA DE HEARTBEAT =====
+let heartbeatInterval = null;
+
+// 2. startOnlineHeartbeat 
+function startOnlineHeartbeat() {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    
+    heartbeatInterval = setInterval(async () => {
+        if (currentUser && db) {
+            try {
+                await db.collection('users').doc(currentUser.uid).update({
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+                    isOnline: true
+                });
+            } catch (error) {
+                console.error('Erro no heartbeat:', error);
+            }
+        }
+    }, 30 * 1000); // A cada 30 segundos
+}
+
+// 3. stopOnlineHeartbeat
+function stopOnlineHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
+
+
+// 5. setupWindowCloseHandler
+function setupWindowCloseHandler() {
+    window.addEventListener('beforeunload', async () => {
+        if (currentUser) {
+            try {
+                await updateUserOnlineStatus(currentUser.uid, false);
+            } catch (error) {
+                console.log('Erro ao atualizar status no beforeunload:', error);
+            }
+        }
+    });
+}
+
+
+
+
+// 4. cleanupOrphanedOnlineUsers
+async function cleanupOrphanedOnlineUsers() {
+    if (!db) return;
+    
+    try {
+        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+        
+        const orphanedUsers = await db.collection('users')
+            .where('isOnline', '==', true)
+            .where('lastActivity', '<', fifteenMinutesAgo)
+            .get();
+        
+        if (!orphanedUsers.empty) {
+            const batch = db.batch();
+            orphanedUsers.forEach(doc => {
+                batch.update(doc.ref, { isOnline: false });
+            });
+            await batch.commit();
+        }
+    } catch (error) {
+        console.error('Erro na limpeza:', error);
+    }
+}
+
+
