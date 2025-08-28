@@ -152,14 +152,22 @@
             <div class="tab-content">
                 <!-- Aba: Tabuleiros -->
                 <div id="tab-tabuleiros" class="tab-pane active">
+                                                        <!-- Botão para abrir lista de usuários -->
+<button id="btn-online-users" class="btn btn-info">
+    <i class="fas fa-users"></i> Jogadores Online
+    <span id="online-users-count" class="badge">0</span>
+</button>
                     <div class="header-with-action">
                         <h2>Mesas Disponíveis</h2>
+
+    
                         <button id="btn-create-table" class="btn btn-primary btn-small">
                             <i class="fas fa-plus"></i> Nova Mesa
                         </button>
                     </div>
                     
                     <div class="tables-list" id="tables-container">
+                        
                         <!-- Mesas serão carregadas dinamicamente -->
                     </div>
                 </div>
@@ -462,11 +470,7 @@
     <div id="modal-create-table" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <!-- Botão para abrir lista de usuários -->
-<button id="btn-online-users" class="btn btn-info">
-    <i class="fas fa-users"></i> Jogadores Online
-    <span id="online-users-count" class="badge">0</span>
-</button>
+
 
                 <h3>Criar Nova Mesa</h3>
                 <button class="modal-close">&times;</button>
