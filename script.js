@@ -304,25 +304,11 @@ window.loadOnlineUsers = async function() {
                 const userData = doc.data();
                 console.log('📋 Processando:', userData.displayName || 'Sem nome');
                 
-                const activeTable = await checkUserActiveTable(doc.id);
-                
-                users.push({
-                    id: doc.id,
-                    name: userData.displayName || 'Jogador',
-                    email: userData.email,
-                    city: userData.city || 'Não informada',
-                    country: userData.country || 'Não informado',
-                    age: userData.age || 'N/A',
-                    rating: userData.rating || 1000,
-                    coins: userData.coins || 0,
-                    wins: userData.wins || 0,
-                    losses: userData.losses || 0,
-                    draws: userData.draws || 0,
-                    lastLogin: userData.lastLogin,
-                    lastActivity: userData.lastActivity,
-                    isOnline: userData.isOnline,
-                    activeTable: activeTable
-                });
+               // Na função loadOnlineUsers, modifique a parte do checkUserActiveTable:
+const activeTable = await checkUserActiveTable(doc.id).catch(error => {
+    console.error('Erro ao verificar mesa do usuário', doc.id, error);
+    return { hasActiveTable: false };
+});
                 
             } catch (error) {
                 console.error('Erro ao processar usuário', doc.id, error);
@@ -615,52 +601,51 @@ function updateOnlineUsersStats(users) {
         badge.style.display = totalUsers > 0 ? 'inline-block' : 'none';
     }
 }
-// ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
+// Modifique o checkUserActiveTable para usar fallback
 async function checkUserActiveTable(userId = null) {
     const targetUserId = userId || currentUser?.uid;
     
     if (!targetUserId || !db) {
-        console.log('❌ checkUserActiveTable: userId ou db não disponível');
         return { hasActiveTable: false };
     }
     
     try {
-        console.log('🔍 Verificando mesa ativa para usuário:', targetUserId);
-        
+        // Tentar método normal primeiro
         const snapshot = await db.collection('tables')
-            .where('players', 'array-contains', { uid: targetUserId })
             .where('status', 'in', ['waiting', 'playing'])
-            .limit(1)
             .get();
         
-        console.log('📊 Mesas encontradas:', snapshot.size);
+        const userTables = [];
+        snapshot.forEach(doc => {
+            const table = doc.data();
+            if (table.players && table.players.some(player => player.uid === targetUserId)) {
+                userTables.push({ doc, table });
+            }
+        });
         
-        if (!snapshot.empty) {
-            const tableDoc = snapshot.docs[0];
-            const table = tableDoc.data();
-            
-            console.log('✅ Mesa ativa encontrada:', tableDoc.id, table.status);
+        if (userTables.length > 0) {
+            const tableDoc = userTables[0].doc;
+            const tableData = userTables[0].table;
             
             return {
                 hasActiveTable: true,
-                tableId: tableDoc.id, // ← GARANTIR que tableId está sendo retornado
-                tableName: table.name,
-                tableBet: table.bet || 0,
-                tableStatus: table.status,
-                tableTimeLimit: table.timeLimit,
-                players: table.players || []
+                tableId: tableDoc.id,
+                tableName: tableData.name,
+                tableBet: tableData.bet || 0,
+                tableStatus: tableData.status,
+                tableTimeLimit: tableData.timeLimit,
+                players: tableData.players || []
             };
         }
         
-        console.log('✅ Nenhuma mesa ativa encontrada');
-        return { hasActiveTable: false };
+        // Se não encontrou, tentar método manual
+        return await manualCheckUserTable(targetUserId);
         
     } catch (error) {
-        console.error('❌ Erro ao verificar mesa ativa:', error);
-        return { hasActiveTable: false };
+        console.error('Erro ao verificar mesa ativa:', error);
+        return await manualCheckUserTable(targetUserId);
     }
 }
-
 
     function showTemporaryData() {
         const usersList = document.getElementById('online-users-list');
@@ -2045,6 +2030,8 @@ async function updateUserProfile() {
     showNotification('Erro ao atualizar perfil', 'error');
   }
 }
+
+
 // ===== FUNÇÃO LOAD TABLES (ATUALIZADA) =====
 function loadTables() {
     // Remover listener anterior se existir
@@ -6541,32 +6528,40 @@ function setupActiveTableListener() {
     console.log('🔍 Iniciando listener de mesa ativa para:', currentUser.uid);
     
     try {
+        // Usar approach alternativo já que array-contains pode não estar funcionando
+        // Vamos escutar todas as mesas ativas e filtrar manualmente
         activeTableListener = db.collection('tables')
-            .where('players', 'array-contains', { uid: currentUser.uid })
             .where('status', 'in', ['waiting', 'playing'])
             .onSnapshot(async (snapshot) => {
-                console.log('📊 Atualização de mesa ativa recebida:', snapshot.size, 'mesas');
+                console.log('📊 Mesas ativas atualizadas:', snapshot.size);
                 
-                if (snapshot.empty) {
-                    // Nenhuma mesa ativa
-                    userActiveTable = null;
-                    console.log('✅ Usuário não está em nenhuma mesa');
-                } else {
-                    // Usuário está em uma mesa
-                    const tableDoc = snapshot.docs[0];
-                    userActiveTable = tableDoc.id;
-                    const tableData = tableDoc.data();
-                    
-                    console.log('🎯 Usuário está na mesa:', userActiveTable, tableData.status);
+                let userTableFound = null;
+                
+                snapshot.forEach(doc => {
+                    const tableData = doc.data();
+                    if (tableData.players && tableData.players.some(player => player.uid === currentUser.uid)) {
+                        userTableFound = {
+                            id: doc.id,
+                            data: tableData
+                        };
+                    }
+                });
+                
+                if (userTableFound) {
+                    userActiveTable = userTableFound.id;
+                    console.log('🎯 Usuário está na mesa:', userActiveTable, userTableFound.data.status);
                     
                     // Se a mesa estiver esperando, atualizar a lista de usuários online
-                    if (tableData.status === 'waiting') {
+                    if (userTableFound.data.status === 'waiting') {
                         setTimeout(() => {
                             if (typeof refreshOnlineUsersList === 'function') {
                                 refreshOnlineUsersList();
                             }
                         }, 500);
                     }
+                } else {
+                    userActiveTable = null;
+                    console.log('✅ Usuário não está em nenhuma mesa');
                 }
                 
                 // Atualizar UI
@@ -7092,3 +7087,116 @@ function addTableDebugButton() {
 }
 
 setTimeout(addTableDebugButton, 3000);
+
+// ===== DEBUG DAS MESAS =====
+async function debugTables() {
+    console.log('=== DEBUG DAS MESAS ===');
+    
+    try {
+        // 1. Verificar todas as mesas
+        const allTables = await db.collection('tables').get();
+        console.log(`📊 Total de mesas no banco: ${allTables.size}`);
+        
+        allTables.forEach(doc => {
+            const data = doc.data();
+            console.log(`🎯 Mesa ${doc.id}:`, {
+                status: data.status,
+                name: data.name,
+                players: data.players ? data.players.map(p => p.displayName) : [],
+                playerIds: data.players ? data.players.map(p => p.uid) : []
+            });
+        });
+        
+        // 2. Verificar mesas com status waiting/playing
+        const activeTables = await db.collection('tables')
+            .where('status', 'in', ['waiting', 'playing'])
+            .get();
+            
+        console.log(`🕹️ Mesas ativas (waiting/playing): ${activeTables.size}`);
+        
+        // 3. Verificar mesas onde o usuário atual está jogando
+        if (currentUser) {
+            const userTables = await db.collection('tables')
+                .where('players', 'array-contains', { uid: currentUser.uid })
+                .get();
+                
+            console.log(`👤 Mesas do usuário ${currentUser.uid}: ${userTables.size}`);
+            
+            userTables.forEach(doc => {
+                const data = doc.data();
+                console.log(`✅ Usuário está na mesa ${doc.id}:`, {
+                    status: data.status,
+                    name: data.name
+                });
+            });
+        }
+        
+    } catch (error) {
+        console.error('❌ Erro no debug das mesas:', error);
+    }
+}
+
+// Adicionar botão de debug
+function addTablesDebugButton() {
+    const debugBtn = document.createElement('button');
+    debugBtn.textContent = '🐛 Debug Mesas';
+    debugBtn.style.cssText = `
+        position: fixed;
+        bottom: 160px;
+        left: 20px;
+        background: #16a085;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 10000;
+        font-size: 12px;
+    `;
+    
+    debugBtn.onclick = debugTables;
+    document.body.appendChild(debugBtn);
+}
+
+setTimeout(addTablesDebugButton, 3000);
+
+
+// ===== FALLBACK MANUAL PARA VERIFICAR MESAS =====
+async function manualCheckUserTable(userId) {
+    try {
+        console.log('🔍 Verificação manual de mesa para:', userId);
+        
+        // Buscar todas as mesas
+        const allTables = await db.collection('tables').get();
+        let userTable = null;
+        
+        allTables.forEach(doc => {
+            const tableData = doc.data();
+            if (tableData.players && tableData.players.some(player => player.uid === userId)) {
+                userTable = {
+                    id: doc.id,
+                    data: tableData
+                };
+            }
+        });
+        
+        if (userTable) {
+            console.log('✅ Mesa encontrada manualmente:', userTable.id);
+            return {
+                hasActiveTable: true,
+                tableId: userTable.id,
+                tableName: userTable.data.name,
+                tableBet: userTable.data.bet || 0,
+                tableStatus: userTable.data.status,
+                tableTimeLimit: userTable.data.timeLimit,
+                players: userTable.data.players || []
+            };
+        }
+        
+        return { hasActiveTable: false };
+        
+    } catch (error) {
+        console.error('❌ Erro na verificação manual:', error);
+        return { hasActiveTable: false };
+    }
+}
