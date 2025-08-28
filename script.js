@@ -2943,7 +2943,7 @@ function updateGameHeader(currentPlayer, opponent) {
 
 
 // ===== FUNÇÃO SURRENDER GAME CORRIGIDA =====
-async function surrenderGame() {
+async function surrenderFromGame() {
     console.log('Iniciando processo de desistência...');
     
     if (!currentGameRef || !gameState) {
