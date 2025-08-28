@@ -615,35 +615,53 @@ function updateOnlineUsersStats(users) {
         badge.style.display = totalUsers > 0 ? 'inline-block' : 'none';
     }
 }
-
-async function checkUserActiveTable(userId) {
+// ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
+async function checkUserActiveTable(userId = null) {
+    const targetUserId = userId || currentUser?.uid;
+    
+    if (!targetUserId || !db) {
+        console.log('❌ checkUserActiveTable: userId ou db não disponível');
+        return { hasActiveTable: false };
+    }
+    
     try {
-        if (!db) return { hasActiveTable: false };
+        console.log('🔍 Verificando mesa ativa para usuário:', targetUserId);
         
         const snapshot = await db.collection('tables')
-            .where('players', 'array-contains', { uid: userId })
+            .where('players', 'array-contains', { uid: targetUserId })
             .where('status', 'in', ['waiting', 'playing'])
             .limit(1)
             .get();
         
+        console.log('📊 Mesas encontradas:', snapshot.size);
+        
         if (!snapshot.empty) {
-            const table = snapshot.docs[0].data();
+            const tableDoc = snapshot.docs[0];
+            const table = tableDoc.data();
+            
+            console.log('✅ Mesa ativa encontrada:', tableDoc.id, table.status);
+            
             return {
                 hasActiveTable: true,
-                tableId: snapshot.docs[0].id,
+                tableId: tableDoc.id, // ← GARANTIR que tableId está sendo retornado
                 tableName: table.name,
                 tableBet: table.bet || 0,
                 tableStatus: table.status,
-                tableTimeLimit: table.timeLimit
+                tableTimeLimit: table.timeLimit,
+                players: table.players || []
             };
         }
         
+        console.log('✅ Nenhuma mesa ativa encontrada');
         return { hasActiveTable: false };
+        
     } catch (error) {
-        console.error('Erro ao verificar mesa:', error);
+        console.error('❌ Erro ao verificar mesa ativa:', error);
         return { hasActiveTable: false };
     }
 }
+
+
     function showTemporaryData() {
         const usersList = document.getElementById('online-users-list');
         const users = [
@@ -2194,17 +2212,22 @@ function initializeBrazilianCheckersBoard() {
   
   return board;
 }
-// ===== CREATE NEW TABLE COM ATUALIZAÇÃO EM TEMPO REAL =====
+
+// ===== CREATE NEW TABLE (CORRIGIDA) =====
 async function createNewTable() {
+    console.log('🎯 Criando nova mesa...');
+    
     // Verificar se já tem mesa ativa
-    const hasActiveTable = await checkUserActiveTable();
-    if (hasActiveTable) {
+    const activeTableInfo = await checkUserActiveTable();
+    if (activeTableInfo.hasActiveTable) {
         showNotification('Você já tem uma mesa ativa! Finalize-a antes de criar outra.', 'error');
         
-        // Opcional: redirecionar para a mesa existente
-        setTimeout(() => {
-            joinTable(userActiveTable);
-        }, 2000);
+        // ✅ AGORA tableId está garantido no retorno
+        if (activeTableInfo.tableId) {
+            setTimeout(() => {
+                joinTable(activeTableInfo.tableId);
+            }, 2000);
+        }
         
         return;
     }
@@ -2240,8 +2263,9 @@ async function createNewTable() {
             platformFee: calculatePlatformFee(bet)
         });
         
-        // Salvar referência da mesa ativa
+        // ✅ SALVAR tableId CORRETAMENTE
         userActiveTable = tableRef.id;
+        console.log('✅ Mesa criada com ID:', userActiveTable);
         
         if (bet > 0) {
             await db.collection('users').doc(currentUser.uid).update({
@@ -2254,7 +2278,9 @@ async function createNewTable() {
         showNotification('Mesa criada com sucesso! Aguardando oponente...', 'success');
         
         // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
-        setupActiveTableListener();
+        if (typeof setupActiveTableListener === 'function') {
+            setupActiveTableListener();
+        }
         
         // Atualizar lista de usuários online após um breve delay
         setTimeout(() => {
@@ -2267,13 +2293,21 @@ async function createNewTable() {
         showScreen('game-screen');
         
     } catch (error) {
-        console.error('Erro ao criar mesa:', error);
+        console.error('❌ Erro ao criar mesa:', error);
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
-
-// ===== JOIN TABLE COM ATUALIZAÇÃO EM TEMPO REAL =====
+// ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
+    console.log('🎯 Entrando na mesa:', tableId);
+    
+    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
+    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
+        console.error('❌ TableId inválido:', tableId);
+        showNotification('Erro: ID da mesa inválido', 'error');
+        return;
+    }
+    
     try {
         userActiveTable = tableId;
         
@@ -2281,7 +2315,9 @@ async function joinTable(tableId) {
         const tableDoc = await tableRef.get();
         
         if (!tableDoc.exists) {
+            console.error('❌ Mesa não encontrada:', tableId);
             showNotification('Mesa não encontrada', 'error');
+            userActiveTable = null;
             return;
         }
         
@@ -2289,6 +2325,7 @@ async function joinTable(tableId) {
         
         // Se usuário já está na mesa, apenas entrar
         if (table.players.some(p => p.uid === currentUser.uid)) {
+            console.log('✅ Usuário já está na mesa, apenas entrando...');
             setupGameListener(tableId);
             showScreen('game-screen');
             
@@ -2299,36 +2336,43 @@ async function joinTable(tableId) {
             }
             
             // 🔥 ATUALIZAR LISTENER
-            setupActiveTableListener();
+            if (typeof setupActiveTableListener === 'function') {
+                setupActiveTableListener();
+            }
             return;
         }
         
         // Verificar se mesa está cheia
         if (table.players.length >= 2) {
+            console.log('❌ Mesa cheia:', tableId);
             showNotification('Esta mesa já está cheia', 'error');
+            userActiveTable = null;
             return;
         }
         
         // Verificar aposta
         if (table.bet > 0 && userData.coins < table.bet) {
+            console.log('❌ Saldo insuficiente para aposta');
             showNotification('Você não tem moedas suficientes para entrar nesta mesa', 'error');
+            userActiveTable = null;
             return;
         }
         
-        // CORREÇÃO: Segundo jogador é VERMELHO (base)
+        // Adicionar jogador à mesa
         await tableRef.update({
             players: firebase.firestore.FieldValue.arrayUnion({
                 uid: currentUser.uid,
                 displayName: userData.displayName,
                 rating: userData.rating,
-                color: 'red' // Segundo jogador é vermelho
+                color: 'red'
             }),
             status: 'playing',
             waitingForOpponent: false,
-            // Iniciar o tempo da primeira jogada
             lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
         });
 
+        console.log('✅ Jogador adicionado à mesa');
+        
         // Deduzir aposta se houver
         if (table.bet > 0) {
             await db.collection('users').doc(currentUser.uid).update({
@@ -2341,10 +2385,11 @@ async function joinTable(tableId) {
         setupGameListener(tableId);
         showScreen('game-screen');
         showNotification('Jogo iniciado! As peças pretas começam.', 'success');
-        updateCreateButtonStatus();
         
         // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
-        setupActiveTableListener();
+        if (typeof setupActiveTableListener === 'function') {
+            setupActiveTableListener();
+        }
         
         // Atualizar lista de usuários online
         setTimeout(() => {
@@ -2354,11 +2399,11 @@ async function joinTable(tableId) {
         }, 1000);
         
     } catch (error) {
-        console.error('Erro ao entrar na mesa:', error);
+        console.error('❌ Erro ao entrar na mesa:', error);
+        userActiveTable = null;
         showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
     }
 }
-
 // ===== LIMPEZA DE MESAS ABANDONADAS =====
 async function cleanupAbandonedTables() {
     if (!currentUser) return;
@@ -6480,7 +6525,7 @@ async function checkUserActiveTable(userId = null) {
 
 // ===== LISTENER DE MESAS ATIVAS =====
 let activeTableListener = null;
-
+// ===== SETUP ACTIVE TABLE LISTENER (CORRIGIDA) =====
 function setupActiveTableListener() {
     // Remover listener anterior
     if (activeTableListener) {
@@ -6488,42 +6533,55 @@ function setupActiveTableListener() {
         activeTableListener = null;
     }
     
-    if (!currentUser || !db) return;
+    if (!currentUser || !db) {
+        console.log('❌ setupActiveTableListener: currentUser ou db não disponível');
+        return;
+    }
     
-    console.log('🔍 Iniciando listener de mesa ativa...');
+    console.log('🔍 Iniciando listener de mesa ativa para:', currentUser.uid);
     
-    activeTableListener = db.collection('tables')
-        .where('players', 'array-contains', { uid: currentUser.uid })
-        .where('status', 'in', ['waiting', 'playing'])
-        .onSnapshot(async (snapshot) => {
-            console.log('📊 Atualização de mesa ativa recebida:', snapshot.size, 'mesas');
-            
-            if (snapshot.empty) {
-                // Nenhuma mesa ativa
-                userActiveTable = null;
-                console.log('✅ Usuário não está em nenhuma mesa');
-            } else {
-                // Usuário está em uma mesa
-                const tableDoc = snapshot.docs[0];
-                userActiveTable = tableDoc.id;
-                const tableData = tableDoc.data();
+    try {
+        activeTableListener = db.collection('tables')
+            .where('players', 'array-contains', { uid: currentUser.uid })
+            .where('status', 'in', ['waiting', 'playing'])
+            .onSnapshot(async (snapshot) => {
+                console.log('📊 Atualização de mesa ativa recebida:', snapshot.size, 'mesas');
                 
-                console.log('🎯 Usuário está na mesa:', tableData.name, tableData.status);
-                
-                // Se a mesa estiver esperando, atualizar a lista de usuários online
-                if (tableData.status === 'waiting') {
-                    refreshOnlineUsersList();
+                if (snapshot.empty) {
+                    // Nenhuma mesa ativa
+                    userActiveTable = null;
+                    console.log('✅ Usuário não está em nenhuma mesa');
+                } else {
+                    // Usuário está em uma mesa
+                    const tableDoc = snapshot.docs[0];
+                    userActiveTable = tableDoc.id;
+                    const tableData = tableDoc.data();
+                    
+                    console.log('🎯 Usuário está na mesa:', userActiveTable, tableData.status);
+                    
+                    // Se a mesa estiver esperando, atualizar a lista de usuários online
+                    if (tableData.status === 'waiting') {
+                        setTimeout(() => {
+                            if (typeof refreshOnlineUsersList === 'function') {
+                                refreshOnlineUsersList();
+                            }
+                        }, 500);
+                    }
                 }
-            }
+                
+                // Atualizar UI
+                if (typeof updateCreateButtonStatus === 'function') {
+                    updateCreateButtonStatus();
+                }
+                
+            }, (error) => {
+                console.error('❌ Erro no listener de mesa ativa:', error);
+            });
             
-            // Atualizar UI
-            updateCreateButtonStatus();
-            
-        }, (error) => {
-            console.error('Erro no listener de mesa ativa:', error);
-        });
+    } catch (error) {
+        console.error('❌ Erro ao configurar listener de mesa ativa:', error);
+    }
 }
-
 // Função para atualizar a lista de usuários online
 function refreshOnlineUsersList() {
     if (typeof loadOnlineUsers === 'function') {
@@ -6987,3 +7045,50 @@ async function cleanupOrphanedOnlineUsers() {
 }
 
 
+
+
+// ===== DEBUG DO ESTADO DA MESA =====
+function debugTableState() {
+    console.log('=== DEBUG DO ESTADO DA MESA ===');
+    console.log('userActiveTable:', userActiveTable);
+    console.log('currentUser:', currentUser?.uid);
+    
+    if (userActiveTable) {
+        console.log('🔍 Verificando mesa:', userActiveTable);
+        db.collection('tables').doc(userActiveTable).get()
+            .then(doc => {
+                if (doc.exists) {
+                    console.log('✅ Mesa existe:', doc.data());
+                } else {
+                    console.log('❌ Mesa não existe mais');
+                }
+            })
+            .catch(error => {
+                console.error('❌ Erro ao verificar mesa:', error);
+            });
+    }
+}
+
+// Adicione um botão de debug
+function addTableDebugButton() {
+    const debugBtn = document.createElement('button');
+    debugBtn.textContent = '🐛 Debug Mesa';
+    debugBtn.style.cssText = `
+        position: fixed;
+        bottom: 130px;
+        left: 20px;
+        background: #8e44ad;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 10000;
+        font-size: 12px;
+    `;
+    
+    debugBtn.onclick = debugTableState;
+    document.body.appendChild(debugBtn);
+}
+
+setTimeout(addTableDebugButton, 3000);
