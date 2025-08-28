@@ -462,6 +462,12 @@
     <div id="modal-create-table" class="modal">
         <div class="modal-content">
             <div class="modal-header">
+                <!-- Botão para abrir lista de usuários -->
+<button id="btn-online-users" class="btn btn-info">
+    <i class="fas fa-users"></i> Jogadores Online
+    <span id="online-users-count" class="badge">0</span>
+</button>
+
                 <h3>Criar Nova Mesa</h3>
                 <button class="modal-close">&times;</button>
             </div>
@@ -494,6 +500,52 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal de Usuários Online -->
+<div class="modal online-users-modal" id="online-users-modal">
+    <div class="modal-content large">
+        <div class="modal-header">
+            <h3>👥 Jogadores Online</h3>
+            <button class="modal-close" id="close-online-users">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="online-users-filters">
+                <input type="text" id="users-search" placeholder="🔍 Buscar jogador..." class="search-input">
+                <select id="users-sort" class="select-input">
+                    <option value="rating-desc">Maior Rating</option>
+                    <option value="rating-asc">Menor Rating</option>
+                    <option value="coins-desc">Mais Moedas</option>
+                    <option value="coins-asc">Menos Moedas</option>
+                    <option value="name-asc">Nome (A-Z)</option>
+                    <option value="name-desc">Nome (Z-A)</option>
+                </select>
+            </div>
+            
+            <div class="online-users-stats">
+                <div class="stat-item">
+                    <i class="fas fa-users"></i>
+                    <span>Total: <strong id="total-online-users">0</strong></span>
+                </div>
+                <div class="stat-item">
+                    <i class="fas fa-coins"></i>
+                    <span>Moedas em jogo: <strong id="total-coins">0</strong></span>
+                </div>
+                <div class="stat-item">
+                    <i class="fas fa-chess-board"></i>
+                    <span>Mesas ativas: <strong id="active-tables">0</strong></span>
+                </div>
+            </div>
+            
+            <div class="online-users-list" id="online-users-list">
+                <div class="empty-state">
+                    <i class="fas fa-user-clock"></i>
+                    <p>Carregando jogadores online...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 
     <!-- Modal de Confirmação -->
     <div id="modal-confirm" class="modal">

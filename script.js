@@ -72,7 +72,8 @@ function initializeApp() {
        initializeTableCheck();
 
     
-  
+      initializeOnlineUsersModal(); // ← Adicionar esta linha
+
   
   // Verificar elementos (apenas para debug)
   checkRequiredElements();
@@ -5945,4 +5946,330 @@ async function updateTableSpectatorsCount(tableId, spectatorsCount) {
     } catch (error) {
         console.error('Erro ao atualizar contagem de espectadores:', error);
     }
+}
+
+
+
+// ===== VARIÁVEIS GLOBAIS =====
+let onlineUsersListener = null;
+let onlineUsersModal = null;
+let onlineUsers = [];
+
+// ===== INICIALIZAÇÃO DO MODAL =====
+function initializeOnlineUsersModal() {
+    // Criar botão se não existir
+    if (!document.getElementById('btn-online-users')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-online-users';
+        btn.className = 'btn btn-info';
+        btn.innerHTML = '<i class="fas fa-users"></i> Jogadores Online <span id="online-users-count" class="badge">0</span>';
+        
+        // Adicionar ao header ou onde for apropriado
+        const headerActions = document.querySelector('.header-actions');
+        if (headerActions) {
+            headerActions.appendChild(btn);
+        }
+    }
+    
+    // Criar modal se não existir
+    if (!document.getElementById('online-users-modal')) {
+        const modalHTML = `
+            <div class="modal online-users-modal" id="online-users-modal">
+                <div class="modal-content large">
+                    <div class="modal-header">
+                        <h3>👥 Jogadores Online</h3>
+                        <button class="modal-close" id="close-online-users">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="online-users-filters">
+                            <input type="text" id="users-search" placeholder="🔍 Buscar jogador..." class="search-input">
+                            <select id="users-sort" class="select-input">
+                                <option value="rating-desc">Maior Rating</option>
+                                <option value="rating-asc">Menor Rating</option>
+                                <option value="coins-desc">Mais Moedas</option>
+                                <option value="coins-asc">Menos Moedas</option>
+                                <option value="name-asc">Nome (A-Z)</option>
+                                <option value="name-desc">Nome (Z-A)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="online-users-stats">
+                            <div class="stat-item">
+                                <i class="fas fa-users"></i>
+                                <span>Total: <strong id="total-online-users">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-coins"></i>
+                                <span>Moedas em jogo: <strong id="total-coins">0</strong></span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-chess-board"></i>
+                                <span>Mesas ativas: <strong id="active-tables">0</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="online-users-list" id="online-users-list">
+                            <div class="empty-state">
+                                <i class="fas fa-user-clock"></i>
+                                <p>Carregando jogadores online...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    onlineUsersModal = document.getElementById('online-users-modal');
+    
+    // Event listeners
+    document.getElementById('btn-online-users').addEventListener('click', openOnlineUsersModal);
+    document.getElementById('close-online-users').addEventListener('click', closeOnlineUsersModal);
+    
+    // Fechar modal clicando fora
+    onlineUsersModal.addEventListener('click', (e) => {
+        if (e.target === onlineUsersModal) {
+            closeOnlineUsersModal();
+        }
+    });
+    
+    // Filtros
+    document.getElementById('users-search').addEventListener('input', filterOnlineUsers);
+    document.getElementById('users-sort').addEventListener('change', sortOnlineUsers);
+    
+    console.log('Modal de usuários online inicializado!');
+}
+
+// ===== FUNÇÕES DO MODAL =====
+function openOnlineUsersModal() {
+    if (!onlineUsersModal) {
+        initializeOnlineUsersModal();
+    }
+    
+    loadOnlineUsers();
+    onlineUsersModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeOnlineUsersModal() {
+    if (onlineUsersModal) {
+        onlineUsersModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+// ===== CARREGAR USUÁRIOS ONLINE =====
+function loadOnlineUsers() {
+    // Remover listener anterior
+    if (onlineUsersListener) onlineUsersListener();
+    
+    onlineUsersListener = db.collection('users')
+        .where('lastLogin', '>', new Date(Date.now() - 15 * 60 * 1000)) // Últimos 15 minutos
+        .onSnapshot(async (snapshot) => {
+            onlineUsers = [];
+            const userPromises = [];
+            
+            snapshot.forEach((doc) => {
+                const userData = { id: doc.id, ...doc.data() };
+                userPromises.push(
+                    checkUserActiveTable(doc.id).then(activeTable => {
+                        return { ...userData, activeTable };
+                    })
+                );
+            });
+            
+            // Aguardar todas as verificações de mesas
+            const usersWithTables = await Promise.all(userPromises);
+            onlineUsers = usersWithTables;
+            
+            updateOnlineUsersUI();
+            updateOnlineUsersStats();
+            
+        }, (error) => {
+            console.error('Erro ao carregar usuários online:', error);
+        });
+}
+
+// ===== VERIFICAR MESA ATIVA DO USUÁRIO =====
+async function checkUserActiveTable(userId) {
+    try {
+        const snapshot = await db.collection('tables')
+            .where('players', 'array-contains', { uid: userId })
+            .where('status', 'in', ['waiting', 'playing'])
+            .limit(1)
+            .get();
+        
+        if (!snapshot.empty) {
+            const table = snapshot.docs[0].data();
+            return {
+                hasActiveTable: true,
+                tableId: snapshot.docs[0].id,
+                tableName: table.name,
+                tableBet: table.bet || 0,
+                tableStatus: table.status,
+                tableTimeLimit: table.timeLimit
+            };
+        }
+        
+        return { hasActiveTable: false };
+    } catch (error) {
+        console.error('Erro ao verificar mesa do usuário:', error);
+        return { hasActiveTable: false };
+    }
+}
+
+// ===== ATUALIZAR UI DOS USUÁRIOS =====
+function updateOnlineUsersUI() {
+    const usersList = document.getElementById('online-users-list');
+    if (!usersList) return;
+    
+    if (onlineUsers.length === 0) {
+        usersList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-user-slash"></i>
+                <p>Nenhum jogador online no momento</p>
+            </div>
+        `;
+        return;
+    }
+    
+    usersList.innerHTML = onlineUsers.map(user => `
+        <div class="user-item">
+            <div class="status-online ${user.activeTable.hasActiveTable ? 'status-playing' : ''}"></div>
+            
+            <div class="user-header">
+                <div class="user-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=3498db&color=fff" alt="${user.displayName}">
+                </div>
+                <div class="user-info">
+                    <h3 class="user-name">${user.displayName}</h3>
+                    <div class="user-details">
+                        <span class="user-detail"><i class="fas fa-map-marker-alt"></i> ${user.city || 'Não informada'}</span>
+                        <span class="user-detail"><i class="fas fa-birthday-cake"></i> ${user.age || 'N/A'} anos</span>
+                        <span class="user-detail"><i class="fas fa-globe"></i> ${user.country || 'Não informado'}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="user-stats">
+                <div class="stat-card">
+                    <span class="stat-value">${user.rating || 1000}</span>
+                    <span class="stat-label">Rating</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">${user.coins || 0}</span>
+                    <span class="stat-label">Moedas</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">${user.wins || 0}</span>
+                    <span class="stat-label">Vitórias</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">${user.losses || 0}</span>
+                    <span class="stat-label">Derrotas</span>
+                </div>
+            </div>
+            
+            ${user.activeTable.hasActiveTable ? `
+                <div class="user-table-info has-table">
+                    <strong><i class="fas fa-chess-board"></i> Mesa Ativa</strong>
+                    <div class="table-details">
+                        <div>${user.activeTable.tableName}</div>
+                        <div>Status: ${user.activeTable.tableStatus === 'waiting' ? '🕐 Aguardando' : '🎮 Jogando'}</div>
+                        ${user.activeTable.tableBet > 0 ? `
+                            <div class="table-bet">
+                                <i class="fas fa-coins"></i> Aposta: ${user.activeTable.tableBet} moedas
+                            </div>
+                        ` : ''}
+                        <div>Tempo: ${user.activeTable.tableTimeLimit}s</div>
+                    </div>
+                </div>
+            ` : `
+                <div class="user-table-info">
+                    <i class="fas fa-coffee"></i> Não está em nenhuma mesa
+                </div>
+            `}
+        </div>
+    `).join('');
+}
+
+// ===== ATUALIZAR ESTATÍSTICAS =====
+function updateOnlineUsersStats() {
+    const totalUsers = onlineUsers.length;
+    const totalCoins = onlineUsers.reduce((sum, user) => sum + (user.coins || 0), 0);
+    const activeTables = onlineUsers.filter(user => user.activeTable.hasActiveTable).length;
+    
+    document.getElementById('total-online-users').textContent = totalUsers;
+    document.getElementById('total-coins').textContent = totalCoins;
+    document.getElementById('active-tables').textContent = activeTables;
+    
+    // Atualizar badge do botão
+    const badge = document.getElementById('online-users-count');
+    if (badge) {
+        badge.textContent = totalUsers;
+        badge.style.display = totalUsers > 0 ? 'flex' : 'none';
+    }
+}
+
+// ===== FILTRAR E ORDENAR =====
+function filterOnlineUsers() {
+    const searchTerm = document.getElementById('users-search').value.toLowerCase();
+    const filteredUsers = onlineUsers.filter(user => 
+        user.displayName.toLowerCase().includes(searchTerm) ||
+        (user.city && user.city.toLowerCase().includes(searchTerm)) ||
+        (user.country && user.country.toLowerCase().includes(searchTerm))
+    );
+    
+    renderFilteredUsers(filteredUsers);
+}
+
+function sortOnlineUsers() {
+    const sortValue = document.getElementById('users-sort').value;
+    const sortedUsers = [...onlineUsers];
+    
+    switch (sortValue) {
+        case 'rating-desc':
+            sortedUsers.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+            break;
+        case 'rating-asc':
+            sortedUsers.sort((a, b) => (a.rating || 0) - (b.rating || 0));
+            break;
+        case 'coins-desc':
+            sortedUsers.sort((a, b) => (b.coins || 0) - (a.coins || 0));
+            break;
+        case 'coins-asc':
+            sortedUsers.sort((a, b) => (a.coins || 0) - (b.coins || 0));
+            break;
+        case 'name-asc':
+            sortedUsers.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+            break;
+        case 'name-desc':
+            sortedUsers.sort((a, b) => (b.displayName || '').localeCompare(a.displayName || ''));
+            break;
+    }
+    
+    renderFilteredUsers(sortedUsers);
+}
+
+function renderFilteredUsers(users) {
+    const usersList = document.getElementById('online-users-list');
+    if (!usersList) return;
+    
+    if (users.length === 0) {
+        usersList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-search"></i>
+                <p>Nenhum jogador encontrado</p>
+            </div>
+        `;
+        return;
+    }
+    
+    usersList.innerHTML = users.map(user => `
+        <div class="user-item">
+            <!-- ... mesmo conteúdo do updateOnlineUsersUI ... -->
+        </div>
+    `).join('');
 }
