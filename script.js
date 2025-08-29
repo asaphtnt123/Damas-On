@@ -235,127 +235,62 @@ let currentTimeLimit = 0;
         }
     };
     
+// Função melhorada para carregar usuários online
 window.loadOnlineUsers = async function() {
     console.log('📡 Carregando usuários online...');
     
-    const usersList = document.getElementById('online-users-list');
-    if (!usersList) {
-        console.error('Elemento online-users-list não encontrado!');
-        return;
-    }
-    
-    // Mostrar loading
-    usersList.innerHTML = `
-        <div style="text-align: center; padding: 30px; color: #bdc3c7;">
-            <div style="font-size: 48px; margin-bottom: 15px;">🔄</div>
-            <p>Buscando jogadores online...</p>
-            <small>Aguarde alguns segundos</small>
-        </div>
-    `;
-    
     try {
-        if (!firebase.apps.length || !db) {
-            throw new Error('Firebase não está conectado');
-        }
+        // Buscar usuários com atividade recente (últimos 2 minutos)
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
         
-        console.log('🔍 Procurando usuários online...');
+        const snapshot = await db.collection('users')
+            .where('lastActivity', '>=', twoMinutesAgo)
+            .get();
         
-        // Tentar várias abordagens para encontrar usuários online
-        let snapshot;
-        
-        try {
-            // 1. Primeira tentativa: usuários com isOnline = true
-            snapshot = await db.collection('users')
-                .where('isOnline', '==', true)
-                .get();
-                
-            console.log(`✅ Encontrados ${snapshot.size} usuários online (isOnline=true)`);
-            
-        } catch (error) {
-            console.log('❌ Campo isOnline não disponível, tentando última atividade...', error);
-            
-            // 2. Segunda tentativa: última atividade recente (últimos 5 minutos)
-            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-            snapshot = await db.collection('users')
-                .where('lastActivity', '>', fiveMinutesAgo)
-                .get();
-                
-            console.log(`✅ Encontrados ${snapshot.size} usuários com atividade recente`);
-        }
-        
-        if (!snapshot || snapshot.empty) {
-            usersList.innerHTML = `
-                <div style="text-align: center; padding: 30px; color: #bdc3c7;">
-                    <div style="font-size: 48px; margin-bottom: 15px;">👻</div>
-                    <p>Nenhum jogador online no momento</p>
-                    <small>Seja o primeiro a criar uma mesa!</small>
-                </div>
-            `;
-            return;
-        }
-        
-        console.log(`🎯 Processando ${snapshot.size} usuários...`);
-        
-        // Processar usuários
         const users = [];
         
         for (const doc of snapshot.docs) {
-            try {
-                const userData = doc.data();
-                console.log('📋 Processando:', userData.displayName || 'Sem nome');
-                
-               // Na função loadOnlineUsers, modifique a parte do checkUserActiveTable:
-const activeTable = await checkUserActiveTable(doc.id).catch(error => {
-    console.error('Erro ao verificar mesa do usuário', doc.id, error);
-    return { hasActiveTable: false };
-});
-                
-            } catch (error) {
-                console.error('Erro ao processar usuário', doc.id, error);
-            }
+            const userData = doc.data();
+            
+            // Considerar online apenas se lastActivity for muito recente
+            const lastActivity = userData.lastActivity?.toDate 
+                ? userData.lastActivity.toDate() 
+                : new Date(userData.lastActivity);
+            
+            const isRecentlyActive = (new Date() - lastActivity) < 3 * 60 * 1000; // 3 minutos
+            
+            users.push({
+                id: doc.id,
+                name: userData.displayName || 'Jogador',
+                city: userData.city || 'Não informada',
+                country: userData.country || 'Não informado',
+                age: userData.age || 'N/A',
+                rating: userData.rating || 1000,
+                coins: userData.coins || 0,
+                wins: userData.wins || 0,
+                losses: userData.losses || 0,
+                draws: userData.draws || 0,
+                isOnline: isRecentlyActive,
+                lastActivity: userData.lastActivity,
+                activeTable: await checkUserActiveTable(doc.id)
+            });
         }
         
-        console.log(`✅ ${users.length} usuários processados com sucesso`);
+        // Ordenar por online primeiro
+        users.sort((a, b) => {
+            if (a.isOnline && !b.isOnline) return -1;
+            if (!a.isOnline && b.isOnline) return 1;
+            return 0;
+        });
         
-        if (users.length === 0) {
-            usersList.innerHTML = `
-                <div style="text-align: center; padding: 30px; color: #bdc3c7;">
-                    <div style="font-size: 48px; margin-bottom: 15px;">😵</div>
-                    <p>Nenhum usuário pode ser carregado</p>
-                    <small>Verifique as permissões do Firebase</small>
-                </div>
-            `;
-            return;
-        }
-        
-        // Renderizar usuários
         renderOnlineUsers(users);
         
     } catch (error) {
-        console.error('❌ Erro crítico ao carregar usuários:', error);
-        
-        usersList.innerHTML = `
-            <div style="text-align: center; padding: 30px; color: #e74c3c;">
-                <div style="font-size: 48px; margin-bottom: 15px;">💥</div>
-                <p>Falha na conexão com o servidor</p>
-                <small>${error.message}</small>
-                <div style="margin-top: 20px;">
-                    <button onclick="loadOnlineUsers()" style="
-                        background: #3498db;
-                        color: white;
-                        border: none;
-                        padding: 12px 20px;
-                        border-radius: 8px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">🔄 Tentar Novamente</button>
-                </div>
-            </div>
-        `;
+        console.error('Erro ao carregar usuários:', error);
+        // Fallback para dados temporários
+        showTemporaryData();
     }
 };
-
-
 // ===== DEBUG DETALHADO =====
 async function debugFirebaseUsers() {
     console.log('=== DEBUG DETALHADO DO FIREBASE ===');
@@ -444,32 +379,16 @@ function renderOnlineUsers(users) {
     const usersList = document.getElementById('online-users-list');
     if (!usersList) return;
     
-    if (users.length === 0) {
-        usersList.innerHTML = `
-            <div style="text-align: center; padding: 30px; color: #bdc3c7;">
-                <div style="font-size: 48px; margin-bottom: 15px;">👻</div>
-                <p>Nenhum jogador online no momento</p>
-            </div>
-        `;
-        return;
-    }
-    
     usersList.innerHTML = users.map(user => {
-        const isInWaitingRoom = user.activeTable.hasActiveTable && 
-                               user.activeTable.tableStatus === 'waiting';
-        
-        const isPlaying = user.activeTable.hasActiveTable && 
-                         user.activeTable.tableStatus === 'playing';
+        const isReallyOnline = user.isOnline;
+        const lastSeen = user.lastActivity 
+            ? `Última vez: ${formatTimeAgo(user.lastActivity)}` 
+            : '';
         
         return `
-        <div style="
-            background: rgba(52, 73, 94, 0.6);
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 12px;
-            border-left: 4px solid ${isPlaying ? '#2ecc71' : isInWaitingRoom ? '#f39c12' : '#3498db'};
-            transition: transform 0.2s ease;
-        " onmouseover="this.style.transform='translateX(5px)'" onmouseout="this.style.transform='none'">
+        <div style="background: rgba(52, 73, 94, 0.6); padding: 15px; border-radius: 10px; margin-bottom: 12px;
+            border-left: 4px solid ${isReallyOnline ? '#2ecc71' : '#95a5a6'};">
+            
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
                 <div style="flex: 1;">
                     <strong style="color: #ecf0f1; font-size: 16px; display: block; margin-bottom: 5px;">
@@ -482,103 +401,19 @@ function renderOnlineUsers(users) {
                     </div>
                 </div>
                 
-                <span style="
-                    background: ${isPlaying ? '#2ecc71' : isInWaitingRoom ? '#f39c12' : '#3498db'}; 
-                    color: white; 
-                    padding: 6px 10px; 
-                    border-radius: 15px; 
-                    font-size: 11px; 
-                    font-weight: bold;
-                    white-space: nowrap;
-                ">
-                    ${isPlaying ? '🎮 JOGANDO' : isInWaitingRoom ? '⏳ AGUARDANDO' : '💤 ONLINE'}
+                <span style="background: ${isReallyOnline ? '#2ecc71' : '#95a5a6'}; color: white; padding: 6px 10px; 
+                    border-radius: 15px; font-size: 11px; font-weight: bold;">
+                    ${isReallyOnline ? '🟢 ONLINE' : '⚫ OFFLINE'}
                 </span>
             </div>
             
-            <div style="
-                display: grid; 
-                grid-template-columns: repeat(2, 1fr); 
-                gap: 10px; 
-                margin-bottom: 12px;
-                background: rgba(0,0,0,0.2);
-                padding: 10px;
-                border-radius: 8px;
-            ">
-                <div style="text-align: center;">
-                    <div style="color: #3498db; font-weight: bold; font-size: 16px;">${user.rating}</div>
-                    <div style="color: #bdc3c7; font-size: 11px;">RATING</div>
+            ${!isReallyOnline ? `
+                <div style="color: #bdc3c7; font-size: 11px; text-align: right;">
+                    ${lastSeen}
                 </div>
-                <div style="text-align: center;">
-                    <div style="color: #f1c40f; font-weight: bold; font-size: 16px;">${user.coins}</div>
-                    <div style="color: #bdc3c7; font-size: 11px;">MOEDAS</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: #2ecc71; font-weight: bold; font-size: 16px;">${user.wins}</div>
-                    <div style="color: #bdc3c7; font-size: 11px;">VITÓRIAS</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: #e74c3c; font-weight: bold; font-size: 16px;">${user.losses}</div>
-                    <div style="color: #bdc3c7; font-size: 11px;">DERROTAS</div>
-                </div>
-            </div>
+            ` : ''}
             
-            ${user.activeTable.hasActiveTable ? `
-                <div style="
-                    background: ${isPlaying ? 'rgba(46, 204, 113, 0.15)' : 'rgba(243, 156, 18, 0.15)'};
-                    padding: 12px;
-                    border-radius: 8px;
-                    border: 1px solid ${isPlaying ? '#2ecc71' : '#f39c12'};
-                ">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <strong style="color: ${isPlaying ? '#2ecc71' : '#f39c12'}; font-size: 14px;">
-                            ${isPlaying ? '🎯 Jogando Agora' : '⏳ Aguardando Oponente'}
-                        </strong>
-                        <span style="color: #bdc3c7; font-size: 12px;">
-                            ${user.activeTable.tableStatus === 'waiting' ? '⏳ Esperando' : '🎮 Em jogo'}
-                        </span>
-                    </div>
-                    
-                    <div style="color: #ecf0f1; font-size: 13px; margin-bottom: 8px;">
-                        ${user.activeTable.tableName || 'Mesa Sem Nome'}
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        ${user.activeTable.tableBet > 0 ? `
-                            <span style="color: #f1c40f; font-weight: bold;">
-                                🪙 Aposta: ${user.activeTable.tableBet} moedas
-                            </span>
-                        ` : `
-                            <span style="color: #bdc3c7; font-size: 12px;">
-                                🎲 Mesa casual
-                            </span>
-                        `}
-                        
-                        <span style="color: #3498db; font-size: 12px;">
-                            ⏱️ ${user.activeTable.tableTimeLimit}s
-                        </span>
-                    </div>
-                    
-                    ${isInWaitingRoom ? `
-                        <div style="margin-top: 10px; padding: 8px; background: rgba(52, 152, 219, 0.2); border-radius: 5px; text-align: center;">
-                            <span style="color: #3498db; font-size: 12px;">
-                                👉 <strong>Disponível para jogar!</strong>
-                            </span>
-                        </div>
-                    ` : ''}
-                </div>
-            ` : `
-                <div style="
-                    text-align: center;
-                    color: #bdc3c7;
-                    padding: 10px;
-                    font-size: 13px;
-                    background: rgba(52, 152, 219, 0.1);
-                    border-radius: 8px;
-                ">
-                    ☕ Não está em nenhuma mesa no momento
-                </div>
-            `}
-        </div>
+            <!-- Restante do código existente -->
         `;
     }).join('');
     
@@ -601,51 +436,52 @@ function updateOnlineUsersStats(users) {
         badge.style.display = totalUsers > 0 ? 'inline-block' : 'none';
     }
 }
-// Modifique o checkUserActiveTable para usar fallback
+// ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
 async function checkUserActiveTable(userId = null) {
     const targetUserId = userId || currentUser?.uid;
     
     if (!targetUserId || !db) {
+        console.log('❌ checkUserActiveTable: userId ou db não disponível');
         return { hasActiveTable: false };
     }
     
     try {
-        // Tentar método normal primeiro
+        console.log('🔍 Verificando mesa ativa para usuário:', targetUserId);
+        
         const snapshot = await db.collection('tables')
+            .where('players', 'array-contains', { uid: targetUserId })
             .where('status', 'in', ['waiting', 'playing'])
+            .limit(1)
             .get();
         
-        const userTables = [];
-        snapshot.forEach(doc => {
-            const table = doc.data();
-            if (table.players && table.players.some(player => player.uid === targetUserId)) {
-                userTables.push({ doc, table });
-            }
-        });
+        console.log('📊 Mesas encontradas:', snapshot.size);
         
-        if (userTables.length > 0) {
-            const tableDoc = userTables[0].doc;
-            const tableData = userTables[0].table;
+        if (!snapshot.empty) {
+            const tableDoc = snapshot.docs[0];
+            const table = tableDoc.data();
+            
+            console.log('✅ Mesa ativa encontrada:', tableDoc.id, table.status);
             
             return {
                 hasActiveTable: true,
-                tableId: tableDoc.id,
-                tableName: tableData.name,
-                tableBet: tableData.bet || 0,
-                tableStatus: tableData.status,
-                tableTimeLimit: tableData.timeLimit,
-                players: tableData.players || []
+                tableId: tableDoc.id, // ← GARANTIR que tableId está sendo retornado
+                tableName: table.name,
+                tableBet: table.bet || 0,
+                tableStatus: table.status,
+                tableTimeLimit: table.timeLimit,
+                players: table.players || []
             };
         }
         
-        // Se não encontrou, tentar método manual
-        return await manualCheckUserTable(targetUserId);
+        console.log('✅ Nenhuma mesa ativa encontrada');
+        return { hasActiveTable: false };
         
     } catch (error) {
-        console.error('Erro ao verificar mesa ativa:', error);
-        return await manualCheckUserTable(targetUserId);
+        console.error('❌ Erro ao verificar mesa ativa:', error);
+        return { hasActiveTable: false };
     }
 }
+
 
     function showTemporaryData() {
         const usersList = document.getElementById('online-users-list');
@@ -783,22 +619,21 @@ function initializeApp() {
     initializeProfileModal();
     initializeCoinsModal();
     
-    // 5. Configurações de manutenção
-    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
+   
     
     // 6. Debug e verificação
     checkRequiredElements();
     
     console.log('✅ Aplicação inicializada com sucesso!');
     
-    // Debug adicional
-    setTimeout(() => {
-        console.log('=== STATUS DA APLICAÇÃO ===');
-        console.log('Firebase:', firebase.apps.length > 0 ? '✅ Conectado' : '❌ Não conectado');
-        console.log('Auth:', auth ? '✅ Inicializado' : '❌ Não inicializado');
-        console.log('Firestore:', db ? '✅ Inicializado' : '❌ Não inicializado');
-    }, 1000);
+       // Limpeza de usuários órfãos a cada 5 minutos
+    setInterval(cleanupOrphanedOnlineUsers, 5 * 60 * 1000);
+    
+    // Executar limpeza imediatamente ao iniciar
+    setTimeout(cleanupOrphanedOnlineUsers, 10000);
 }
+
+
 // ===== PAUSAR TIMER EM MODAIS =====
 function setupTimerPause() {
     // Observar abertura de modais
@@ -830,15 +665,14 @@ function setupTimerPause() {
 function initializeAuth() {
     console.log('Inicializando autenticação...');
     
-    // Observador de estado de autenticação (APENAS UMA VEZ)
-    auth.onAuthStateChanged(async (user) => {
+   auth.onAuthStateChanged(async (user) => {
         console.log('Estado de autenticação alterado:', user);
         
         if (user) {
             currentUser = user;
             
-            // ATUALIZAR PARA ONLINE ao fazer login
-            await updateUserOnlineStatus(user.uid, true);
+            // INICIAR MONITORAMENTO DE STATUS ONLINE
+            startOnlineStatusMonitoring();
             
             loadUserData(user.uid);
             showScreen('main-screen');
@@ -846,30 +680,15 @@ function initializeAuth() {
             loadRanking();
             loadFriends();
             
-            // Iniciar heartbeat para manter status online
-            startOnlineHeartbeat();
-                    // INICIAR LISTENER DE MESA ATIVA
-        setupActiveTableListener();
-
-            
         } else {
-            // ATUALIZAR PARA OFFLINE ao fazer logout
-            if (currentUser) {
-                await updateUserOnlineStatus(currentUser.uid, false);
-            }
+            // PARAR MONITORAMENTO AO FAZER LOGOUT
+            stopOnlineStatusMonitoring();
             
-            stopOnlineHeartbeat();
             currentUser = null;
             userData = null;
             showScreen('auth-screen');
-             // PARAR LISTENER DE MESA ATIVA
-        if (activeTableListener) {
-            activeTableListener();
-            activeTableListener = null;
-        }
         }
     });
-
     // Configurar event listeners dos botões de auth
     const loginBtn = document.getElementById('btn-login');
     const registerBtn = document.getElementById('btn-register');
@@ -6188,19 +6007,18 @@ function updateSpectatorsList(type, spectators) {
     `).join('');
 }
 
-// ===== FUNÇÃO FORMATAR TEMPO =====
 function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Agora';
+    if (!timestamp) return '';
     
     const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
     const diff = now - time;
     const minutes = Math.floor(diff / 60000);
     
-    if (minutes < 1) return 'Agora';
-    if (minutes < 60) return `Há ${minutes} min`;
-    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
-    return `Há ${Math.floor(minutes / 1440)} d`;
+    if (minutes < 1) return 'Agora mesmo';
+    if (minutes < 60) return `Há ${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} hora${Math.floor(minutes / 60) !== 1 ? 's' : ''}`;
+    return `Há ${Math.floor(minutes / 1440)} dia${Math.floor(minutes / 1440) !== 1 ? 's' : ''}`;
 }
 // ===== FUNÇÃO MANAGE GAME TIMER =====
 function manageGameTimer(oldGameState, newGameState) {
@@ -6528,40 +6346,32 @@ function setupActiveTableListener() {
     console.log('🔍 Iniciando listener de mesa ativa para:', currentUser.uid);
     
     try {
-        // Usar approach alternativo já que array-contains pode não estar funcionando
-        // Vamos escutar todas as mesas ativas e filtrar manualmente
         activeTableListener = db.collection('tables')
+            .where('players', 'array-contains', { uid: currentUser.uid })
             .where('status', 'in', ['waiting', 'playing'])
             .onSnapshot(async (snapshot) => {
-                console.log('📊 Mesas ativas atualizadas:', snapshot.size);
+                console.log('📊 Atualização de mesa ativa recebida:', snapshot.size, 'mesas');
                 
-                let userTableFound = null;
-                
-                snapshot.forEach(doc => {
-                    const tableData = doc.data();
-                    if (tableData.players && tableData.players.some(player => player.uid === currentUser.uid)) {
-                        userTableFound = {
-                            id: doc.id,
-                            data: tableData
-                        };
-                    }
-                });
-                
-                if (userTableFound) {
-                    userActiveTable = userTableFound.id;
-                    console.log('🎯 Usuário está na mesa:', userActiveTable, userTableFound.data.status);
+                if (snapshot.empty) {
+                    // Nenhuma mesa ativa
+                    userActiveTable = null;
+                    console.log('✅ Usuário não está em nenhuma mesa');
+                } else {
+                    // Usuário está em uma mesa
+                    const tableDoc = snapshot.docs[0];
+                    userActiveTable = tableDoc.id;
+                    const tableData = tableDoc.data();
+                    
+                    console.log('🎯 Usuário está na mesa:', userActiveTable, tableData.status);
                     
                     // Se a mesa estiver esperando, atualizar a lista de usuários online
-                    if (userTableFound.data.status === 'waiting') {
+                    if (tableData.status === 'waiting') {
                         setTimeout(() => {
                             if (typeof refreshOnlineUsersList === 'function') {
                                 refreshOnlineUsersList();
                             }
                         }, 500);
                     }
-                } else {
-                    userActiveTable = null;
-                    console.log('✅ Usuário não está em nenhuma mesa');
                 }
                 
                 // Atualizar UI
@@ -7160,43 +6970,106 @@ function addTablesDebugButton() {
 
 setTimeout(addTablesDebugButton, 3000);
 
+// ===== SISTEMA DE STATUS ONLINE/OFFLINE =====
+let onlineStatusInterval = null;
+let isWindowActive = true;
 
-// ===== FALLBACK MANUAL PARA VERIFICAR MESAS =====
-async function manualCheckUserTable(userId) {
+// Função para atualizar status online
+async function updateOnlineStatus(isOnline) {
+    if (!currentUser || !db) return;
+    
     try {
-        console.log('🔍 Verificação manual de mesa para:', userId);
-        
-        // Buscar todas as mesas
-        const allTables = await db.collection('tables').get();
-        let userTable = null;
-        
-        allTables.forEach(doc => {
-            const tableData = doc.data();
-            if (tableData.players && tableData.players.some(player => player.uid === userId)) {
-                userTable = {
-                    id: doc.id,
-                    data: tableData
-                };
-            }
+        await db.collection('users').doc(currentUser.uid).update({
+            isOnline: isOnline,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+            ...(isOnline && { lastLogin: firebase.firestore.FieldValue.serverTimestamp() })
         });
         
-        if (userTable) {
-            console.log('✅ Mesa encontrada manualmente:', userTable.id);
-            return {
-                hasActiveTable: true,
-                tableId: userTable.id,
-                tableName: userTable.data.name,
-                tableBet: userTable.data.bet || 0,
-                tableStatus: userTable.data.status,
-                tableTimeLimit: userTable.data.timeLimit,
-                players: userTable.data.players || []
-            };
-        }
-        
-        return { hasActiveTable: false };
-        
+        console.log(`Status atualizado: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
     } catch (error) {
-        console.error('❌ Erro na verificação manual:', error);
-        return { hasActiveTable: false };
+        console.error('Erro ao atualizar status:', error);
+    }
+}
+
+// Iniciar monitoramento de status
+function startOnlineStatusMonitoring() {
+    // Atualizar como online imediatamente
+    updateOnlineStatus(true);
+    
+    // Heartbeat a cada 30 segundos para manter online
+    onlineStatusInterval = setInterval(() => {
+        if (isWindowActive && currentUser) {
+            updateOnlineStatus(true);
+        }
+    }, 30000);
+    
+    // Event listeners para detectar quando usuário sai
+    setupWindowEventListeners();
+}
+
+// Parar monitoramento
+function stopOnlineStatusMonitoring() {
+    if (onlineStatusInterval) {
+        clearInterval(onlineStatusInterval);
+        onlineStatusInterval = null;
+    }
+    updateOnlineStatus(false);
+}
+
+// Configurar listeners de eventos da janela
+function setupWindowEventListeners() {
+    // Quando a janela fica inativa (usuário muda de aba ou minimiza)
+    document.addEventListener('visibilitychange', () => {
+        isWindowActive = !document.hidden;
+        if (!isWindowActive && currentUser) {
+            updateOnlineStatus(false);
+        }
+    });
+    
+    // Quando a janela está prestes a fechar
+    window.addEventListener('beforeunload', () => {
+        stopOnlineStatusMonitoring();
+    });
+    
+    // Quando o usuário volta para a janela
+    window.addEventListener('focus', () => {
+        isWindowActive = true;
+        if (currentUser) {
+            updateOnlineStatus(true);
+        }
+    });
+    
+    // Quando o usuário sai da janela
+    window.addEventListener('blur', () => {
+        isWindowActive = false;
+        // Não marcar como offline imediatamente, apenas se ficar inativo por um tempo
+    });
+}
+
+// Limpar usuários "órfãos" (que ficaram online mas não estão mais)
+async function cleanupOrphanedOnlineUsers() {
+    if (!db) return;
+    
+    try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        
+        const orphanedUsers = await db.collection('users')
+            .where('isOnline', '==', true)
+            .where('lastActivity', '<', fiveMinutesAgo)
+            .get();
+        
+        if (!orphanedUsers.empty) {
+            const batch = db.batch();
+            orphanedUsers.forEach(doc => {
+                batch.update(doc.ref, { 
+                    isOnline: false,
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            await batch.commit();
+            console.log(`Limpeza: ${orphanedUsers.size} usuários marcados como offline`);
+        }
+    } catch (error) {
+        console.error('Erro na limpeza de usuários órfãos:', error);
     }
 }
