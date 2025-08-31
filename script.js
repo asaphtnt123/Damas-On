@@ -5132,7 +5132,8 @@ function updateTurnInfo() {
     // Atualizar também as cartas dos jogadores
     updatePlayerCards(currentPlayer, isMyTurn);
 }
-// ===== MAKE MOVE (CORRIGIDA) =====
+
+// ===== MAKE MOVE (CORRIGIDA PARA PROMOÇÃO) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
         if (!gameState || !gameState.board || !currentGameRef) {
@@ -5158,28 +5159,35 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             });
         }
         
-        // Verificar promoção a dama
+        // 🔥 VERIFICAR PROMOÇÃO A DAMA
+        let wasPromoted = false;
         if (!movingPiece.king && ((movingPiece.color === 'red' && toRow === 0) || 
             (movingPiece.color === 'black' && toRow === 7))) {
             newBoard[toRow][toCol].king = true;
+            wasPromoted = true;
             console.log('🎉 Peça promovida a dama!');
             showNotification('Peça promovida a dama!', 'success');
         }
         
-        // 🔥 CORREÇÃO: Garantir que captures é um array válido
+        // 🔥 CORREÇÃO CRÍTICA: Usar a PEÇA ATUALIZADA para verificar capturas adicionais
+        const currentPiece = newBoard[toRow][toCol];
         const safeCaptures = Array.isArray(captures) ? captures : [];
         
         let shouldContinue = false;
         
         if (capturedPieces > 0) {
-            if (movingPiece.king) {
-                // Para damas: verificar se há mais capturas possíveis
-                const moreCaptures = getKingCaptureMoves(toRow, toCol, newBoard[toRow][toCol], safeCaptures);
+            if (currentPiece.king) {
+                // 🔥 PARA DAMA: verificar se há mais capturas possíveis
+                console.log('Verificando capturas adicionais para DAMA...');
+                const moreCaptures = getKingCaptureMoves(toRow, toCol, currentPiece, safeCaptures);
                 shouldContinue = moreCaptures.length > 0;
+                console.log('Capturas adicionais para dama:', moreCaptures.length);
             } else {
-                // Para peças normais: verificar capturas adicionais
-                const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], safeCaptures);
+                // 🔥 PARA PEÇA NORMAL: verificar capturas adicionais
+                console.log('Verificando capturas adicionais para PEÇA NORMAL...');
+                const moreCaptures = getCaptureMoves(toRow, toCol, currentPiece, safeCaptures);
                 shouldContinue = moreCaptures.length > 0;
+                console.log('Capturas adicionais para peça normal:', moreCaptures.length);
             }
         }
         
@@ -5238,6 +5246,30 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     }
 }
 
+// ===== DEBUG DE PROMOÇÃO =====
+function debugPromotion(fromRow, fromCol, toRow, toCol, captures) {
+    console.log('=== DEBUG DE PROMOÇÃO ===');
+    console.log('De:', fromRow, fromCol);
+    console.log('Para:', toRow, toCol);
+    console.log('Capturas:', captures);
+    
+    const movingPiece = gameState.board[fromRow][fromCol];
+    console.log('Peça original:', movingPiece);
+    
+    // Simular promoção
+    const wouldPromote = !movingPiece.king && 
+        ((movingPiece.color === 'red' && toRow === 0) || 
+         (movingPiece.color === 'black' && toRow === 7));
+    
+    console.log('Seria promovida:', wouldPromote);
+    
+    if (wouldPromote) {
+        console.log('⚠️ ATENÇÃO: Esta jogada promove a peça a dama!');
+        console.log('A verificação de capturas adicionais deve usar a NOVA dama');
+    }
+}
+
+window.debugPromo = debugPromotion;
 
 // ===== DEBUG DETALHADO DE CAPTURAS =====
 function debugKingCaptures(fromRow, fromCol) {
@@ -5503,24 +5535,40 @@ function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virt
 }
 
 
-// ===== FUNÇÃO GET KING CAPTURE MOVES (CORRIGIDA) =====
+// ===== FUNÇÃO GET KING CAPTURE MOVES (MAIS ROBUSTA) =====
 function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
+    console.log('getKingCaptureMoves chamada com:', {fromRow, fromCol, piece, currentCaptures});
+    
+    // 🔥 VERIFICAÇÕES DE SEGURANça EXTRA
+    if (!piece || typeof piece !== 'object') {
+        console.error('❌ Peça inválida:', piece);
+        return [];
+    }
+    
+    if (!piece.king) {
+        console.log('⚠️ AVISO: Função de dama chamada para peça normal');
+        return [];
+    }
+    
+    const safeCurrentCaptures = Array.isArray(currentCaptures) ? currentCaptures : [];
+    
     const captures = [];
     const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
-    // 🔥 GARANTIR que currentCaptures é sempre um array
-    const safeCurrentCaptures = Array.isArray(currentCaptures) ? currentCaptures : [];
-    
     for (const [rowDir, colDir] of directions) {
-        const directionCaptures = getKingCapturesInDirection(
-            fromRow, fromCol, rowDir, colDir, piece, safeCurrentCaptures, []
-        );
-        captures.push(...directionCaptures);
+        try {
+            const directionCaptures = getKingCapturesInDirection(
+                fromRow, fromCol, rowDir, colDir, piece, safeCurrentCaptures, []
+            );
+            captures.push(...directionCaptures);
+        } catch (error) {
+            console.error('❌ Erro na direção', [rowDir, colDir], error);
+        }
     }
     
+    console.log('getKingCaptureMoves retornando:', captures.length, 'capturas');
     return captures;
 }
-
 // ===== FUNÇÃO GET NORMAL PIECE CAPTURE MOVES (DEBUG) =====
 function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
