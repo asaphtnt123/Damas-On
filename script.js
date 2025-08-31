@@ -5067,7 +5067,7 @@ function updateTurnInfo() {
     updatePlayerCards(currentPlayer, isMyTurn);
 }
 
-// ===== FUNÇÃO MAKE MOVE CORRIGIDA =====
+// ===== MAKE MOVE (ATUALIZADA PARA DAMAS) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
         if (!gameState || !gameState.board || !currentGameRef) {
@@ -5098,12 +5098,21 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             console.log('Peça promovida a dama!');
         }
         
-        // Verificar capturas adicionais
-        const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], []);
-        const shouldContinue = capturedPieces > 0 && moreCaptures.length > 0;
+        // 🔥 CORREÇÃO CRÍTICA: Lógica diferente para damas
+        let shouldContinue = false;
+        let nextTurn = gameState.currentTurn;
         
-        // CORREÇÃO: Definir nextTurn corretamente
-        const nextTurn = shouldContinue ? gameState.currentTurn : (gameState.currentTurn === 'red' ? 'black' : 'red');
+        if (capturedPieces > 0) {
+            if (movingPiece.king) {
+                // Para damas: verificar se há mais capturas possíveis
+                const moreCaptures = getKingCaptureMoves(toRow, toCol, newBoard[toRow][toCol], captures);
+                shouldContinue = moreCaptures.length > 0;
+            } else {
+                // Para peças normais: verificar capturas adicionais
+                const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], captures);
+                shouldContinue = moreCaptures.length > 0;
+            }
+        }
         
         if (shouldContinue) {
             console.log('CONTINUAR CAPTURA MÚLTIPLA');
@@ -5138,7 +5147,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
                 board: firestoreBoard,
-                currentTurn: nextTurn,
+                currentTurn: gameState.currentTurn === 'red' ? 'black' : 'red',
                 lastMove: {
                     fromRow, fromCol, toRow, toCol, captures
                 },
@@ -5146,10 +5155,10 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             });
             
             gameState.board = newBoard;
-            gameState.currentTurn = nextTurn;
+            gameState.currentTurn = gameState.currentTurn === 'red' ? 'black' : 'red';
             
-            console.log('Turno passado para:', nextTurn);
-            checkGameEnd(newBoard, nextTurn);
+            console.log('Turno passado para:', gameState.currentTurn);
+            checkGameEnd(newBoard, gameState.currentTurn);
             clearSelection();
         }
         
@@ -5158,6 +5167,94 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
     }
 }
+
+
+// ===== DEBUG DETALHADO DE CAPTURAS =====
+function debugKingCaptures(fromRow, fromCol) {
+    console.log('=== DEBUG CAPTURAS DE DAMA ===');
+    console.log('Posição:', fromRow, fromCol);
+    
+    const piece = gameState.board[fromRow][fromCol];
+    if (!piece || !piece.king) {
+        console.log('❌ Não é uma dama');
+        return;
+    }
+    
+    const captures = getKingCaptureMoves(fromRow, fromCol, piece);
+    console.log('Total de capturas encontradas:', captures.length);
+    
+    captures.forEach((capture, index) => {
+        console.log(`\n--- Captura ${index + 1} ---`);
+        console.log('De:', capture.fromRow, capture.fromCol);
+        console.log('Para:', capture.toRow, capture.toCol);
+        console.log('Peças capturadas:', capture.captures);
+        console.log('Direção:', capture.direction);
+        
+        // Verificar se há capturas adicionais desta posição
+        if (capture.captures.length > 0) {
+            const additional = getKingCaptureMoves(
+                capture.toRow, capture.toCol, piece, capture.captures
+            );
+            console.log('Capturas adicionais possíveis:', additional.length);
+        }
+    });
+}
+
+window.debugKingCaptures = debugKingCaptures;
+
+// ===== TESTAR FLUXO COMPLETO =====
+function testKingCaptureFlow(fromRow, fromCol, toRow, toCol) {
+    console.log('=== TESTE DE FLUXO DE CAPTURA ===');
+    
+    const piece = gameState.board[fromRow][fromCol];
+    if (!piece || !piece.king) {
+        console.log('❌ Não é uma dama na posição inicial');
+        return;
+    }
+    
+    // Verificar capturas da posição inicial
+    const initialCaptures = getKingCaptureMoves(fromRow, fromCol, piece);
+    console.log('Capturas iniciais:', initialCaptures.length);
+    
+    // Encontrar a captura específica para o movimento desejado
+    const targetCapture = initialCaptures.find(capture => 
+        capture.toRow === toRow && capture.toCol === toCol
+    );
+    
+    if (!targetCapture) {
+        console.log('❌ Movimento não é uma captura válida');
+        return;
+    }
+    
+    console.log('Captura encontrada:', targetCapture);
+    
+    // Simular o movimento
+    const newBoard = JSON.parse(JSON.stringify(gameState.board));
+    newBoard[toRow][toCol] = piece;
+    newBoard[fromRow][fromCol] = null;
+    
+    // Aplicar capturas
+    targetCapture.captures.forEach(capture => {
+        newBoard[capture.row][capture.col] = null;
+    });
+    
+    // Verificar capturas adicionais da nova posição
+    const additionalCaptures = getKingCaptureMoves(
+        toRow, toCol, piece, targetCapture.captures
+    );
+    
+    console.log('Capturas adicionais após movimento:', additionalCaptures.length);
+    
+    if (additionalCaptures.length > 0) {
+        console.log('✅ Deve continuar capturando');
+        console.log('Capturas adicionais:', additionalCaptures);
+    } else {
+        console.log('✅ Deve passar o turno');
+    }
+}
+
+window.testFlow = testKingCaptureFlow;
+
 
 // ===== FUNÇÃO GET CAPTURE MOVES FROM BOARD (ATUALIZADA PARA DAMAS) =====
 function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
@@ -5276,23 +5373,21 @@ function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virt
     
     return captures;
 }
-// ===== FUNÇÃO GET CAPTURE MOVES (DEBUG ADICIONAL) =====
-function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
-    console.log('Verificando capturas para peça em:', fromRow, fromCol, piece);
-    
+// ===== FUNÇÃO GET KING CAPTURE MOVES (CORRIGIDA) =====
+function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
-    if (piece.king) {
-        console.log('É uma dama - verificando capturas longas');
-        captures.push(...getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures));
-    } else {
-        console.log('É uma peça normal - verificando capturas');
-        captures.push(...getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures));
+    for (const [rowDir, colDir] of directions) {
+        const directionCaptures = getKingCapturesInDirection(
+            fromRow, fromCol, rowDir, colDir, piece, currentCaptures, []
+        );
+        captures.push(...directionCaptures);
     }
     
-    console.log('Capturas encontradas:', captures.length);
     return captures;
 }
+
 
 // ===== FUNÇÃO GET NORMAL PIECE CAPTURE MOVES (DEBUG) =====
 function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
@@ -5425,52 +5520,54 @@ function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     
     return captures;
 }
-
-// ===== VERIFICAR CAPTURAS EM UMA DIREÇÃO ESPECÍFICA =====
-function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, currentCaptures) {
+// ===== VERIFICAR CAPTURAS EM UMA DIREÇÃO (SIMPLIFICADA) =====
+function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, currentCaptures, currentPath) {
     const captures = [];
     let foundEnemy = false;
     let enemyPosition = null;
+    
+    // Evitar loops infinitos - verificar se já passou por esta posição
+    if (currentPath.some(pos => pos.row === fromRow && pos.col === fromCol)) {
+        return captures;
+    }
+    
+    // Adicionar posição atual ao caminho
+    const newPath = [...currentPath, { row: fromRow, col: fromCol }];
     
     // Procurar na direção especificada
     for (let distance = 1; distance <= 7; distance++) {
         const checkRow = fromRow + (rowDir * distance);
         const checkCol = fromCol + (colDir * distance);
         
-        // Verificar se está dentro do tabuleiro
-        if (checkRow < 0 || checkRow > 7 || checkCol < 0 || checkCol > 7) {
-            break;
-        }
+        if (checkRow < 0 || checkRow > 7 || checkCol < 0 || checkCol > 7) break;
         
         const checkCell = gameState.board[checkRow][checkCol];
         
         if (!foundEnemy) {
-            // Procurando por uma peça inimiga
+            // Procurando por peça inimiga
             if (checkCell) {
                 if (checkCell.color !== piece.color) {
-                    // Encontrou peça inimiga
-                    foundEnemy = true;
-                    enemyPosition = { row: checkRow, col: checkCol };
-                    
-                    // Verificar se esta peça já foi capturada neste movimento
+                    // Verificar se esta peça já foi capturada
                     const alreadyCaptured = currentCaptures.some(c => 
                         c.row === checkRow && c.col === checkCol
                     );
                     
-                    if (alreadyCaptured) {
-                        // Esta peça já foi capturada, não pode capturar novamente
-                        break;
+                    if (!alreadyCaptured) {
+                        foundEnemy = true;
+                        enemyPosition = { row: checkRow, col: checkCol };
+                    } else {
+                        // Peça já capturada, continuar procurando
+                        continue;
                     }
                 } else {
                     // Peça aliada - não pode pular
                     break;
                 }
             }
-            // Se célula vazia, continua procurando
         } else {
-            // Já encontrou inimigo, procurando casa vazia para pousar
+            // Já encontrou inimigo, procurar casa vazia
             if (checkCell === null) {
-                // Casa vazia encontrada após inimigo - captura válida
+                // Captura válida encontrada
                 const newCapture = { 
                     row: enemyPosition.row, 
                     col: enemyPosition.col 
@@ -5488,16 +5585,14 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
                 
                 captures.push(captureMove);
                 
-                // 🔥 VERIFICAR CAPTURAS ADICIONAIS A PARTIR DESTA POSIÇÃO
+                // 🔥 IMPORTANTE: Verificar capturas adicionais a partir da NOVA posição
                 const furtherCaptures = getKingAdditionalCaptures(
-                    checkRow, checkCol, piece, allCaptures
+                    checkRow, checkCol, piece, allCaptures, newPath
                 );
                 
-                if (furtherCaptures.length > 0) {
-                    captures.push(...furtherCaptures);
-                }
+                captures.push(...furtherCaptures);
                 
-            } else {
+            } else if (checkCell) {
                 // Casa ocupada - não pode pular além
                 break;
             }
@@ -5506,81 +5601,16 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
     
     return captures;
 }
-
-// ===== VERIFICAR CAPTURAS ADICIONAIS A PARTIR DE UMA POSIÇÃO =====
-function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures) {
+// ===== CAPTURAS ADICIONAIS (CORRIGIDA) =====
+function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures, currentPath) {
     const additionalCaptures = [];
     const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
     for (const [rowDir, colDir] of directions) {
-        // Para cada direção, verificar se há mais capturas possíveis
-        let foundEnemy = false;
-        let enemyPosition = null;
-        
-        for (let distance = 1; distance <= 7; distance++) {
-            const checkRow = fromRow + (rowDir * distance);
-            const checkCol = fromCol + (colDir * distance);
-            
-            if (checkRow < 0 || checkRow > 7 || checkCol < 0 || checkCol > 7) {
-                break;
-            }
-            
-            const checkCell = gameState.board[checkRow][checkCol];
-            
-            if (!foundEnemy) {
-                if (checkCell) {
-                    if (checkCell.color !== piece.color) {
-                        // Verificar se esta peça já foi capturada
-                        const alreadyCaptured = currentCaptures.some(c => 
-                            c.row === checkRow && c.col === checkCol
-                        );
-                        
-                        if (!alreadyCaptured) {
-                            foundEnemy = true;
-                            enemyPosition = { row: checkRow, col: checkCol };
-                        } else {
-                            // Peça já capturada, continuar procurando
-                            continue;
-                        }
-                    } else {
-                        // Peça aliada - não pode pular
-                        break;
-                    }
-                }
-            } else {
-                if (checkCell === null) {
-                    // Encontrou casa vazia após inimigo - captura adicional possível
-                    const newCapture = { 
-                        row: enemyPosition.row, 
-                        col: enemyPosition.col 
-                    };
-                    const allCaptures = [...currentCaptures, newCapture];
-                    
-                    const captureMove = {
-                        fromRow: fromRow,
-                        fromCol: fromCol,
-                        toRow: checkRow,
-                        toCol: checkCol,
-                        captures: allCaptures,
-                        direction: [rowDir, colDir],
-                        isAdditional: true
-                    };
-                    
-                    additionalCaptures.push(captureMove);
-                    
-                    // Verificar recursivamente por ainda mais capturas
-                    const evenFurtherCaptures = getKingAdditionalCaptures(
-                        checkRow, checkCol, piece, allCaptures
-                    );
-                    
-                    additionalCaptures.push(...evenFurtherCaptures);
-                    
-                } else {
-                    // Casa ocupada - não pode pular
-                    break;
-                }
-            }
-        }
+        const directionCaptures = getKingCapturesInDirection(
+            fromRow, fromCol, rowDir, colDir, piece, currentCaptures, currentPath
+        );
+        additionalCaptures.push(...directionCaptures);
     }
     
     return additionalCaptures;
