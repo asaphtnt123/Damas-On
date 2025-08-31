@@ -5132,8 +5132,7 @@ function updateTurnInfo() {
     // Atualizar também as cartas dos jogadores
     updatePlayerCards(currentPlayer, isMyTurn);
 }
-
-// ===== MAKE MOVE (ATUALIZADA PARA DAMAS) =====
+// ===== MAKE MOVE (CORRIGIDA) =====
 async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
     try {
         if (!gameState || !gameState.board || !currentGameRef) {
@@ -5150,44 +5149,48 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         
         // Executar capturas (se houver)
         let capturedPieces = 0;
-        if (captures && captures.length > 0) {
+        if (captures && Array.isArray(captures)) {
             captures.forEach(capture => {
-                newBoard[capture.row][capture.col] = null;
-                capturedPieces++;
+                if (capture && capture.row !== undefined && capture.col !== undefined) {
+                    newBoard[capture.row][capture.col] = null;
+                    capturedPieces++;
+                }
             });
         }
         
         // Verificar promoção a dama
-        if ((movingPiece.color === 'red' && toRow === 0) || 
-            (movingPiece.color === 'black' && toRow === 7)) {
+        if (!movingPiece.king && ((movingPiece.color === 'red' && toRow === 0) || 
+            (movingPiece.color === 'black' && toRow === 7))) {
             newBoard[toRow][toCol].king = true;
-            console.log('Peça promovida a dama!');
+            console.log('🎉 Peça promovida a dama!');
+            showNotification('Peça promovida a dama!', 'success');
         }
         
-        // 🔥 CORREÇÃO CRÍTICA: Lógica diferente para damas
+        // 🔥 CORREÇÃO: Garantir que captures é um array válido
+        const safeCaptures = Array.isArray(captures) ? captures : [];
+        
         let shouldContinue = false;
-        let nextTurn = gameState.currentTurn;
         
         if (capturedPieces > 0) {
             if (movingPiece.king) {
                 // Para damas: verificar se há mais capturas possíveis
-                const moreCaptures = getKingCaptureMoves(toRow, toCol, newBoard[toRow][toCol], captures);
+                const moreCaptures = getKingCaptureMoves(toRow, toCol, newBoard[toRow][toCol], safeCaptures);
                 shouldContinue = moreCaptures.length > 0;
             } else {
                 // Para peças normais: verificar capturas adicionais
-                const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], captures);
+                const moreCaptures = getCaptureMoves(toRow, toCol, newBoard[toRow][toCol], safeCaptures);
                 shouldContinue = moreCaptures.length > 0;
             }
         }
         
         if (shouldContinue) {
-            console.log('CONTINUAR CAPTURA MÚLTIPLA');
+            console.log('↻ CONTINUAR CAPTURA MÚLTIPLA');
             
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
             await currentGameRef.update({
                 board: firestoreBoard,
                 lastMove: {
-                    fromRow, fromCol, toRow, toCol, captures
+                    fromRow, fromCol, toRow, toCol, captures: safeCaptures
                 },
                 lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -5207,7 +5210,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
             }, 100);
             
         } else {
-            console.log('PASSAR TURNO para:', nextTurn);
+            console.log('🔄 PASSAR TURNO');
             
             // PASSAR TURNO
             const firestoreBoard = convertBoardToFirestoreFormat(newBoard);
@@ -5215,7 +5218,7 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
                 board: firestoreBoard,
                 currentTurn: gameState.currentTurn === 'red' ? 'black' : 'red',
                 lastMove: {
-                    fromRow, fromCol, toRow, toCol, captures
+                    fromRow, fromCol, toRow, toCol, captures: safeCaptures
                 },
                 lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
             });
@@ -5229,7 +5232,8 @@ async function makeMove(fromRow, fromCol, toRow, toCol, captures) {
         }
         
     } catch (error) {
-        console.error('Erro ao realizar movimento:', error);
+        console.error('❌ Erro ao realizar movimento:', error);
+        console.error('Stack:', error.stack);
         showNotification('Erro ao realizar movimento: ' + error.message, 'error');
     }
 }
@@ -5497,21 +5501,25 @@ function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virt
     
     return captures;
 }
+
+
 // ===== FUNÇÃO GET KING CAPTURE MOVES (CORRIGIDA) =====
 function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     const captures = [];
     const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
+    // 🔥 GARANTIR que currentCaptures é sempre um array
+    const safeCurrentCaptures = Array.isArray(currentCaptures) ? currentCaptures : [];
+    
     for (const [rowDir, colDir] of directions) {
         const directionCaptures = getKingCapturesInDirection(
-            fromRow, fromCol, rowDir, colDir, piece, currentCaptures, []
+            fromRow, fromCol, rowDir, colDir, piece, safeCurrentCaptures, []
         );
         captures.push(...directionCaptures);
     }
     
     return captures;
 }
-
 
 // ===== FUNÇÃO GET NORMAL PIECE CAPTURE MOVES (DEBUG) =====
 function getNormalPieceCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
@@ -5646,19 +5654,24 @@ function getKingCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
     
     return captures;
 }
-// ===== VERIFICAR CAPTURAS EM UMA DIREÇÃO (SIMPLIFICADA) =====
-function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, currentCaptures, currentPath) {
+// ===== VERIFICAR CAPTURAS EM UMA DIREÇÃO (CORRIGIDA) =====
+function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, currentCaptures = [], currentPath = []) {
     const captures = [];
+    
+    // 🔥 GARANTIR que os parâmetros são arrays válidos
+    const safeCurrentCaptures = Array.isArray(currentCaptures) ? currentCaptures : [];
+    const safeCurrentPath = Array.isArray(currentPath) ? currentPath : [];
+    
     let foundEnemy = false;
     let enemyPosition = null;
     
     // Evitar loops infinitos - verificar se já passou por esta posição
-    if (currentPath.some(pos => pos.row === fromRow && pos.col === fromCol)) {
+    if (safeCurrentPath.some(pos => pos.row === fromRow && pos.col === fromCol)) {
         return captures;
     }
     
     // Adicionar posição atual ao caminho
-    const newPath = [...currentPath, { row: fromRow, col: fromCol }];
+    const newPath = [...safeCurrentPath, { row: fromRow, col: fromCol }];
     
     // Procurar na direção especificada
     for (let distance = 1; distance <= 7; distance++) {
@@ -5674,8 +5687,8 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
             if (checkCell) {
                 if (checkCell.color !== piece.color) {
                     // Verificar se esta peça já foi capturada
-                    const alreadyCaptured = currentCaptures.some(c => 
-                        c.row === checkRow && c.col === checkCol
+                    const alreadyCaptured = safeCurrentCaptures.some(c => 
+                        c && c.row === checkRow && c.col === checkCol
                     );
                     
                     if (!alreadyCaptured) {
@@ -5698,7 +5711,7 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
                     row: enemyPosition.row, 
                     col: enemyPosition.col 
                 };
-                const allCaptures = [...currentCaptures, newCapture];
+                const allCaptures = [...safeCurrentCaptures, newCapture];
                 
                 const captureMove = {
                     fromRow,
@@ -5711,7 +5724,7 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
                 
                 captures.push(captureMove);
                 
-                // 🔥 IMPORTANTE: Verificar capturas adicionais a partir da NOVA posição
+                // Verificar capturas adicionais a partir da NOVA posição
                 const furtherCaptures = getKingAdditionalCaptures(
                     checkRow, checkCol, piece, allCaptures, newPath
                 );
@@ -5728,13 +5741,17 @@ function getKingCapturesInDirection(fromRow, fromCol, rowDir, colDir, piece, cur
     return captures;
 }
 // ===== CAPTURAS ADICIONAIS (CORRIGIDA) =====
-function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures, currentPath) {
+function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures = [], currentPath = []) {
     const additionalCaptures = [];
     const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
     
+    // 🔥 GARANTIR que os parâmetros são arrays válidos
+    const safeCurrentCaptures = Array.isArray(currentCaptures) ? currentCaptures : [];
+    const safeCurrentPath = Array.isArray(currentPath) ? currentPath : [];
+    
     for (const [rowDir, colDir] of directions) {
         const directionCaptures = getKingCapturesInDirection(
-            fromRow, fromCol, rowDir, colDir, piece, currentCaptures, currentPath
+            fromRow, fromCol, rowDir, colDir, piece, safeCurrentCaptures, safeCurrentPath
         );
         additionalCaptures.push(...directionCaptures);
     }
