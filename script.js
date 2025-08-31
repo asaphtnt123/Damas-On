@@ -327,6 +327,10 @@ function checkRequiredElements() {
 
 function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
+     // 1. Inicializar sistema de som
+    createSoundControls();
+    initializeGameWithSound();
+    
     
     // 1. Sistemas de autenticação e UI
     initializeAuth();
@@ -2154,6 +2158,8 @@ function showLoading(show) {
 }
 
 function showNotification(message, type = 'info') {
+        playNotificationSound();
+
   // Remover notificações anteriores
   removeExistingNotifications();
   
@@ -2472,6 +2478,8 @@ function initializeBrazilianCheckersBoard() {
 
 // ===== CREATE NEW TABLE (CORRIGIDA) =====
 async function createNewTable() {
+        playGameStartSound();
+
     console.log('🎯 Criando nova mesa...');
     
     // Verificar se já tem mesa ativa
@@ -2556,6 +2564,8 @@ async function createNewTable() {
 }
 // ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
+        playGameStartSound();
+
     console.log('🎯 Entrando na mesa:', tableId);
     
     // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
@@ -3782,6 +3792,8 @@ let capturingPieces = [];
 
 // ===== FUNÇÃO HANDLE CELL CLICK (VERIFICAÇÃO FINAL) =====
 function handleCellClick(row, col) {
+        playClickSound();
+
     if (!selectedPiece) return;
     
     const moves = getPossibleMoves(selectedPiece.row, selectedPiece.col);
@@ -3809,6 +3821,8 @@ function highlightCapturingPieces() {
 
 // ===== FUNÇÃO HANDLE PIECE CLICK (ATUALIZADA) =====
 function handlePieceClick(row, col) {
+        playClickSound();
+
     console.log('Peça clicada:', row, col);
     
     if (!gameState || !gameState.board) {
@@ -4394,6 +4408,8 @@ async function showDrawProposalModal(title, message) {
 let isGameEnding = false; // Variável global para controle
 // ===== FUNÇÃO ENDGAME CORRIGIDA =====
 async function endGame(result) {
+        playGameEndSound(result === currentPlayer?.color);
+
     // Prevenir múltiplas execuções
     if (isGameEnding) {
         console.log('endGame já em execução, ignorando chamada duplicada');
@@ -7756,6 +7772,8 @@ window.checkListener = checkActiveListener;
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 async function showChallengeNotification(notification) {
+        playChallengeSound();
+
     console.log('Novo desafio recebido:', notification);
     
     // Evitar notificações duplicadas
@@ -8352,3 +8370,382 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
+
+
+
+// ===== SISTEMA DE SONS =====
+const gameSounds = {
+    // Sons de movimento
+    move: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-chess-piece-move-1564.mp3',
+        volume: 0.3
+    },
+    capture: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-jump-coin-216.mp3', 
+        volume: 0.4
+    },
+    multipleCapture: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3',
+        volume: 0.5
+    },
+    
+    // Sons de jogo
+    kingPromotion: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-arcade-notification-270.mp3',
+        volume: 0.6
+    },
+    gameStart: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-game-show-intro-331.mp3',
+        volume: 0.5
+    },
+    gameEnd: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.mp3',
+        volume: 0.5
+    },
+    victory: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3',
+        volume: 0.6
+    },
+    defeat: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.mp3',
+        volume: 0.4
+    },
+    
+    // Sons de interface
+    click: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-select-click-1109.mp3',
+        volume: 0.2
+    },
+    notification: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3',
+        volume: 0.3
+    },
+    challenge: {
+        url: 'https://assets.mixkit.co/sfx/preview/mixkit-magic-sparkles-3001.mp3',
+        volume: 0.4
+    },
+    
+    // Música ambiente
+    backgroundMusic: {
+        url: 'https://assets.mixkit.co/music/preview/mixkit-strategic-chess-583.mp3',
+        volume: 0.1,
+        loop: true
+    },
+    intenseMusic: {
+        url: 'https://assets.mixkit.co/music/preview/mixkit-game-show-suspense-waiting-667.mp3',
+        volume: 0.15,
+        loop: true
+    }
+};
+
+// Cache de áudios
+const audioCache = new Map();
+let backgroundAudio = null;
+let currentMusic = null;
+
+// ===== SISTEMA DE ÁUDIO =====
+class AudioManager {
+    constructor() {
+        this.enabled = true;
+        this.musicEnabled = true;
+        this.sfxEnabled = true;
+        this.loaded = false;
+        this.init();
+    }
+
+    // Inicializar sistema de áudio
+    async init() {
+        try {
+            // Pré-carregar sons essenciais
+            await this.preloadEssentialSounds();
+            this.loaded = true;
+            console.log('✅ Sistema de áudio inicializado');
+        } catch (error) {
+            console.error('❌ Erro ao inicializar áudio:', error);
+        }
+    }
+
+    // Pré-carregar sons essenciais
+    async preloadEssentialSounds() {
+        const essentialSounds = ['move', 'capture', 'click', 'notification'];
+        
+        for (const soundKey of essentialSounds) {
+            await this.loadSound(soundKey);
+        }
+    }
+
+    // Carregar som individual
+    async loadSound(soundKey) {
+        if (audioCache.has(soundKey)) return audioCache.get(soundKey);
+        
+        const soundConfig = gameSounds[soundKey];
+        if (!soundConfig) {
+            console.error('❌ Som não encontrado:', soundKey);
+            return null;
+        }
+
+        return new Promise((resolve) => {
+            const audio = new Audio(soundConfig.url);
+            audio.volume = soundConfig.volume || 0.5;
+            audio.preload = 'auto';
+            
+            audio.oncanplaythrough = () => {
+                audioCache.set(soundKey, audio);
+                resolve(audio);
+            };
+            
+            audio.onerror = () => {
+                console.error('❌ Erro ao carregar som:', soundKey);
+                resolve(null);
+            };
+            
+            // Timeout para não travar o jogo
+            setTimeout(() => resolve(null), 3000);
+        });
+    }
+
+    // Tocar efeito sonoro
+    async playSound(soundKey, options = {}) {
+        if (!this.enabled || !this.sfxEnabled) return;
+        
+        try {
+            let audio = audioCache.get(soundKey);
+            if (!audio) {
+                audio = await this.loadSound(soundKey);
+            }
+            
+            if (audio) {
+                const audioClone = audio.cloneNode();
+                audioClone.volume = options.volume || audio.volume;
+                
+                if (options.playbackRate) {
+                    audioClone.playbackRate = options.playbackRate;
+                }
+                
+                audioClone.play().catch(e => {
+                    console.log('⚠️ Auto-play bloqueado, tentando com interação do usuário');
+                });
+                
+                return audioClone;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao tocar som:', soundKey, error);
+        }
+    }
+
+    // Tocar música
+    async playMusic(musicKey, force = false) {
+        if (!this.enabled || !this.musicEnabled) return;
+        if (currentMusic === musicKey && !force) return;
+        
+        this.stopMusic();
+        
+        try {
+            const musicConfig = gameSounds[musicKey];
+            if (!musicConfig) return;
+            
+            const audio = new Audio(musicConfig.url);
+            audio.volume = musicConfig.volume || 0.1;
+            audio.loop = musicConfig.loop || false;
+            
+            audio.addEventListener('canplaythrough', () => {
+                audio.play().catch(e => {
+                    console.log('⚠️ Música precisa de interação do usuário');
+                });
+            });
+            
+            backgroundAudio = audio;
+            currentMusic = musicKey;
+            
+        } catch (error) {
+            console.error('❌ Erro ao tocar música:', error);
+        }
+    }
+
+    // Parar música
+    stopMusic() {
+        if (backgroundAudio) {
+            backgroundAudio.pause();
+            backgroundAudio = null;
+        }
+        currentMusic = null;
+    }
+
+    // Alterar volume
+    setVolume(type, volume) {
+        const clampedVolume = Math.max(0, Math.min(1, volume));
+        
+        if (type === 'music' && backgroundAudio) {
+            backgroundAudio.volume = clampedVolume;
+        }
+        
+        // Atualizar cache de volumes
+        Object.keys(gameSounds).forEach(key => {
+            if (audioCache.has(key)) {
+                audioCache.get(key).volume = clampedVolume;
+            }
+        });
+    }
+
+    // Habilitar/desabilitar sons
+    toggleSound(enabled) {
+        this.sfxEnabled = enabled;
+        localStorage.setItem('sfxEnabled', enabled);
+    }
+
+    toggleMusic(enabled) {
+        this.musicEnabled = enabled;
+        localStorage.setItem('musicEnabled', enabled);
+        
+        if (enabled && currentMusic) {
+            this.playMusic(currentMusic, true);
+        } else {
+            this.stopMusic();
+        }
+    }
+
+    // Carregar preferências
+    loadPreferences() {
+        const sfx = localStorage.getItem('sfxEnabled');
+        const music = localStorage.getItem('musicEnabled');
+        
+        if (sfx !== null) this.sfxEnabled = sfx === 'true';
+        if (music !== null) this.musicEnabled = music === 'true';
+    }
+}
+
+// Instância global do gerenciador de áudio
+const audioManager = new AudioManager();
+
+// ===== INTERFACE DE CONTROLE DE SOM =====
+function createSoundControls() {
+    // Verificar se já existe
+    if (document.getElementById('sound-controls')) return;
+    
+    const controlsHTML = `
+        <div id="sound-controls" class="sound-controls">
+            <button id="btn-sound-toggle" class="sound-btn">
+                <i class="fas fa-volume-up"></i>
+            </button>
+            <button id="btn-music-toggle" class="sound-btn">
+                <i class="fas fa-music"></i>
+            </button>
+            <div class="volume-controls">
+                <input type="range" id="sound-volume" min="0" max="1" step="0.1" value="0.7">
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', controlsHTML);
+    
+    // Configurar event listeners
+    document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+        audioManager.toggleSound(!audioManager.sfxEnabled);
+        updateSoundButtons();
+    });
+    
+    document.getElementById('btn-music-toggle').addEventListener('click', () => {
+        audioManager.toggleMusic(!audioManager.musicEnabled);
+        updateSoundButtons();
+    });
+    
+    document.getElementById('sound-volume').addEventListener('input', (e) => {
+        const volume = parseFloat(e.target.value);
+        audioManager.setVolume('master', volume);
+    });
+    
+    // Carregar preferências e atualizar botões
+    audioManager.loadPreferences();
+    updateSoundButtons();
+}
+
+// Atualizar botões de som
+function updateSoundButtons() {
+    const soundBtn = document.getElementById('btn-sound-toggle');
+    const musicBtn = document.getElementById('btn-music-toggle');
+    
+    if (soundBtn) {
+        soundBtn.innerHTML = audioManager.sfxEnabled ? 
+            '<i class="fas fa-volume-up"></i>' : 
+            '<i class="fas fa-volume-mute"></i>';
+    }
+    
+    if (musicBtn) {
+        musicBtn.innerHTML = audioManager.musicEnabled ? 
+            '<i class="fas fa-music"></i>' : 
+            '<i class="fas fa-music" style="opacity: 0.5"></i>';
+    }
+}
+
+
+
+// ===== INTEGRAÇÃO DOS SONS NO JOGO =====
+
+// Sons de movimento
+function playMoveSound() {
+    audioManager.playSound('move');
+}
+
+function playCaptureSound(isMultiple = false) {
+    audioManager.playSound(isMultiple ? 'multipleCapture' : 'capture');
+}
+
+function playKingPromotionSound() {
+    audioManager.playSound('kingPromotion');
+}
+
+// Sons de jogo
+function playGameStartSound() {
+    audioManager.playSound('gameStart');
+    audioManager.playMusic('backgroundMusic');
+}
+
+function playGameEndSound(win = true) {
+    audioManager.playSound(win ? 'victory' : 'defeat');
+    audioManager.stopMusic();
+}
+
+function playIntenseMusic() {
+    audioManager.playMusic('intenseMusic');
+}
+
+// Sons de interface
+function playClickSound() {
+    audioManager.playSound('click');
+}
+
+function playNotificationSound() {
+    audioManager.playSound('notification');
+}
+
+function playChallengeSound() {
+    audioManager.playSound('challenge');
+}
+
+// Modificar funções existentes para incluir sons
+function initializeGameWithSound() {
+    // Sons de movimento
+    const originalMakeMove = makeMove;
+    makeMove = async function(...args) {
+        const result = await originalMakeMove.apply(this, args);
+        playMoveSound();
+        return result;
+    };
+
+    // Sons de captura
+    const originalHandleCapture = handleCapture;
+    handleCapture = function(...args) {
+        const result = originalHandleCapture.apply(this, args);
+        playCaptureSound(args.length > 3); // Se for captura múltipla
+        return result;
+    };
+
+    // Sons de promoção
+    const originalPromotePiece = promotePiece;
+    promotePiece = function(...args) {
+        const result = originalPromotePiece.apply(this, args);
+        playKingPromotionSound();
+        return result;
+    };
+}
+
