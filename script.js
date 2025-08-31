@@ -960,58 +960,6 @@ async function testListenerSimple() {
     });
 }
 
-
-// ===== DEBUG: VERIFICAR NOTIFICAÇÕES =====
-async function debugNotifications() {
-    if (!db) {
-        console.error('Firestore não está disponível');
-        return;
-    }
-    
-    console.log('=== DEBUG DE NOTIFICAÇÕES ===');
-    
-    try {
-        // Verificar todas as notificações no banco
-        const allNotifications = await db.collection('notifications').get();
-        console.log(`Total de notificações no sistema: ${allNotifications.size}`);
-        
-        allNotifications.forEach(doc => {
-            const notif = doc.data();
-            console.log(`Notificação ${doc.id}:`, {
-                type: notif.type,
-                from: notif.fromUserName,
-                to: notif.toUserId,
-                status: notif.status,
-                timestamp: notif.timestamp?.toDate()
-            });
-        });
-        
-        // Verificar notificações do usuário atual
-        if (currentUser) {
-            const myNotifications = await db.collection('notifications')
-                .where('toUserId', '==', currentUser.uid)
-                .get();
-            
-            console.log(`Notificações para mim (${currentUser.uid}): ${myNotifications.size}`);
-            
-            myNotifications.forEach(doc => {
-                const notif = doc.data();
-                console.log(`Minha notificação ${doc.id}:`, {
-                    type: notif.type,
-                    from: notif.fromUserName,
-                    status: notif.status
-                });
-            });
-        }
-        
-    } catch (error) {
-        console.error('Erro no debug:', error);
-    }
-}
-
-// Adicione esta função para testar no console
-window.debugNotif = debugNotifications;
-
 // ===== FILTRAR JOGADORES ONLINE =====
 function filterOnlineUsers() {
     if (onlineUsers.length === 0) return;
@@ -7582,17 +7530,32 @@ async function acceptChallenge(notificationId) {
     
     try {
         const notification = activeNotifications.get(notificationId);
-        if (!notification) return;
+        if (!notification) {
+            console.log('Notificação não encontrada nas notificações ativas');
+            return;
+        }
+        
+        // Buscar dados completos do desafio do Firestore
+        const challengeDoc = await db.collection('notifications').doc(notificationId).get();
+        
+        if (!challengeDoc.exists) {
+            console.error('Desafio não encontrado no Firestore');
+            showNotification('Desafio não encontrado', 'error');
+            return;
+        }
+        
+        const challenge = {
+            id: challengeDoc.id,
+            ...challengeDoc.data()
+        };
+        
+        console.log('Dados completos do desafio:', challenge);
         
         // Atualizar status da notificação
         await db.collection('notifications').doc(notificationId).update({
             status: 'accepted',
             respondedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        
-        // Buscar dados completos do desafio
-        const challengeDoc = await db.collection('notifications').doc(notificationId).get();
-        const challenge = challengeDoc.data();
         
         // Criar mesa para o desafio
         await createChallengeTable(challenge);
@@ -7604,9 +7567,35 @@ async function acceptChallenge(notificationId) {
         
     } catch (error) {
         console.error('Erro ao aceitar desafio:', error);
-        showNotification('Erro ao aceitar desafio', 'error');
+        showNotification('Erro ao aceitar desafio: ' + error.message, 'error');
     }
 }
+
+// ===== VALIDAR DADOS DO DESAFIO =====
+function validateChallengeData(challenge) {
+    if (!challenge) {
+        throw new Error('Dados do desafio são nulos');
+    }
+    
+    if (!challenge.fromUserId) {
+        throw new Error('ID do remetente não definido');
+    }
+    
+    if (!challenge.fromUserName) {
+        throw new Error('Nome do remetente não definido');
+    }
+    
+    // Garantir valores padrão
+    return {
+        id: challenge.id || null,
+        fromUserId: challenge.fromUserId,
+        fromUserName: challenge.fromUserName || 'Desafiante',
+        timeLimit: challenge.timeLimit || 60,
+        betAmount: challenge.betAmount || 0,
+        message: challenge.message || ''
+    };
+}
+
 
 // ===== RECUSAR DESAFIO =====
 async function declineChallenge(notificationId) {
@@ -7652,24 +7641,28 @@ function removeChallengeNotification(notificationId, reason = 'dismissed') {
     
     console.log(`Notificação ${notificationId} removida: ${reason}`);
 }
-
-// ===== CRIAR MESA PARA DESAFIO =====
+// ===== CRIAR MESA PARA DESAFIO (COM VALIDAÇÃO) =====
 async function createChallengeTable(challenge) {
     try {
-        const tableName = `Desafio: ${challenge.fromUserName} vs ${userData.displayName}`;
+        console.log('Criando mesa para desafio:', challenge);
+        
+        // Validar dados do desafio
+        const validatedChallenge = validateChallengeData(challenge);
+        
+        const tableName = `Desafio: ${validatedChallenge.fromUserName} vs ${userData.displayName}`;
         
         const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
         
-        const tableRef = await db.collection('tables').add({
+        const tableData = {
             name: tableName,
-            timeLimit: challenge.timeLimit || 60,
-            bet: challenge.betAmount || 0,
+            timeLimit: validatedChallenge.timeLimit,
+            bet: validatedChallenge.betAmount,
             status: 'playing',
             players: [
                 {
-                    uid: challenge.fromUserId,
-                    displayName: challenge.fromUserName,
-                    rating: 1000, // Será atualizado pelo loadUserData
+                    uid: validatedChallenge.fromUserId,
+                    displayName: validatedChallenge.fromUserName,
+                    rating: 1000,
                     color: 'black'
                 },
                 {
@@ -7679,15 +7672,25 @@ async function createChallengeTable(challenge) {
                     color: 'red'
                 }
             ],
-            createdBy: challenge.fromUserId,
+            createdBy: validatedChallenge.fromUserId,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             currentTurn: 'black',
             board: boardData,
             waitingForOpponent: false,
-            platformFee: calculatePlatformFee(challenge.betAmount || 0),
-            isChallenge: true,
-            challengeId: challenge.id
-        });
+            platformFee: calculatePlatformFee(validatedChallenge.betAmount),
+            isChallenge: true
+        };
+        
+        // Só adicionar challengeId se existir
+        if (validatedChallenge.id) {
+            tableData.challengeId = validatedChallenge.id;
+        }
+        
+        console.log('Dados da mesa validados:', tableData);
+        
+        const tableRef = await db.collection('tables').add(tableData);
+        
+        console.log('✅ Mesa de desafio criada com ID:', tableRef.id);
         
         // Entrar na mesa
         userActiveTable = tableRef.id;
@@ -7697,10 +7700,105 @@ async function createChallengeTable(challenge) {
         showNotification('Mesa de desafio criada! Boa sorte!', 'success');
         
     } catch (error) {
-        console.error('Erro ao criar mesa de desafio:', error);
-        showNotification('Erro ao criar mesa de desafio', 'error');
+        console.error('❌ Erro ao criar mesa de desafio:', error);
+    console.error('Código do erro:', error.code);
+    console.error('Mensagem do erro:', error.message);
+    console.error('Stack do erro:', error.stack);
+    
+    if (error.code === 'invalid-argument') {
+        console.error('Provável erro nos dados enviados para o Firestore');
+        // Log dos dados que causaram o erro
+        console.log('Dados que causaram o erro:', tableData);
+    }
+    
+    showNotification('Erro ao criar mesa: ' + error.message, 'error');
+    
+    // Tentar fallback
+    await createFallbackTable(challenge);
     }
 }
+
+// ===== CRIAR MESA FALLBACK =====
+async function createFallbackTable(challenge) {
+    try {
+        console.log('Tentando fallback para criação de mesa...');
+        
+        const tableName = `Desafio: ${challenge.fromUserName || 'Oponente'} vs ${userData.displayName}`;
+        
+        const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+        
+        // Dados mínimos para a mesa
+        const tableData = {
+            name: tableName,
+            timeLimit: 60,
+            bet: 0,
+            status: 'playing',
+            players: [
+                {
+                    uid: challenge.fromUserId || 'unknown',
+                    displayName: challenge.fromUserName || 'Desafiante',
+                    rating: 1000,
+                    color: 'black'
+                },
+                {
+                    uid: currentUser.uid,
+                    displayName: userData.displayName,
+                    rating: userData.rating,
+                    color: 'red'
+                }
+            ],
+            createdBy: challenge.fromUserId || 'unknown',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            currentTurn: 'black',
+            board: boardData,
+            waitingForOpponent: false,
+            platformFee: 0,
+            isChallenge: true
+        };
+        
+        const tableRef = await db.collection('tables').add(tableData);
+        
+        console.log('✅ Mesa fallback criada com ID:', tableRef.id);
+        
+        userActiveTable = tableRef.id;
+        setupGameListener(tableRef.id);
+        showScreen('game-screen');
+        
+        showNotification('Mesa criada! Boa sorte!', 'success');
+        
+    } catch (error) {
+        console.error('❌ Erro no fallback:', error);
+        showNotification('Erro crítico ao criar mesa', 'error');
+    }
+}
+
+// ===== DEBUG: VERIFICAR DADOS DA NOTIFICAÇÃO =====
+async function debugNotification(notificationId) {
+    try {
+        const doc = await db.collection('notifications').doc(notificationId).get();
+        
+        if (doc.exists) {
+            const data = doc.data();
+            console.log('📄 Dados da notificação:', {
+                id: doc.id,
+                fromUserId: data.fromUserId,
+                fromUserName: data.fromUserName,
+                toUserId: data.toUserId,
+                timeLimit: data.timeLimit,
+                betAmount: data.betAmount,
+                status: data.status,
+                hasChallengeId: !!data.challengeId
+            });
+        } else {
+            console.log('❌ Notificação não encontrada');
+        }
+    } catch (error) {
+        console.error('Erro no debug:', error);
+    }
+}
+
+// Adicione ao window
+window.debugNotif = debugNotification;
 
 // ===== MARCAR NOTIFICAÇÃO COMO VISTA =====
 async function markNotificationAsSeen(notificationId) {
