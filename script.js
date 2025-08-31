@@ -4853,22 +4853,26 @@ async function loadRanking() {
   }
 }
 
-// ===== FUNÇÃO GET POSSIBLE MOVES (ATUALIZADA PARA DAMAS) =====
+// ===== FUNÇÃO GET POSSIBLE MOVES (COMPLETA E CORRIGIDA) =====
 function getPossibleMoves(fromRow, fromCol) {
     if (!gameState || !gameState.board) return [];
     
     const piece = gameState.board[fromRow][fromCol];
     if (!piece) return [];
     
+    console.log(`Verificando movimentos para peça em [${fromRow},${fromCol}]:`, piece);
+    
     // 1. Primeiro verificar capturas obrigatórias
     let captures = [];
     
     if (piece.king) {
-        // Para damas, usar a nova função de captura
+        // Para damas
         captures = getKingCaptureMoves(fromRow, fromCol, piece);
+        console.log('Capturas de dama encontradas:', captures.length);
     } else {
-        // Para peças normais, usar função existente
+        // Para peças normais
         captures = getCaptureMoves(fromRow, fromCol, piece);
+        console.log('Capturas de peça normal encontradas:', captures.length);
     }
     
     // Se houver capturas, retornar apenas capturas (captura obrigatória)
@@ -4879,12 +4883,74 @@ function getPossibleMoves(fromRow, fromCol) {
     
     // 2. Se não houver capturas, verificar movimentos normais
     if (piece.king) {
-        return getKingSimpleMoves(fromRow, fromCol, piece);
+        const simpleMoves = getKingSimpleMoves(fromRow, fromCol, piece);
+        console.log('Movimentos simples de dama:', simpleMoves.length);
+        return simpleMoves;
     } else {
-        return getNormalMoves(fromRow, fromCol, piece);
+        const normalMoves = getNormalMoves(fromRow, fromCol, piece);
+        console.log('Movimentos normais de peça:', normalMoves.length);
+        return normalMoves;
     }
 }
+// ===== DEBUG DE MOVIMENTOS =====
+function debugMoves(fromRow, fromCol) {
+    console.log('=== DEBUG DE MOVIMENTOS ===');
+    console.log('Posição:', fromRow, fromCol);
+    
+    const piece = gameState.board[fromRow][fromCol];
+    if (!piece) {
+        console.log('❌ Nenhuma peça nesta posição');
+        return;
+    }
+    
+    console.log('Peça:', piece);
+    
+    // Verificar capturas
+    const captures = piece.king ? 
+        getKingCaptureMoves(fromRow, fromCol, piece) : 
+        getCaptureMoves(fromRow, fromCol, piece);
+    
+    console.log('Capturas encontradas:', captures.length);
+    captures.forEach((capture, index) => {
+        console.log(`Captura ${index + 1}:`, capture);
+    });
+    
+    // Verificar movimentos simples
+    const simpleMoves = piece.king ?
+        getKingSimpleMoves(fromRow, fromCol, piece) :
+        getNormalMoves(fromRow, fromCol, piece);
+    
+    console.log('Movimentos simples encontrados:', simpleMoves.length);
+    simpleMoves.forEach((move, index) => {
+        console.log(`Movimento ${index + 1}:`, move);
+    });
+    
+    // Verificar todos os movimentos possíveis
+    const allMoves = getPossibleMoves(fromRow, fromCol);
+    console.log('Todos os movimentos possíveis:', allMoves.length);
+}
 
+// ===== VISUALIZAR MOVIMENTOS NO TABULEIRO =====
+function visualizeMoves(fromRow, fromCol) {
+    const moves = getPossibleMoves(fromRow, fromCol);
+    
+    console.log(`Movimentos para [${fromRow},${fromCol}]:`);
+    
+    moves.forEach((move, index) => {
+        const moveType = move.captures.length > 0 ? 'CAPTURA' : 'MOVIMENTO';
+        console.log(`${index + 1}. ${moveType}: [${move.fromRow},${move.fromCol}] -> [${move.toRow},${move.toCol}]`);
+        
+        if (move.captures.length > 0) {
+            console.log('   Peças capturadas:', move.captures);
+        }
+    });
+    
+    return moves;
+}
+
+window.showMoves = visualizeMoves;
+// Adicione ao window para testar
+window.debugMoves = debugMoves;
 
 function renderRankingItem(user, position, container) {
   const itemEl = document.createElement('div');
@@ -5255,7 +5321,65 @@ function testKingCaptureFlow(fromRow, fromCol, toRow, toCol) {
 
 window.testFlow = testKingCaptureFlow;
 
-
+// ===== FUNÇÃO GET CAPTURE MOVES PARA PEÇAS NORMAIS =====
+function getCaptureMoves(fromRow, fromCol, piece, currentCaptures = []) {
+    const captures = [];
+    
+    if (!piece || piece.king) {
+        return captures; // Para damas, usar getKingCaptureMoves
+    }
+    
+    const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    
+    for (const [rowDir, colDir] of directions) {
+        const jumpRow = fromRow + rowDir;
+        const jumpCol = fromCol + colDir;
+        const landRow = fromRow + 2 * rowDir;
+        const landCol = fromCol + 2 * colDir;
+        
+        // Verificar se está dentro do tabuleiro
+        if (landRow < 0 || landRow > 7 || landCol < 0 || landCol > 7) {
+            continue;
+        }
+        
+        const jumpedPiece = gameState.board[jumpRow][jumpCol];
+        const landingCell = gameState.board[landRow][landCol];
+        
+        // Verificar se já foi capturada
+        const alreadyCaptured = currentCaptures.some(c => 
+            c.row === jumpRow && c.col === jumpCol
+        );
+        
+        // Verificar se é uma captura válida
+        if (!alreadyCaptured && 
+            jumpedPiece && 
+            jumpedPiece.color !== piece.color && 
+            landingCell === null) {
+            
+            const newCapture = { row: jumpRow, col: jumpCol };
+            const allCaptures = [...currentCaptures, newCapture];
+            
+            const captureMove = {
+                fromRow,
+                fromCol,
+                toRow: landRow,
+                toCol: landCol,
+                captures: allCaptures
+            };
+            
+            captures.push(captureMove);
+            
+            // Verificar capturas adicionais a partir da nova posição
+            const furtherCaptures = getCaptureMoves(
+                landRow, landCol, piece, allCaptures
+            );
+            
+            captures.push(...furtherCaptures);
+        }
+    }
+    
+    return captures;
+}
 // ===== FUNÇÃO GET CAPTURE MOVES FROM BOARD (ATUALIZADA PARA DAMAS) =====
 function getCaptureMovesFromBoard(fromRow, fromCol, piece, currentCaptures, virtualBoard) {
     const captures = [];
@@ -5469,7 +5593,7 @@ function debugKingMoves(fromRow, fromCol) {
     console.log('Movimentos simples:', simpleMoves.length);
 }
 
-// ===== MOVIMENTOS SIMPLES PARA DAMA =====
+// ===== FUNÇÃO GET KING SIMPLE MOVES =====
 function getKingSimpleMoves(fromRow, fromCol, piece) {
     const moves = [];
     const directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
@@ -5479,7 +5603,9 @@ function getKingSimpleMoves(fromRow, fromCol, piece) {
             const toRow = fromRow + (rowDir * distance);
             const toCol = fromCol + (colDir * distance);
             
-            if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) break;
+            if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) {
+                break;
+            }
             
             const cell = gameState.board[toRow][toCol];
             
@@ -5960,22 +6086,24 @@ function checkGlobalMandatoryCaptures() {
     return hasGlobalMandatoryCaptures;
 }
 
+// ===== FUNÇÃO GET NORMAL MOVES PARA PEÇAS NORMAIS =====
 function getNormalMoves(fromRow, fromCol, piece) {
     const moves = [];
-    const directions = [];
     
-    if (piece.king) {
-        directions.push([-1, -1], [-1, 1], [1, -1], [1, 1]);
-    } else {
-        const direction = piece.color === 'red' ? -1 : 1;
-        directions.push([direction, -1], [direction, 1]);
+    if (!piece || piece.king) {
+        return moves; // Para damas, usar getKingSimpleMoves
     }
+    
+    const direction = piece.color === 'red' ? -1 : 1;
+    const directions = [[direction, -1], [direction, 1]];
     
     for (const [rowDir, colDir] of directions) {
         const toRow = fromRow + rowDir;
         const toCol = fromCol + colDir;
         
-        if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
+        if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) {
+            continue;
+        }
         
         if (gameState.board[toRow][toCol] === null) {
             moves.push({
