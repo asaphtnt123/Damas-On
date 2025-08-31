@@ -28,412 +28,133 @@ let moveTimer = null;
 let timeLeft = 0;
 let currentTimeLimit = 0;
 
-// ===== SOLUÇÃO IMEDIATA PARA USUÁRIOS ONLINE =====
-(function() {
-    console.log('Iniciando solução imediata para usuários online...');
-    
-    // Criar botão IMEDIATAMENTE
-    const createOnlineUsersButton = function() {
-        // Remover se já existir
-        const oldBtn = document.getElementById('btn-online-users');
-        if (oldBtn) oldBtn.remove();
-        
-        const btn = document.createElement('button');
-        btn.id = 'btn-online-users';
-        btn.innerHTML = '👥 Jogadores';
-        btn.style.cssText = `
-            position: fixed;
-            top: 70px;
-            right: 10px;
-            background: #3498db;
-            color: white;
-            border: none;
-            padding: 12px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            z-index: 10000;
-            font-size: 14px;
-            font-weight: bold;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            transition: all 0.3s ease;
-        `;
-        
-        btn.onmouseover = function() {
-            this.style.background = '#2980b9';
-            this.style.transform = 'translateY(-2px)';
-        };
-        
-        btn.onmouseout = function() {
-            this.style.background = '#3498db';
-            this.style.transform = 'translateY(0)';
-        };
-        
-        btn.onclick = function() {
-            console.log('Botão de jogadores clicado!');
-            openOnlineUsersModal();
-        };
-        
-        document.body.appendChild(btn);
-        console.log('Botão criado com sucesso!');
-        return btn;
-    };
-    
-    // Criar modal IMEDIATAMENTE
-    const createOnlineUsersModal = function() {
-        // Remover se já existir
-        const oldModal = document.getElementById('online-users-modal');
-        if (oldModal) oldModal.remove();
-        
-        const modalHTML = `
-        <div id="online-users-modal" style="
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.9);
-            z-index: 10001;
-            align-items: center;
-            justify-content: center;
-            font-family: Arial, sans-serif;
-        ">
-            <div style="
-                background: linear-gradient(135deg, #2c3e50, #34495e);
-                color: white;
-                padding: 25px;
-                border-radius: 15px;
-                max-width: 95%;
-                max-height: 85%;
-                width: 500px;
-                overflow: auto;
-                border: 2px solid #3498db;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            ">
-                <div style="
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 20px;
-                    padding-bottom: 15px;
-                    border-bottom: 2px solid #3498db;
-                ">
-                    <h2 style="margin: 0; color: #3498db; font-size: 24px;">🎮 Jogadores Online</h2>
-                    <button id="close-online-users" style="
-                        background: #e74c3c;
-                        color: white;
-                        border: none;
-                        width: 30px;
-                        height: 30px;
-                        border-radius: 50%;
-                        cursor: pointer;
-                        font-size: 18px;
-                        font-weight: bold;
-                    ">×</button>
-                </div>
-                
-                <div style="margin-bottom: 20px;">
-    <input type="text" id="users-search" placeholder="🔍 Buscar por nome, cidade..." style="
-        width: 100%;
-        padding: 12px;
-        border: 2px solid #3498db;
-        border-radius: 8px;
-        background: #1e2a38;
-        color: white;
-        font-size: 14px;
-        margin-bottom: 10px;
-    ">
-    
-    <select id="users-sort" style="
-        width: 100%;
-        padding: 12px;
-        border: 2px solid #9b59b6;
-        border-radius: 8px;
-        background: #1e2a38;
-        color: white;
-        font-size: 14px;
-    ">
-        <option value="rating-desc">⭐ Maior Rating</option>
-        <option value="rating-asc">⭐ Menor Rating</option>
-        <option value="coins-desc">🪙 Mais Moedas</option>
-        <option value="coins-asc">🪙 Menos Moedas</option>
-        <option value="name-asc">📛 Nome (A-Z)</option>
-        <option value="name-desc">📛 Nome (Z-A)</option>
-        <option value="online">💤 Apenas Online</option>
-        <option value="playing">🎮 Apenas Jogando</option>
-    </select>
-</div>
-                
-                <div id="online-users-stats" style="
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 10px;
-                    margin-bottom: 20px;
-                    text-align: center;
-                ">
-                    <div style="background: rgba(52, 152, 219, 0.2); padding: 10px; border-radius: 8px; border: 1px solid #3498db;">
-                        <div style="font-size: 18px; font-weight: bold; color: #3498db;" id="total-online-users">0</div>
-                        <div style="font-size: 12px; color: #bdc3c7;">Online</div>
-                    </div>
-                    <div style="background: rgba(46, 204, 113, 0.2); padding: 10px; border-radius: 8px; border: 1px solid #2ecc71;">
-                        <div style="font-size: 18px; font-weight: bold; color: #2ecc71;" id="total-coins">0</div>
-                        <div style="font-size: 12px; color: #bdc3c7;">Moedas</div>
-                    </div>
-                    <div style="background: rgba(231, 76, 60, 0.2); padding: 10px; border-radius: 8px; border: 1px solid #e74c3c;">
-                        <div style="font-size: 18px; font-weight: bold; color: #e74c3c;" id="active-tables">0</div>
-                        <div style="font-size: 12px; color: #bdc3c7;">Jogando</div>
-                    </div>
-                </div>
-                
-                <div id="online-users-list" style="
-                    max-height: 300px;
-                    overflow-y: auto;
-                    padding-right: 5px;
-                ">
-                    <div style="text-align: center; padding: 30px; color: #bdc3c7;">
-                        <div style="font-size: 48px; margin-bottom: 15px;">⏳</div>
-                        <p>Carregando jogadores online...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-        `;
-        
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
-        console.log('Modal criado com sucesso!');
-        
-        // Configurar event listeners
-        document.getElementById('close-online-users').onclick = closeOnlineUsersModal;
-        document.getElementById('online-users-modal').onclick = function(e) {
-            if (e.target === this) closeOnlineUsersModal();
-        };
-        
-        document.getElementById('users-search').oninput = filterOnlineUsers;
-    };
-    
-  window.openOnlineUsersModal = function() {
-    console.log('🎮 Abrindo modal de jogadores online...');
-    
-    const modal = document.getElementById('online-users-modal');
-    if (modal) {
-        modal.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-        
-        // Chamar a função unificada
-        loadOnlineUsers();
-    } else {
-        console.error('❌ Modal não encontrado!');
-    }
-};
-    
-    window.closeOnlineUsersModal = function() {
-        console.log('Fechando modal...');
-        const modal = document.getElementById('online-users-modal');
-        if (modal) {
-            modal.style.display = 'none';
-            document.body.style.overflow = '';
-        }
-    };
-    
-// Função melhorada para carregar usuários online
-window.loadOnlineUsers = async function() {
-    console.log('📡 Carregando usuários online...');
-    
-    try {
-        // Buscar usuários com atividade recente (últimos 2 minutos)
-        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-        
-        const snapshot = await db.collection('users')
-            .where('lastActivity', '>=', twoMinutesAgo)
-            .get();
-        
-        const users = [];
-        
-        for (const doc of snapshot.docs) {
-            const userData = doc.data();
-            
-            // Considerar online apenas se lastActivity for muito recente
-            const lastActivity = userData.lastActivity?.toDate 
-                ? userData.lastActivity.toDate() 
-                : new Date(userData.lastActivity);
-            
-            const isRecentlyActive = (new Date() - lastActivity) < 3 * 60 * 1000; // 3 minutos
-            
-            users.push({
-                id: doc.id,
-                name: userData.displayName || 'Jogador',
-                city: userData.city || 'Não informada',
-                country: userData.country || 'Não informado',
-                age: userData.age || 'N/A',
-                rating: userData.rating || 1000,
-                coins: userData.coins || 0,
-                wins: userData.wins || 0,
-                losses: userData.losses || 0,
-                draws: userData.draws || 0,
-                isOnline: isRecentlyActive,
-                lastActivity: userData.lastActivity,
-                activeTable: await checkUserActiveTable(doc.id)
-            });
-        }
-        
-        // Ordenar por online primeiro
-        users.sort((a, b) => {
-            if (a.isOnline && !b.isOnline) return -1;
-            if (!a.isOnline && b.isOnline) return 1;
-            return 0;
-        });
-        
-        renderOnlineUsers(users);
-        
-    } catch (error) {
-        console.error('Erro ao carregar usuários:', error);
-        // Fallback para dados temporários
-        showTemporaryData();
-    }
-};
-// ===== DEBUG DETALHADO =====
-async function debugFirebaseUsers() {
-    console.log('=== DEBUG DETALHADO DO FIREBASE ===');
-    
-    try {
-        if (!db) {
-            console.log('❌ Firestore não inicializado');
-            return;
-        }
-        
-        // Buscar TODOS os usuários para debug
-        const allUsers = await db.collection('users').get();
-        console.log(`📊 Total de usuários no banco: ${allUsers.size}`);
-        
-        allUsers.forEach(doc => {
-            const data = doc.data();
-            console.log(`👤 ${doc.id}:`, {
-                nome: data.displayName,
-                online: data.isOnline,
-                lastActivity: data.lastActivity,
-                lastLogin: data.lastLogin,
-                cidade: data.city
-            });
-        });
-        
-        // Buscar usuários online especificamente
-        const onlineUsers = await db.collection('users')
-            .where('isOnline', '==', true)
-            .get();
-            
-        console.log(`🎯 Usuários online (isOnline=true): ${onlineUsers.size}`);
-        
-        onlineUsers.forEach(doc => {
-            const data = doc.data();
-            console.log(`✅ ONLINE: ${data.displayName} (${doc.id})`);
-        });
-        
-    } catch (error) {
-        console.error('Erro no debug:', error);
-    }
-}
 
-// Adicione um botão de debug
-function addFirebaseDebugButton() {
-    const debugBtn = document.createElement('button');
-    debugBtn.textContent = '🔥 Debug Firebase';
-    debugBtn.style.cssText = `
-        position: fixed;
-        bottom: 70px;
-        left: 20px;
-        background: #e67e22;
-        color: white;
-        border: none;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        z-index: 10000;
-        font-size: 12px;
-    `;
-    
-    debugBtn.onclick = debugFirebaseUsers;
-    document.body.appendChild(debugBtn);
-}
-
-// Chamar após inicialização
-setTimeout(addFirebaseDebugButton, 4000);
-
-
-
-// ===== ATUALIZAR LAST LOGIN QUANDO USUÁRIO FAZ LOGIN =====
-function updateUserLastLogin() {
+// ===== ATUALIZAR LAST LOGIN E STATUS ONLINE =====
+async function updateUserOnlineStatus() {
     if (!currentUser || !db) return;
     
     try {
-        db.collection('users').doc(currentUser.uid).update({
+        await db.collection('users').doc(currentUser.uid).update({
             lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-            lastActivity: new Date().toISOString()
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+            isOnline: true
         });
-        console.log('Last login atualizado para:', currentUser.uid);
+        console.log('Usuário marcado como online:', currentUser.uid);
     } catch (error) {
-        console.error('Erro ao atualizar last login:', error);
+        console.error('Erro ao atualizar status online:', error);
+    }
+}
+// ===== MARCAR USUÁRIO COMO OFFLINE =====
+async function setUserOffline() {
+    if (!currentUser || !db) return;
+    
+    try {
+        await db.collection('users').doc(currentUser.uid).update({
+            isOnline: false,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log('Usuário marcado como offline:', currentUser.uid);
+    } catch (error) {
+        console.error('Erro ao marcar usuário como offline:', error);
     }
 }
 
-function renderOnlineUsers(users) {
-    const usersList = document.getElementById('online-users-list');
-    if (!usersList) return;
+// ===== LIMPEZA DE USUÁRIOS ORFÃOS (OFFLINE) =====
+async function cleanupOrphanedOnlineUsers() {
+    if (!db) return;
     
-    usersList.innerHTML = users.map(user => {
-        const isReallyOnline = user.isOnline;
-        const lastSeen = user.lastActivity 
-            ? `Última vez: ${formatTimeAgo(user.lastActivity)}` 
-            : '';
+    try {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         
-        return `
-        <div style="background: rgba(52, 73, 94, 0.6); padding: 15px; border-radius: 10px; margin-bottom: 12px;
-            border-left: 4px solid ${isReallyOnline ? '#2ecc71' : '#95a5a6'};">
-            
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                <div style="flex: 1;">
-                    <strong style="color: #ecf0f1; font-size: 16px; display: block; margin-bottom: 5px;">
-                        ${user.name}
-                    </strong>
-                    <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #bdc3c7;">
-                        <span>🏙️ ${user.city}</span>
-                        <span>🎂 ${user.age} anos</span>
-                        <span>🌍 ${user.country}</span>
-                    </div>
-                </div>
-                
-                <span style="background: ${isReallyOnline ? '#2ecc71' : '#95a5a6'}; color: white; padding: 6px 10px; 
-                    border-radius: 15px; font-size: 11px; font-weight: bold;">
-                    ${isReallyOnline ? '🟢 ONLINE' : '⚫ OFFLINE'}
-                </span>
-            </div>
-            
-            ${!isReallyOnline ? `
-                <div style="color: #bdc3c7; font-size: 11px; text-align: right;">
-                    ${lastSeen}
-                </div>
-            ` : ''}
-            
-            <!-- Restante do código existente -->
-        `;
-    }).join('');
-    
-    updateOnlineUsersStats(users);
+        const snapshot = await db.collection('users')
+            .where('isOnline', '==', true)
+            .where('lastActivity', '<', fiveMinutesAgo)
+            .get();
+        
+        const batch = db.batch();
+        
+        snapshot.forEach(doc => {
+            batch.update(doc.ref, {
+                isOnline: false,
+                lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        
+        if (snapshot.size > 0) {
+            await batch.commit();
+            console.log(`Limpeza: ${snapshot.size} usuários marcados como offline`);
+        }
+    } catch (error) {
+        console.error('Erro na limpeza de usuários online:', error);
+    }
 }
 
-function updateOnlineUsersStats(users) {
-    const totalUsers = users.length;
-    const totalCoins = users.reduce((sum, user) => sum + (user.coins || 0), 0);
-    const activeTables = users.filter(user => user.activeTable.hasActiveTable).length;
+
+
+// ===== SISTEMA DE ACTIVITY PING =====
+let activityInterval = null;
+let lastActivityTime = Date.now();
+
+function startActivityPing() {
+    if (activityInterval) clearInterval(activityInterval);
     
-    document.getElementById('total-online-users').textContent = totalUsers;
-    document.getElementById('total-coins').textContent = totalCoins.toLocaleString();
-    document.getElementById('active-tables').textContent = activeTables;
+    activityInterval = setInterval(async () => {
+        if (currentUser && db) {
+            try {
+                // Atualizar atividade a cada 30 segundos
+                await db.collection('users').doc(currentUser.uid).update({
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+                    isOnline: true
+                });
+                lastActivityTime = Date.now();
+            } catch (error) {
+                console.error('Erro no activity ping:', error);
+            }
+        }
+    }, 30 * 1000); // 30 segundos
+}
+
+function stopActivityPing() {
+    if (activityInterval) {
+        clearInterval(activityInterval);
+        activityInterval = null;
+    }
+}
+
+// ===== DETECTAR INATIVIDADE DO USUÁRIO =====
+function setupInactivityDetection() {
+    let inactivityTimer;
+    const inactivityTimeout = 2 * 60 * 1000; // 2 minutos
     
-    // Atualizar badge do botão
-    const badge = document.getElementById('online-users-count');
-    if (badge) {
-        badge.textContent = totalUsers;
-        badge.style.display = totalUsers > 0 ? 'inline-block' : 'none';
+    function resetInactivityTimer() {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+            console.log('Usuário inativo por 2 minutos, marcando como away...');
+            setUserAway();
+        }, inactivityTimeout);
+    }
+    
+    // Eventos que resetam o timer de inatividade
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => {
+        document.addEventListener(event, resetInactivityTimer);
+    });
+    
+    resetInactivityTimer();
+}
+
+// ===== MARCAR USUÁRIO COMO AUSENTE =====
+async function setUserAway() {
+    if (!currentUser || !db) return;
+    
+    try {
+        await db.collection('users').doc(currentUser.uid).update({
+            isOnline: false, // ou você pode criar um status "away" se preferir
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log('Usuário marcado como ausente por inatividade');
+    } catch (error) {
+        console.error('Erro ao marcar usuário como ausente:', error);
     }
 }
 // ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
@@ -482,88 +203,97 @@ async function checkUserActiveTable(userId = null) {
     }
 }
 
-
-    function showTemporaryData() {
-        const usersList = document.getElementById('online-users-list');
-        const users = [
-            { name: 'João Silva', city: 'São Paulo', age: 25, rating: 1200, coins: 500, playing: true, bet: 50 },
-            { name: 'Maria Santos', city: 'Rio de Janeiro', age: 22, rating: 1350, coins: 800, playing: false },
-            { name: 'Pedro Costa', city: 'Belo Horizonte', age: 30, rating: 1100, coins: 300, playing: true, bet: 100 }
-        ];
-        
-        usersList.innerHTML = users.map(user => `
-            <div style="
-                background: rgba(52, 73, 94, 0.6);
-                padding: 15px;
-                border-radius: 10px;
-                margin-bottom: 10px;
-                border-left: 4px solid ${user.playing ? '#2ecc71' : '#3498db'};
-            ">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <strong style="color: #ecf0f1; font-size: 16px;">${user.name}</strong>
-                    <span style="background: ${user.playing ? '#2ecc71' : '#3498db'}; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px;">
-                        ${user.playing ? '🎮 Jogando' : '💤 Online'}
-                    </span>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                    <div style="color: #bdc3c7; font-size: 12px;">
-                        <div>🏙️ ${user.city}</div>
-                        <div>🎂 ${user.age} anos</div>
-                    </div>
-                    <div style="color: #bdc3c7; font-size: 12px;">
-                        <div>⭐ Rating: ${user.rating}</div>
-                        <div>🪙 Moedas: ${user.coins}</div>
-                    </div>
-                </div>
-                
-                ${user.playing ? `
-                    <div style="background: rgba(46, 204, 113, 0.2); padding: 8px; border-radius: 6px; text-align: center;">
-                        <strong style="color: #2ecc71;">Aposta: ${user.bet} moedas</strong>
-                    </div>
-                ` : ''}
+// ===== DADOS TEMPORÁRIOS PARA DEMONSTRAÇÃO =====
+function showTemporaryData() {
+    const usersList = document.getElementById('online-users-list');
+    if (!usersList) return;
+    
+    const users = [
+        { 
+            id: '1', 
+            displayName: 'João Silva', 
+            city: 'São Paulo', 
+            rating: 1200, 
+            coins: 500, 
+            isPlaying: true 
+        },
+        { 
+            id: '2', 
+            displayName: 'Maria Santos', 
+            city: 'Rio de Janeiro', 
+            rating: 1350, 
+            coins: 800, 
+            isPlaying: false 
+        },
+        { 
+            id: '3', 
+            displayName: 'Pedro Costa', 
+            city: 'Belo Horizonte', 
+            rating: 1100, 
+            coins: 300, 
+            isPlaying: true 
+        }
+    ];
+    
+    usersList.innerHTML = users.map(user => `
+        <div class="online-user-item" data-user-id="${user.id}">
+            <div class="user-avatar">
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=3498db&color=fff" 
+                     alt="${user.displayName}">
+                <div class="online-status"></div>
             </div>
-        `).join('');
-        
-        // Atualizar estatísticas
-        document.getElementById('total-online-users').textContent = users.length;
-        document.getElementById('total-coins').textContent = users.reduce((sum, user) => sum + user.coins, 0);
-        document.getElementById('active-tables').textContent = users.filter(user => user.playing).length;
+            
+            <div class="user-info">
+                <div class="user-name">${user.displayName}</div>
+                <div class="user-details">
+                    <span class="user-rating">
+                        <i class="fas fa-star"></i> ${user.rating}
+                    </span>
+                    <span class="user-coins">
+                        <i class="fas fa-coins"></i> ${user.coins}
+                    </span>
+                    ${user.city ? `<span class="user-city"><i class="fas fa-map-marker-alt"></i> ${user.city}</span>` : ''}
+                </div>
+            </div>
+            
+            <div class="user-actions">
+                ${user.isPlaying ? `
+                    <span class="playing-badge">
+                        <i class="fas fa-gamepad"></i> Jogando
+                    </span>
+                ` : `
+                    <button class="btn btn-small btn-primary challenge-btn" 
+                            onclick="challengePlayer('${user.id}', '${user.displayName}')">
+                        <i class="fas fa-crosshairs"></i> Desafiar
+                    </button>
+                `}
+            </div>
+        </div>
+    `).join('');
+    
+    // Atualizar estatísticas
+    document.getElementById('total-online-users').textContent = users.length;
+    document.getElementById('active-tables').textContent = users.filter(user => user.isPlaying).length;
+    document.getElementById('total-coins').textContent = users.reduce((sum, user) => sum + user.coins, 0);
+    
+    // Atualizar badge
+    const badge = document.getElementById('online-users-count');
+    if (badge) {
+        badge.textContent = users.length;
     }
-    
-    window.filterOnlineUsers = function() {
-    const searchTerm = document.getElementById('users-search').value.toLowerCase();
-    const sortValue = document.getElementById('users-sort')?.value || 'rating-desc';
-    
-    console.log('Filtrando por:', searchTerm, 'Ordenar por:', sortValue);
-    
-    // Esta função será implementada completamente depois
-    // Por enquanto, vamos recarregar os dados
-    loadRealOnlineUsers();
-};
-    
-    // Criar tudo imediatamente quando o script carregar
-    setTimeout(() => {
-        createOnlineUsersButton();
-        createOnlineUsersModal();
-        
-        console.log('Solução de usuários online instalada!');
-        console.log('Botão posicionado no canto superior direito');
-        
-        // Teste automático após 2 segundos
-        setTimeout(() => {
-            const btn = document.getElementById('btn-online-users');
-            if (btn) {
-                console.log('Botão encontrado, testando...');
-                btn.style.background = '#2ecc71';
-                btn.innerHTML = '👥 Jogadores ✓';
-            }
-        }, 2000);
-        
-    }, 1000);
-    
-})();
+}
 
+// ===== VERIFICAR SE O BOTÃO EXISTE =====
+function checkButtonExists() {
+    const btn = document.getElementById('btn-online-users');
+    console.log('Botão encontrado:', !!btn);
+    if (btn) {
+        console.log('Botão HTML:', btn.outerHTML);
+    }
+}
+
+// Chame esta função para debug
+setTimeout(checkButtonExists, 3000);
 
 // Executar limpeza periodicamente
 setInterval(cleanupAbandonedTables, 10 * 60 * 1000); // A cada 10 minutos
@@ -594,17 +324,19 @@ function checkRequiredElements() {
   });
 }
 
+
 function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
     
     // 1. Sistemas de autenticação e UI
-    initializeAuth();          // ✅ Já inclui o onAuthStateChanged
+    initializeAuth();
     initializeUI();
     initializeRegisterForm();
     
     // 2. Sistemas de jogo
     initializeGame();
     initializeNotifications();
+    initializeChallengeNotifications(); // ← ADICIONAR ESTA LINHA
     setupConnectionMonitoring();
     setupTimerPause();
     initializeTableCheck();
@@ -619,19 +351,557 @@ function initializeApp() {
     initializeProfileModal();
     initializeCoinsModal();
     
-   
+    // 5. Configurações de manutenção
+    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
+    setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
     
-    // 6. Debug e verificação
+    // 6. Verificar desafios pendentes ao iniciar
+    if (currentUser) {
+        setTimeout(checkPendingChallenges, 3000);
+    }
+    
+    // 7. Debug e verificação
     checkRequiredElements();
     
     console.log('✅ Aplicação inicializada com sucesso!');
-    
-       // Limpeza de usuários órfãos a cada 5 minutos
-    setInterval(cleanupOrphanedOnlineUsers, 5 * 60 * 1000);
-    
-    // Executar limpeza imediatamente ao iniciar
-    setTimeout(cleanupOrphanedOnlineUsers, 10000);
 }
+
+// ===== ENVIAR DESAFIO =====
+async function sendChallenge(targetUserId, targetUserName) {
+    const timeLimit = parseInt(document.getElementById('challenge-time').value);
+    const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
+    const message = document.getElementById('challenge-message').value;
+    
+    // Validar aposta
+    if (betAmount > 0 && userData.coins < betAmount) {
+        showNotification('Você não tem moedas suficientes para esta aposta', 'error');
+        return;
+    }
+    
+    try {
+        // Criar notificação de desafio
+        await db.collection('notifications').add({
+            type: 'challenge',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: targetUserId,
+            message: message || `${userData.displayName} te desafiou para uma partida!`,
+            timeLimit: timeLimit,
+            betAmount: betAmount,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: 'pending',
+            expiresAt: new Date(Date.now() + 5 * 60000), // Expira em 5 minutos
+            read: false
+        });
+        
+        showNotification(`Desafio enviado para ${targetUserName}! Aguardando resposta...`, 'success');
+        
+    } catch (error) {
+        console.error('Erro ao enviar desafio:', error);
+        showNotification('Erro ao enviar desafio', 'error');
+    }
+}
+
+// ===== LIMPAR NOTIFICAÇÕES =====
+function cleanupNotifications() {
+    // Parar todos os timers
+    activeNotifications.forEach((notification, id) => {
+        clearInterval(notification.timer);
+        if (notification.element.parentNode) {
+            notification.element.parentNode.removeChild(notification.element);
+        }
+    });
+    
+    activeNotifications.clear();
+}
+// ===== VARIÁVEIS GLOBAIS PARA JOGADORES ONLINE =====
+let onlineUsersModal = null;
+let onlineUsersListener = null;
+let onlineUsers = [];
+
+// ===== INICIALIZAÇÃO DO MODAL DE JOGADORES ONLINE =====
+function initializeOnlineUsersModal() {
+    console.log('Inicializando modal de jogadores online...');
+    
+    // Criar modal se não existir
+    if (!document.getElementById('online-users-modal')) {
+        const modalHTML = `
+            <div class="modal online-users-modal" id="online-users-modal">
+                <div class="modal-content large">
+                    <div class="modal-header">
+                        <h3>👥 Jogadores Online</h3>
+                        <button class="modal-close" id="close-online-users">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="online-users-stats">
+                            <div class="stat-card">
+                                <i class="fas fa-users"></i>
+                                <div>
+                                    <span class="stat-number" id="total-online-users">0</span>
+                                    <span class="stat-label">Jogadores Online</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-chess-board"></i>
+                                <div>
+                                    <span class="stat-number" id="active-tables">0</span>
+                                    <span class="stat-label">Mesas Ativas</span>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <i class="fas fa-coins"></i>
+                                <div>
+                                    <span class="stat-number" id="total-coins">0</span>
+                                    <span class="stat-label">Moedas em Jogo</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="online-users-controls">
+                            <div class="search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="users-search" placeholder="Buscar jogador...">
+                            </div>
+                            <select id="users-sort">
+                                <option value="rating-desc">Rating (Maior)</option>
+                                <option value="rating-asc">Rating (Menor)</option>
+                                <option value="coins-desc">Moedas (Maior)</option>
+                                <option value="coins-asc">Moedas (Menor)</option>
+                                <option value="name-asc">Nome (A-Z)</option>
+                                <option value="name-desc">Nome (Z-A)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="online-users-list" id="online-users-list">
+                            <div class="loading-spinner">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <p>Carregando jogadores...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    }
+    
+    onlineUsersModal = document.getElementById('online-users-modal');
+    
+    // Event listeners - CORREÇÃO AQUI
+    const onlineUsersBtn = document.getElementById('btn-online-users');
+    if (onlineUsersBtn) {
+        // Remover event listeners existentes para evitar duplicação
+        onlineUsersBtn.replaceWith(onlineUsersBtn.cloneNode(true));
+        const newBtn = document.getElementById('btn-online-users');
+        
+        newBtn.addEventListener('click', function(e) {
+            console.log('Botão de jogadores online clicado!');
+            e.preventDefault();
+            e.stopPropagation();
+            openOnlineUsersModal();
+        });
+    } else {
+        console.error('Botão btn-online-users não encontrado!');
+    }
+    
+    const closeBtn = document.getElementById('close-online-users');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeOnlineUsersModal);
+    }
+    
+    // Fechar modal clicando fora
+    if (onlineUsersModal) {
+        onlineUsersModal.addEventListener('click', (e) => {
+            if (e.target === onlineUsersModal) {
+                closeOnlineUsersModal();
+            }
+        });
+    }
+    
+    // Adicionar event listeners para os filtros
+    const searchInput = document.getElementById('users-search');
+    const sortSelect = document.getElementById('users-sort');
+    
+    if (searchInput) {
+        searchInput.addEventListener('input', filterOnlineUsers);
+    }
+    
+    if (sortSelect) {
+        sortSelect.addEventListener('change', filterOnlineUsers);
+    }
+    
+    console.log('Modal de jogadores online inicializado!');
+}
+
+// ===== FUNÇÃO PARA ABRIR MODAL DE JOGADORES ONLINE =====
+function openOnlineUsersModal() {
+    console.log('Abrindo modal de jogadores online...');
+    
+    if (!onlineUsersModal) {
+        initializeOnlineUsersModal();
+        // Dar um pequeno delay para garantir que o modal foi criado
+        setTimeout(() => {
+            if (onlineUsersModal) {
+                onlineUsersModal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+                loadOnlineUsers();
+            }
+        }, 100);
+        return;
+    }
+    
+    // Carregar jogadores online
+    loadOnlineUsers();
+    
+    onlineUsersModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+
+// ===== FUNÇÃO PARA ABRIR MODAL DE JOGADORES ONLINE =====
+function openOnlineUsersModal() {
+    if (!onlineUsersModal) {
+        initializeOnlineUsersModal();
+    }
+    
+    // Carregar jogadores online
+    loadOnlineUsers();
+    
+    onlineUsersModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// ===== FUNÇÃO PARA FECHAR MODAL DE JOGADORES ONLINE =====
+function closeOnlineUsersModal() {
+    if (onlineUsersModal) {
+        onlineUsersModal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+    
+    // Remover listener para economizar recursos
+    if (onlineUsersListener) {
+        onlineUsersListener();
+        onlineUsersListener = null;
+    }
+}
+// ===== CARREGAR JOGADORES ONLINE =====
+function loadOnlineUsers() {
+    console.log('Carregando jogadores online...');
+    
+    const usersList = document.getElementById('online-users-list');
+    if (usersList) {
+        usersList.innerHTML = `
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Carregando jogadores...</p>
+            </div>
+        `;
+    }
+    
+    // Remover listener anterior se existir
+    if (onlineUsersListener) {
+        onlineUsersListener();
+    }
+    
+    // Mostrar dados de exemplo para teste
+    showTemporaryData();
+    
+    // Tentar carregar dados reais se o Firebase estiver disponível
+    if (db && currentUser) {
+        try {
+            onlineUsersListener = db.collection('users')
+                .where('isOnline', '==', true)
+                .orderBy('lastActivity', 'desc')
+                .limit(50)
+                .onSnapshot((snapshot) => {
+                    onlineUsers = [];
+                    snapshot.forEach((doc) => {
+                        const user = { id: doc.id, ...doc.data() };
+                        // Não incluir o usuário atual na lista
+                        if (user.id !== currentUser.uid) {
+                            onlineUsers.push(user);
+                        }
+                    });
+                    
+                    updateOnlineUsersList();
+                    updateOnlineUsersCount();
+                    
+                }, (error) => {
+                    console.error('Erro ao carregar jogadores online:', error);
+                    // Manter os dados temporários se der erro
+                });
+                
+        } catch (error) {
+            console.error('Erro no listener de jogadores online:', error);
+        }
+    }
+}
+
+// ===== ATUALIZAR LISTA DE JOGADORES ONLINE =====
+function updateOnlineUsersList() {
+    const usersList = document.getElementById('online-users-list');
+    if (!usersList) return;
+    
+    if (onlineUsers.length === 0) {
+        usersList.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-user-slash"></i>
+                <h4>Nenhum jogador online</h4>
+                <p>Seja o primeiro a jogar!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Aplicar filtros e ordenação
+    const filteredUsers = filterAndSortUsers(onlineUsers);
+    
+    usersList.innerHTML = filteredUsers.map(user => `
+        <div class="online-user-item" data-user-id="${user.id}">
+            <div class="user-avatar">
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=3498db&color=fff" 
+                     alt="${user.displayName}">
+                <div class="online-status"></div>
+            </div>
+            
+            <div class="user-info">
+                <div class="user-name">${user.displayName || 'Jogador'}</div>
+                <div class="user-details">
+                    <span class="user-rating">
+                        <i class="fas fa-star"></i> ${user.rating || 1000}
+                    </span>
+                    <span class="user-coins">
+                        <i class="fas fa-coins"></i> ${user.coins || 0}
+                    </span>
+                    ${user.city ? `<span class="user-city"><i class="fas fa-map-marker-alt"></i> ${user.city}</span>` : ''}
+                </div>
+            </div>
+            
+            <div class="user-actions">
+                ${user.isPlaying ? `
+                    <span class="playing-badge">
+                        <i class="fas fa-gamepad"></i> Jogando
+                    </span>
+                ` : `
+                    <button class="btn btn-small btn-primary challenge-btn" 
+                            onclick="challengePlayer('${user.id}', '${user.displayName}')">
+                        <i class="fas fa-crosshairs"></i> Desafiar
+                    </button>
+                `}
+            </div>
+        </div>
+    `).join('');
+    
+    updateOnlineUsersStats();
+}
+
+// ===== FILTRAR E ORDENAR JOGADORES =====
+function filterAndSortUsers(users) {
+    const searchTerm = document.getElementById('users-search')?.value.toLowerCase() || '';
+    const sortValue = document.getElementById('users-sort')?.value || 'rating-desc';
+    
+    let filteredUsers = users;
+    
+    // Aplicar filtro de busca
+    if (searchTerm) {
+        filteredUsers = users.filter(user => 
+            user.displayName?.toLowerCase().includes(searchTerm) ||
+            user.city?.toLowerCase().includes(searchTerm)
+        );
+    }
+    
+    // Aplicar ordenação
+    filteredUsers.sort((a, b) => {
+        switch (sortValue) {
+            case 'rating-desc':
+                return (b.rating || 0) - (a.rating || 0);
+            case 'rating-asc':
+                return (a.rating || 0) - (b.rating || 0);
+            case 'coins-desc':
+                return (b.coins || 0) - (a.coins || 0);
+            case 'coins-asc':
+                return (a.coins || 0) - (b.coins || 0);
+            case 'name-asc':
+                return (a.displayName || '').localeCompare(b.displayName || '');
+            case 'name-desc':
+                return (b.displayName || '').localeCompare(a.displayName || '');
+            default:
+                return 0;
+        }
+    });
+    
+    return filteredUsers;
+}
+
+// ===== ATUALIZAR CONTAGEM DE JOGADORES ONLINE =====
+function updateOnlineUsersCount() {
+    const badge = document.getElementById('online-users-count');
+    if (badge) {
+        badge.textContent = onlineUsers.length;
+    }
+}
+
+// ===== ATUALIZAR ESTATÍSTICAS =====
+function updateOnlineUsersStats() {
+    const totalUsers = onlineUsers.length;
+    const activeTables = onlineUsers.filter(user => user.isPlaying).length;
+    const totalCoins = onlineUsers.reduce((sum, user) => sum + (user.coins || 0), 0);
+    
+    document.getElementById('total-online-users').textContent = totalUsers;
+    document.getElementById('active-tables').textContent = activeTables;
+    document.getElementById('total-coins').textContent = totalCoins.toLocaleString();
+}
+
+// ===== DESAFIAR JOGADOR =====
+async function challengePlayer(userId, userName) {
+    if (!currentUser) {
+        showNotification('Você precisa estar logado para desafiar alguém', 'error');
+        return;
+    }
+    
+    // Verificar se já tem mesa ativa
+    const activeTableInfo = await checkUserActiveTable();
+    if (activeTableInfo.hasActiveTable) {
+        showNotification('Você já tem uma mesa ativa! Finalize-a antes de desafiar alguém.', 'error');
+        return;
+    }
+    
+    try {
+        // Verificar se o jogador alvo está online
+        const targetUserDoc = await db.collection('users').doc(userId).get();
+        if (!targetUserDoc.exists || !targetUserDoc.data().isOnline) {
+            showNotification(`${userName} não está mais online`, 'error');
+            return;
+        }
+        
+        // Verificar se o jogador alvo já está em um jogo
+        if (targetUserDoc.data().isPlaying) {
+            showNotification(`${userName} já está em um jogo`, 'error');
+            return;
+        }
+        
+        // Mostrar modal de configuração do desafio
+        showChallengeModal(userId, userName);
+        
+    } catch (error) {
+        console.error('Erro ao desafiar jogador:', error);
+        showNotification('Erro ao desafiar jogador', 'error');
+    }
+}
+
+// ===== MODAL DE DESAFIO =====
+function showChallengeModal(userId, userName) {
+    const modalHTML = `
+        <div class="modal challenge-modal" id="challenge-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🎯 Desafiar ${userName}</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="challenge-info">
+                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=e74c3c&color=fff" 
+                             alt="${userName}" class="challenge-avatar">
+                        <p>Configure o desafio para ${userName}</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Tempo por jogada:</label>
+                        <select id="challenge-time">
+                            <option value="30">30 segundos</option>
+                            <option value="60" selected>1 minuto</option>
+                            <option value="120">2 minutos</option>
+                            <option value="300">5 minutos</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Aposta (opcional):</label>
+                        <input type="number" id="challenge-bet" min="0" max="${userData?.coins || 0}" 
+                               placeholder="0" value="0">
+                        <small>Saldo disponível: ${userData?.coins || 0} moedas</small>
+                    </div>
+                    
+                    <div class="challenge-message">
+                        <label>Mensagem (opcional):</label>
+                        <textarea id="challenge-message" placeholder="Ex: Vamos jogar! Boa sorte!"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary modal-cancel">Cancelar</button>
+                    <button id="btn-send-challenge" class="btn btn-primary">Enviar Desafio</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Remover modal anterior se existir
+    const existingModal = document.getElementById('challenge-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    const modal = document.getElementById('challenge-modal');
+    
+    // Event listeners
+    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.modal-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+    
+    document.getElementById('btn-send-challenge').addEventListener('click', async () => {
+        await sendChallenge(userId, userName);
+        modal.remove();
+    });
+    
+    modal.classList.add('active');
+}
+
+// ===== ENVIAR DESAFIO =====
+async function sendChallenge(targetUserId, targetUserName) {
+    const timeLimit = parseInt(document.getElementById('challenge-time').value);
+    const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
+    const message = document.getElementById('challenge-message').value;
+    
+    // Validar aposta
+    if (betAmount > 0 && userData.coins < betAmount) {
+        showNotification('Você não tem moedas suficientes para esta aposta', 'error');
+        return;
+    }
+    
+    try {
+        // Criar notificação de desafio
+        await db.collection('notifications').add({
+            type: 'challenge',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: targetUserId,
+            message: message || `${userData.displayName} te desafiou para uma partida!`,
+            timeLimit: timeLimit,
+            betAmount: betAmount,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: 'pending',
+            expiresAt: new Date(Date.now() + 5 * 60000) // Expira em 5 minutos
+        });
+        
+        showNotification(`Desafio enviado para ${targetUserName}!`, 'success');
+        
+    } catch (error) {
+        console.error('Erro ao enviar desafio:', error);
+        showNotification('Erro ao enviar desafio', 'error');
+    }
+}
+
+// ===== FILTRAR JOGADORES ONLINE =====
+function filterOnlineUsers() {
+    if (onlineUsers.length === 0) return;
+    updateOnlineUsersList();
+}
+
+
 
 
 // ===== PAUSAR TIMER EM MODAIS =====
@@ -665,14 +935,18 @@ function setupTimerPause() {
 function initializeAuth() {
     console.log('Inicializando autenticação...');
     
-   auth.onAuthStateChanged(async (user) => {
+     auth.onAuthStateChanged(async (user) => {
         console.log('Estado de autenticação alterado:', user);
         
         if (user) {
             currentUser = user;
             
-            // INICIAR MONITORAMENTO DE STATUS ONLINE
-            startOnlineStatusMonitoring();
+            // Marcar usuário como online ao fazer login
+            await updateUserOnlineStatus();
+            
+            // Iniciar sistemas de atividade
+            startActivityPing();
+            setupInactivityDetection();
             
             loadUserData(user.uid);
             showScreen('main-screen');
@@ -680,15 +954,25 @@ function initializeAuth() {
             loadRanking();
             loadFriends();
             
+            // Iniciar listener de mesa ativa
+            setupActiveTableListener();
+            
         } else {
-            // PARAR MONITORAMENTO AO FAZER LOGOUT
-            stopOnlineStatusMonitoring();
+            // Marcar como offline ao fazer logout
+            if (currentUser) {
+                await setUserOffline();
+            }
             
             currentUser = null;
             userData = null;
+            
+            // Parar sistemas de atividade
+            stopActivityPing();
+            
             showScreen('auth-screen');
         }
     });
+
     // Configurar event listeners dos botões de auth
     const loginBtn = document.getElementById('btn-login');
     const registerBtn = document.getElementById('btn-register');
@@ -735,8 +1019,66 @@ function initializeAuth() {
     }
 }
 
+
+// ===== HANDLERS PARA FECHAMENTO DA PÁGINA =====
+function setupWindowCloseHandler() {
+    // Evento antes de descarregar a página
+    window.addEventListener('beforeunload', async (e) => {
+        if (currentUser) {
+            // Usar sendBeacon para garantir que a requisição seja enviada
+            const data = new Blob([JSON.stringify({
+                uid: currentUser.uid,
+                isOnline: false,
+                timestamp: new Date().toISOString()
+            })], {type: 'application/json'});
+            
+            navigator.sendBeacon('/api/user-offline', data);
+            
+            // Também tentar atualizar via Firestore
+            try {
+                await setUserOffline();
+            } catch (error) {
+                console.error('Erro ao marcar como offline no beforeunload:', error);
+            }
+        }
+    });
+    
+    // Evento de visibilidade da página
+    document.addEventListener('visibilitychange', async () => {
+        if (document.hidden && currentUser) {
+            // Página ficou invisível (usuário mudou de aba ou minimizou)
+            console.log('Página ficou invisível');
+            await setUserAway();
+        } else if (currentUser) {
+            // Página ficou visível novamente
+            console.log('Página ficou visível');
+            await updateUserOnlineStatus();
+            startActivityPing();
+        }
+    });
+}
+
+
+// ===== VERIFICAR E CORRIGIR STATUS ONLINE =====
+async function verifyAndFixOnlineStatus() {
+    if (!currentUser || !db) return;
+    
+    try {
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            
+            // Se o usuário está marcado como offline mas está logado, corrigir
+            if (userData.isOnline === false) {
+                console.log('Corrigindo status online do usuário...');
+                await updateUserOnlineStatus();
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao verificar status online:', error);
+    }
+}
 // ===== SISTEMA DE ACTIVITY PING =====
-let activityInterval = null;
 
 function startActivityPing() {
     if (activityInterval) clearInterval(activityInterval);
@@ -786,8 +1128,7 @@ async function signIn() {
     const userCredential = await auth.signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
     
-    // ATUALIZAR STATUS ONLINE NO FIRESTORE
-    await updateUserOnlineStatus(user.uid, true);
+ 
     
     showNotification('Login realizado com sucesso!', 'success');
   } catch (error) {
@@ -828,8 +1169,7 @@ async function signInWithGoogle() {
         const userCredential = await auth.signInWithPopup(provider);
         const user = userCredential.user;
         
-        // ATUALIZAR STATUS ONLINE
-        await updateUserOnlineStatus(user.uid, true);
+   
         
         showNotification('Login com Google realizado!', 'success');
     } catch (error) {
@@ -837,40 +1177,11 @@ async function signInWithGoogle() {
         showLoading(false);
     }
 }
-
-// Botão para testar status online
-function addOnlineStatusDebugButton() {
-    const debugBtn = document.createElement('button');
-    debugBtn.textContent = '🟢 Testar Online';
-    debugBtn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #27ae60;
-        color: white;
-        border: none;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        z-index: 10000;
-    `;
-    
-    debugBtn.onclick = async () => {
-        if (currentUser) {
-            await updateUserOnlineStatus(currentUser.uid, true);
-            showNotification('Status online atualizado!', 'success');
-        } else {
-            showNotification('Faça login primeiro', 'error');
-        }
-    };
-    
-    document.body.appendChild(debugBtn);
-}
 async function signOut() {
     try {
-        // Atualizar status para offline antes de sair
+        // Marcar como offline antes de fazer logout
         if (currentUser) {
-            await updateUserOnlineStatus(currentUser.uid, false);
+            await setUserOffline();
         }
         
         await auth.signOut();
@@ -879,6 +1190,60 @@ async function signOut() {
         showNotification('Erro ao fazer logout', 'error');
     }
 }
+
+// ===== DEBUG: VERIFICAR STATUS ONLINE =====
+async function checkOnlineStatus() {
+    if (!currentUser || !db) return;
+    
+    try {
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            console.log('Status online atual:', userData.isOnline);
+            console.log('Última atividade:', userData.lastActivity);
+        }
+    } catch (error) {
+        console.error('Erro ao verificar status:', error);
+    }
+}
+// ===== INICIALIZAR CAMPOS DE STATUS PARA USUÁRIOS EXISTENTES =====
+async function initializeUserStatusFields() {
+    if (!db) return;
+    
+    try {
+        const usersSnapshot = await db.collection('users').get();
+        const batch = db.batch();
+        
+        usersSnapshot.forEach(doc => {
+            const userData = doc.data();
+            const updateData = {};
+            
+            if (userData.isOnline === undefined) {
+                updateData.isOnline = false;
+            }
+            if (!userData.lastActivity) {
+                updateData.lastActivity = firebase.firestore.FieldValue.serverTimestamp();
+            }
+            if (!userData.lastLogin) {
+                updateData.lastLogin = firebase.firestore.FieldValue.serverTimestamp();
+            }
+            
+            if (Object.keys(updateData).length > 0) {
+                batch.update(doc.ref, updateData);
+            }
+        });
+        
+        if (usersSnapshot.size > 0) {
+            await batch.commit();
+            console.log('Campos de status inicializados para todos os usuários');
+        }
+    } catch (error) {
+        console.error('Erro ao inicializar campos de status:', error);
+    }
+}
+
+// Chame esta função uma vez para inicializar os usuários existentes
+// initializeUserStatusFields();
 
 function getAuthErrorMessage(error) {
   switch (error.code) {
@@ -3315,24 +3680,6 @@ let hasGlobalMandatoryCaptures = false;
 let capturingPieces = [];
 
 
-// ===== DEBUG: FUNÇÃO TEMPORÁRIA PARA VER TABULEIRO =====
-function debugShowBoard() {
-  if (gameState && gameState.board) {
-    console.log('=== TABULEIRO ATUAL (DEBUG) ===');
-    for (let row = 0; row < 8; row++) {
-      let rowStr = `${row}: `;
-      for (let col = 0; col < 8; col++) {
-        const piece = gameState.board[row][col];
-        if (piece) {
-          rowStr += piece.color === 'black' ? 'B ' : 'R ';
-        } else {
-          rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
-        }
-      }
-      console.log(rowStr);
-    }
-  }
-}
 // ===== FUNÇÃO HANDLE CELL CLICK (VERIFICAÇÃO FINAL) =====
 function handleCellClick(row, col) {
     if (!selectedPiece) return;
@@ -5426,26 +5773,6 @@ function checkForMandatoryCaptures() {
 }
 
 
-// ===== DEBUG: VER TABULEIRO COMPLETO =====
-function debugBoard() {
-  console.log('=== TABULEIRO ATUAL ===');
-  for (let row = 0; row < 8; row++) {
-    let rowStr = '';
-    for (let col = 0; col < 8; col++) {
-      const piece = gameState.board[row][col];
-      if (piece) {
-        rowStr += piece.color === 'red' ? 'R' : 'B';
-        rowStr += piece.king ? 'K' : ' ';
-      } else {
-        rowStr += (row + col) % 2 !== 0 ? '_ ' : 'X ';
-      }
-      rowStr += ' ';
-    }
-    console.log(row + ': ' + rowStr);
-  }
-}
-
-
 
 // ===== DEBUG: VERIFICAR ESTRUTURA DO TABULEIRO =====
 function debugBoardStructure(board) {
@@ -6007,18 +6334,19 @@ function updateSpectatorsList(type, spectators) {
     `).join('');
 }
 
+// ===== FUNÇÃO FORMATAR TEMPO =====
 function formatTimeAgo(timestamp) {
-    if (!timestamp) return '';
+    if (!timestamp) return 'Agora';
     
     const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const now = new Date();
     const diff = now - time;
     const minutes = Math.floor(diff / 60000);
     
-    if (minutes < 1) return 'Agora mesmo';
-    if (minutes < 60) return `Há ${minutes} minuto${minutes !== 1 ? 's' : ''}`;
-    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} hora${Math.floor(minutes / 60) !== 1 ? 's' : ''}`;
-    return `Há ${Math.floor(minutes / 1440)} dia${Math.floor(minutes / 1440) !== 1 ? 's' : ''}`;
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} min`;
+    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
+    return `Há ${Math.floor(minutes / 1440)} d`;
 }
 // ===== FUNÇÃO MANAGE GAME TIMER =====
 function manageGameTimer(oldGameState, newGameState) {
@@ -6705,371 +7033,429 @@ async function updateTableSpectatorsCount(tableId, spectatorsCount) {
 }
 
 
-// ===== FALLBACK FINAL - Se nada funcionar =====
-setTimeout(() => {
-    console.log('Verificando se a solução funcionou...');
-    
-    const btn = document.getElementById('btn-online-users');
-    if (!btn) {
-        console.log('Criando botão de fallback...');
-        const fallbackBtn = document.createElement('button');
-        fallbackBtn.innerHTML = '🎮 JOGADORES';
-        fallbackBtn.style.cssText = `
-            position: fixed;
-            top: 70px;
-            right: 10px;
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 12px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            z-index: 10000;
-            font-size: 14px;
-            font-weight: bold;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-        `;
-        fallbackBtn.onclick = function() {
-            alert('Funcionalidade de jogadores online\nEm breve você poderá ver todos os jogadores!');
-        };
-        document.body.appendChild(fallbackBtn);
+
+
+// ===== EVENT LISTENER GLOBAL COMO FALLBACK =====
+document.addEventListener('DOMContentLoaded', function() {
+    // Tentar adicionar event listener ao botão após o DOM carregar
+    setTimeout(() => {
+        const onlineUsersBtn = document.getElementById('btn-online-users');
+        if (onlineUsersBtn) {
+            console.log('Adicionando event listener global ao botão...');
+            onlineUsersBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openOnlineUsersModal();
+            });
+        }
+    }, 2000); // Delay de 2 segundos para garantir que tudo carregou
+});
+
+// Event delegation para caso o botão seja adicionado dinamicamente
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'btn-online-users' || e.target.closest('#btn-online-users')) {
+        e.preventDefault();
+        e.stopPropagation();
+        openOnlineUsersModal();
     }
-}, 5000);
+});
 
+// ===== SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
+let activeNotifications = new Map();
+let notificationSound = null;
 
+// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES =====
+function initializeChallengeNotifications() {
+    console.log('Inicializando sistema de notificações de desafio...');
+    
+    // Criar container de notificações
+    if (!document.getElementById('notification-system')) {
+        const notificationHTML = `
+            <div class="notification-system" id="notification-system"></div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', notificationHTML);
+    }
+    
+    // Configurar som de notificação
+    setupNotificationSound();
+    
+    // Iniciar listener de desafios
+    setupChallengeListener();
+}
 
-// ===== GERENCIADOR DE STATUS ONLINE =====
-async function updateUserOnlineStatus(userId, isOnline) {
-    if (!userId || !db) {
-        console.error('Não é possível atualizar status online: userId ou db não disponível');
+// ===== CONFIGURAR SOM DE NOTIFICAÇÃO =====
+function setupNotificationSound() {
+    try {
+        // Criar contexto de áudio
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioContext();
+        
+        // Função para criar som de notificação
+        function createNotificationSound() {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(1760, audioContext.currentTime + 0.1);
+            
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.3);
+        }
+        
+        notificationSound = createNotificationSound;
+        
+    } catch (error) {
+        console.log('Áudio não disponível para notificações');
+        notificationSound = null;
+    }
+}
+
+// ===== CONFIGURAR LISTENER DE DESAFIOS =====
+function setupChallengeListener() {
+    if (!currentUser || !db) return;
+    
+    // Listener para notificações de desafio
+    return db.collection('notifications')
+        .where('toUserId', '==', currentUser.uid)
+        .where('type', '==', 'challenge')
+        .where('status', '==', 'pending')
+        .orderBy('timestamp', 'desc')
+        .onSnapshot(async (snapshot) => {
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const notification = {
+                        id: change.doc.id,
+                        ...change.doc.data()
+                    };
+                    
+                    // Mostrar notificação de desafio
+                    await showChallengeNotification(notification);
+                    
+                    // Marcar como visualizada
+                    await markNotificationAsSeen(notification.id);
+                }
+            });
+        }, (error) => {
+            console.error('Erro no listener de desafios:', error);
+        });
+}
+
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
+async function showChallengeNotification(notification) {
+    console.log('Novo desafio recebido:', notification);
+    
+    // Evitar notificações duplicadas
+    if (activeNotifications.has(notification.id)) {
         return;
     }
     
-    try {
-        const updateData = {
-            isOnline: isOnline,
-            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        
-        // Se estiver online, atualizar também lastLogin
-        if (isOnline) {
-            updateData.lastLogin = firebase.firestore.FieldValue.serverTimestamp();
-        }
-        
-        await db.collection('users').doc(userId).update(updateData);
-        console.log(`Status online atualizado: ${userId} -> ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-        
-    } catch (error) {
-        console.error('Erro ao atualizar status online:', error);
-        
-        // Se o campo isOnline não existir, criá-lo
-        if (error.code === 'not-found') {
-            console.log('Campo isOnline não existe, criando...');
-            try {
-                await db.collection('users').doc(userId).set({
-                    isOnline: isOnline,
-                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
-                    lastLogin: isOnline ? firebase.firestore.FieldValue.serverTimestamp() : null
-                }, { merge: true });
-            } catch (createError) {
-                console.error('Erro ao criar campo isOnline:', createError);
-            }
-        }
+    // Tocar som de notificação
+    if (notificationSound) {
+        notificationSound();
     }
-}
-
-
-// ===== SISTEMA DE HEARTBEAT =====
-let heartbeatInterval = null;
-
-// 2. startOnlineHeartbeat 
-function startOnlineHeartbeat() {
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
     
-    heartbeatInterval = setInterval(async () => {
-        if (currentUser && db) {
-            try {
-                await db.collection('users').doc(currentUser.uid).update({
-                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
-                    isOnline: true
-                });
-            } catch (error) {
-                console.error('Erro no heartbeat:', error);
-            }
-        }
-    }, 30 * 1000); // A cada 30 segundos
-}
-
-// 3. stopOnlineHeartbeat
-function stopOnlineHeartbeat() {
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-    }
-}
-
-
-// 5. setupWindowCloseHandler
-function setupWindowCloseHandler() {
-    window.addEventListener('beforeunload', async () => {
-        if (currentUser) {
-            try {
-                await updateUserOnlineStatus(currentUser.uid, false);
-            } catch (error) {
-                console.log('Erro ao atualizar status no beforeunload:', error);
-            }
-        }
-    });
-}
-
-
-
-
-// 4. cleanupOrphanedOnlineUsers
-async function cleanupOrphanedOnlineUsers() {
-    if (!db) return;
+    // Criar elemento de notificação
+    const notificationEl = document.createElement('div');
+    notificationEl.className = 'game-notification';
+    notificationEl.id = `notification-${notification.id}`;
+    notificationEl.dataset.notificationId = notification.id;
     
-    try {
-        const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-        
-        const orphanedUsers = await db.collection('users')
-            .where('isOnline', '==', true)
-            .where('lastActivity', '<', fifteenMinutesAgo)
-            .get();
-        
-        if (!orphanedUsers.empty) {
-            const batch = db.batch();
-            orphanedUsers.forEach(doc => {
-                batch.update(doc.ref, { isOnline: false });
-            });
-            await batch.commit();
-        }
-    } catch (error) {
-        console.error('Erro na limpeza:', error);
-    }
-}
-
-
-
-
-// ===== DEBUG DO ESTADO DA MESA =====
-function debugTableState() {
-    console.log('=== DEBUG DO ESTADO DA MESA ===');
-    console.log('userActiveTable:', userActiveTable);
-    console.log('currentUser:', currentUser?.uid);
+    // Formatar informações do desafio
+    const timeLimit = notification.timeLimit || 60;
+    const betAmount = notification.betAmount || 0;
+    const expiresAt = notification.expiresAt ? notification.expiresAt.toDate() : new Date(Date.now() + 5 * 60000);
+    const timeLeft = Math.max(0, Math.floor((expiresAt - new Date()) / 1000));
     
-    if (userActiveTable) {
-        console.log('🔍 Verificando mesa:', userActiveTable);
-        db.collection('tables').doc(userActiveTable).get()
-            .then(doc => {
-                if (doc.exists) {
-                    console.log('✅ Mesa existe:', doc.data());
-                } else {
-                    console.log('❌ Mesa não existe mais');
-                }
-            })
-            .catch(error => {
-                console.error('❌ Erro ao verificar mesa:', error);
-            });
-    }
-}
-
-// Adicione um botão de debug
-function addTableDebugButton() {
-    const debugBtn = document.createElement('button');
-    debugBtn.textContent = '🐛 Debug Mesa';
-    debugBtn.style.cssText = `
-        position: fixed;
-        bottom: 130px;
-        left: 20px;
-        background: #8e44ad;
-        color: white;
-        border: none;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        z-index: 10000;
-        font-size: 12px;
+    notificationEl.innerHTML = `
+        <div class="notification-glowing-border"></div>
+        <div class="notification-header">
+            <div class="notification-icon">⚔️</div>
+            <h3 class="notification-title">DESAFIO RECEBIDO!</h3>
+        </div>
+        
+        <div class="notification-content">
+            <p><strong>${notification.fromUserName}</strong> te desafiou para uma partida!</p>
+            ${notification.message ? `<p>"${notification.message}"</p>` : ''}
+        </div>
+        
+        <div class="notification-challenge-info">
+            <div class="challenge-stats">
+                <div class="challenge-stat">
+                    <i class="fas fa-clock"></i>
+                    <span>${timeLimit}s por jogada</span>
+                </div>
+                <div class="challenge-stat">
+                    <i class="fas fa-coins"></i>
+                    <span>${betAmount} moedas</span>
+                </div>
+                <div class="challenge-stat">
+                    <i class="fas fa-hourglass-half"></i>
+                    <span>${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="notification-actions">
+            <button class="notification-btn accept" onclick="acceptChallenge('${notification.id}')">
+                <i class="fas fa-check"></i> ACEITAR
+            </button>
+            <button class="notification-btn decline" onclick="declineChallenge('${notification.id}')">
+                <i class="fas fa-times"></i> RECUSAR
+            </button>
+        </div>
+        
+        <div class="notification-timer" id="timer-${notification.id}">
+            Expira em: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}
+        </div>
     `;
     
-    debugBtn.onclick = debugTableState;
-    document.body.appendChild(debugBtn);
+    // Adicionar ao sistema de notificações
+    document.getElementById('notification-system').appendChild(notificationEl);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notificationEl.classList.add('show');
+        createParticleEffect(notificationEl);
+    }, 100);
+    
+    // Adicionar à lista de notificações ativas
+    activeNotifications.set(notification.id, {
+        element: notificationEl,
+        expiresAt: expiresAt,
+        timer: setInterval(() => updateNotificationTimer(notification.id), 1000)
+    });
+    
+    // Adicionar efeito de urgência se faltar pouco tempo
+    if (timeLeft < 60) {
+        notificationEl.classList.add('notification-urgent');
+    }
+    
+    // Auto-remover quando expirar
+    setTimeout(() => {
+        if (activeNotifications.has(notification.id)) {
+            removeChallengeNotification(notification.id, 'expired');
+        }
+    }, timeLeft * 1000);
 }
 
-setTimeout(addTableDebugButton, 3000);
+// ===== ATUALIZAR TIMER DA NOTIFICAÇÃO =====
+function updateNotificationTimer(notificationId) {
+    const notification = activeNotifications.get(notificationId);
+    if (!notification) return;
+    
+    const timeLeft = Math.max(0, Math.floor((notification.expiresAt - new Date()) / 1000));
+    const timerElement = document.getElementById(`timer-${notificationId}`);
+    
+    if (timerElement) {
+        timerElement.textContent = `Expira em: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`;
+    }
+    
+    // Adicionar efeito de urgência se faltar pouco tempo
+    if (timeLeft < 60 && !notification.element.classList.contains('notification-urgent')) {
+        notification.element.classList.add('notification-urgent');
+    }
+    
+    if (timeLeft <= 0) {
+        removeChallengeNotification(notificationId, 'expired');
+    }
+}
 
-// ===== DEBUG DAS MESAS =====
-async function debugTables() {
-    console.log('=== DEBUG DAS MESAS ===');
+// ===== ACEITAR DESAFIO =====
+async function acceptChallenge(notificationId) {
+    console.log('Aceitando desafio:', notificationId);
     
     try {
-        // 1. Verificar todas as mesas
-        const allTables = await db.collection('tables').get();
-        console.log(`📊 Total de mesas no banco: ${allTables.size}`);
+        const notification = activeNotifications.get(notificationId);
+        if (!notification) return;
         
-        allTables.forEach(doc => {
-            const data = doc.data();
-            console.log(`🎯 Mesa ${doc.id}:`, {
-                status: data.status,
-                name: data.name,
-                players: data.players ? data.players.map(p => p.displayName) : [],
-                playerIds: data.players ? data.players.map(p => p.uid) : []
-            });
+        // Atualizar status da notificação
+        await db.collection('notifications').doc(notificationId).update({
+            status: 'accepted',
+            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // 2. Verificar mesas com status waiting/playing
-        const activeTables = await db.collection('tables')
-            .where('status', 'in', ['waiting', 'playing'])
-            .get();
-            
-        console.log(`🕹️ Mesas ativas (waiting/playing): ${activeTables.size}`);
+        // Buscar dados completos do desafio
+        const challengeDoc = await db.collection('notifications').doc(notificationId).get();
+        const challenge = challengeDoc.data();
         
-        // 3. Verificar mesas onde o usuário atual está jogando
-        if (currentUser) {
-            const userTables = await db.collection('tables')
-                .where('players', 'array-contains', { uid: currentUser.uid })
-                .get();
-                
-            console.log(`👤 Mesas do usuário ${currentUser.uid}: ${userTables.size}`);
-            
-            userTables.forEach(doc => {
-                const data = doc.data();
-                console.log(`✅ Usuário está na mesa ${doc.id}:`, {
-                    status: data.status,
-                    name: data.name
-                });
-            });
-        }
+        // Criar mesa para o desafio
+        await createChallengeTable(challenge);
+        
+        // Remover notificação
+        removeChallengeNotification(notificationId, 'accepted');
+        
+        showNotification('Desafio aceito! Criando mesa...', 'success');
         
     } catch (error) {
-        console.error('❌ Erro no debug das mesas:', error);
+        console.error('Erro ao aceitar desafio:', error);
+        showNotification('Erro ao aceitar desafio', 'error');
     }
 }
 
-// Adicionar botão de debug
-function addTablesDebugButton() {
-    const debugBtn = document.createElement('button');
-    debugBtn.textContent = '🐛 Debug Mesas';
-    debugBtn.style.cssText = `
-        position: fixed;
-        bottom: 160px;
-        left: 20px;
-        background: #16a085;
-        color: white;
-        border: none;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        z-index: 10000;
-        font-size: 12px;
-    `;
+// ===== RECUSAR DESAFIO =====
+async function declineChallenge(notificationId) {
+    console.log('Recusando desafio:', notificationId);
     
-    debugBtn.onclick = debugTables;
-    document.body.appendChild(debugBtn);
+    try {
+        // Atualizar status da notificação
+        await db.collection('notifications').doc(notificationId).update({
+            status: 'declined',
+            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Remover notificação
+        removeChallengeNotification(notificationId, 'declined');
+        
+        showNotification('Desafio recusado', 'info');
+        
+    } catch (error) {
+        console.error('Erro ao recusar desafio:', error);
+        showNotification('Erro ao recusar desafio', 'error');
+    }
 }
 
-setTimeout(addTablesDebugButton, 3000);
+// ===== REMOVER NOTIFICAÇÃO =====
+function removeChallengeNotification(notificationId, reason = 'dismissed') {
+    const notification = activeNotifications.get(notificationId);
+    if (!notification) return;
+    
+    // Parar timer
+    clearInterval(notification.timer);
+    
+    // Animação de saída
+    notification.element.classList.remove('show');
+    notification.element.classList.add('hide');
+    
+    // Remover após animação
+    setTimeout(() => {
+        if (notification.element.parentNode) {
+            notification.element.parentNode.removeChild(notification.element);
+        }
+        activeNotifications.delete(notificationId);
+    }, 500);
+    
+    console.log(`Notificação ${notificationId} removida: ${reason}`);
+}
 
-// ===== SISTEMA DE STATUS ONLINE/OFFLINE =====
-let onlineStatusInterval = null;
-let isWindowActive = true;
+// ===== CRIAR MESA PARA DESAFIO =====
+async function createChallengeTable(challenge) {
+    try {
+        const tableName = `Desafio: ${challenge.fromUserName} vs ${userData.displayName}`;
+        
+        const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+        
+        const tableRef = await db.collection('tables').add({
+            name: tableName,
+            timeLimit: challenge.timeLimit || 60,
+            bet: challenge.betAmount || 0,
+            status: 'playing',
+            players: [
+                {
+                    uid: challenge.fromUserId,
+                    displayName: challenge.fromUserName,
+                    rating: 1000, // Será atualizado pelo loadUserData
+                    color: 'black'
+                },
+                {
+                    uid: currentUser.uid,
+                    displayName: userData.displayName,
+                    rating: userData.rating,
+                    color: 'red'
+                }
+            ],
+            createdBy: challenge.fromUserId,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            currentTurn: 'black',
+            board: boardData,
+            waitingForOpponent: false,
+            platformFee: calculatePlatformFee(challenge.betAmount || 0),
+            isChallenge: true,
+            challengeId: challenge.id
+        });
+        
+        // Entrar na mesa
+        userActiveTable = tableRef.id;
+        setupGameListener(tableRef.id);
+        showScreen('game-screen');
+        
+        showNotification('Mesa de desafio criada! Boa sorte!', 'success');
+        
+    } catch (error) {
+        console.error('Erro ao criar mesa de desafio:', error);
+        showNotification('Erro ao criar mesa de desafio', 'error');
+    }
+}
 
-// Função para atualizar status online
-async function updateOnlineStatus(isOnline) {
+// ===== MARCAR NOTIFICAÇÃO COMO VISTA =====
+async function markNotificationAsSeen(notificationId) {
+    try {
+        await db.collection('notifications').doc(notificationId).update({
+            read: true,
+            seenAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error('Erro ao marcar notificação como vista:', error);
+    }
+}
+
+// ===== EFEITO DE PARTÍCULAS =====
+function createParticleEffect(element) {
+    const rect = element.getBoundingClientRect();
+    const particles = 20;
+    
+    for (let i = 0; i < particles; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'notification-particle';
+        particle.style.width = Math.random() * 4 + 2 + 'px';
+        particle.style.height = particle.style.width;
+        particle.style.left = rect.left + rect.width / 2 + 'px';
+        particle.style.top = rect.top + rect.height / 2 + 'px';
+        
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * 50 + 30;
+        const tx = Math.cos(angle) * distance;
+        const ty = Math.sin(angle) * distance;
+        
+        particle.style.setProperty('--tx', tx + 'px');
+        particle.style.setProperty('--ty', ty + 'px');
+        
+        document.body.appendChild(particle);
+        
+        // Remover após animação
+        setTimeout(() => {
+            if (particle.parentNode) {
+                particle.parentNode.removeChild(particle);
+            }
+        }, 1000);
+    }
+}
+
+// ===== VERIFICAR DESAFIOS PENDENTES AO INICIAR =====
+async function checkPendingChallenges() {
     if (!currentUser || !db) return;
     
     try {
-        await db.collection('users').doc(currentUser.uid).update({
-            isOnline: isOnline,
-            lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
-            ...(isOnline && { lastLogin: firebase.firestore.FieldValue.serverTimestamp() })
-        });
-        
-        console.log(`Status atualizado: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
-    } catch (error) {
-        console.error('Erro ao atualizar status:', error);
-    }
-}
-
-// Iniciar monitoramento de status
-function startOnlineStatusMonitoring() {
-    // Atualizar como online imediatamente
-    updateOnlineStatus(true);
-    
-    // Heartbeat a cada 30 segundos para manter online
-    onlineStatusInterval = setInterval(() => {
-        if (isWindowActive && currentUser) {
-            updateOnlineStatus(true);
-        }
-    }, 30000);
-    
-    // Event listeners para detectar quando usuário sai
-    setupWindowEventListeners();
-}
-
-// Parar monitoramento
-function stopOnlineStatusMonitoring() {
-    if (onlineStatusInterval) {
-        clearInterval(onlineStatusInterval);
-        onlineStatusInterval = null;
-    }
-    updateOnlineStatus(false);
-}
-
-// Configurar listeners de eventos da janela
-function setupWindowEventListeners() {
-    // Quando a janela fica inativa (usuário muda de aba ou minimiza)
-    document.addEventListener('visibilitychange', () => {
-        isWindowActive = !document.hidden;
-        if (!isWindowActive && currentUser) {
-            updateOnlineStatus(false);
-        }
-    });
-    
-    // Quando a janela está prestes a fechar
-    window.addEventListener('beforeunload', () => {
-        stopOnlineStatusMonitoring();
-    });
-    
-    // Quando o usuário volta para a janela
-    window.addEventListener('focus', () => {
-        isWindowActive = true;
-        if (currentUser) {
-            updateOnlineStatus(true);
-        }
-    });
-    
-    // Quando o usuário sai da janela
-    window.addEventListener('blur', () => {
-        isWindowActive = false;
-        // Não marcar como offline imediatamente, apenas se ficar inativo por um tempo
-    });
-}
-
-// Limpar usuários "órfãos" (que ficaram online mas não estão mais)
-async function cleanupOrphanedOnlineUsers() {
-    if (!db) return;
-    
-    try {
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        
-        const orphanedUsers = await db.collection('users')
-            .where('isOnline', '==', true)
-            .where('lastActivity', '<', fiveMinutesAgo)
+        const snapshot = await db.collection('notifications')
+            .where('toUserId', '==', currentUser.uid)
+            .where('type', '==', 'challenge')
+            .where('status', '==', 'pending')
+            .where('expiresAt', '>', new Date())
+            .orderBy('expiresAt', 'asc')
             .get();
         
-        if (!orphanedUsers.empty) {
-            const batch = db.batch();
-            orphanedUsers.forEach(doc => {
-                batch.update(doc.ref, { 
-                    isOnline: false,
-                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            });
-            await batch.commit();
-            console.log(`Limpeza: ${orphanedUsers.size} usuários marcados como offline`);
-        }
+        snapshot.forEach(doc => {
+            const notification = { id: doc.id, ...doc.data() };
+            showChallengeNotification(notification);
+        });
+        
     } catch (error) {
-        console.error('Erro na limpeza de usuários órfãos:', error);
+        console.error('Erro ao verificar desafios pendentes:', error);
     }
 }

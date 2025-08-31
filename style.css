@@ -3341,3 +3341,448 @@ input:checked + .slider:before {
         height: 50px;
     }
 }
+
+
+
+
+/* Modal de Jogadores Online */
+.online-users-modal .modal-content.large {
+    max-width: 800px;
+    max-height: 80vh;
+}
+
+.online-users-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.stat-card i {
+    font-size: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 15px;
+    border-radius: 50%;
+}
+
+.stat-number {
+    font-size: 24px;
+    font-weight: bold;
+    display: block;
+}
+
+.stat-label {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.online-users-controls {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.search-box {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-box i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #7f8c8d;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 12px 12px 12px 40px;
+    border: 2px solid #ecf0f1;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+#users-sort {
+    padding: 12px;
+    border: 2px solid #ecf0f1;
+    border-radius: 8px;
+    background: white;
+    min-width: 150px;
+}
+
+.online-users-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.online-user-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    border-radius: 10px;
+    background: #f8f9fa;
+    margin-bottom: 10px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.online-user-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.user-avatar {
+    position: relative;
+}
+
+.user-avatar img {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.online-status {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    background: #2ecc71;
+    border: 2px solid white;
+    border-radius: 50%;
+}
+
+.user-info {
+    flex: 1;
+}
+
+.user-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+    color: #2c3e50;
+}
+
+.user-details {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #7f8c8d;
+}
+
+.user-details span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.playing-badge {
+    background: #e74c3c;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.challenge-btn {
+    white-space: nowrap;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #7f8c8d;
+}
+
+.empty-state i {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.5;
+}
+
+.loading-spinner {
+    text-align: center;
+    padding: 40px 20px;
+    color: #7f8c8d;
+}
+
+.loading-spinner i {
+    font-size: 32px;
+    margin-bottom: 15px;
+}
+
+/* Modal de Desafio */
+.challenge-modal .modal-content {
+    max-width: 500px;
+}
+
+.challenge-info {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.challenge-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    margin-bottom: 15px;
+}
+
+.challenge-message textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ecf0f1;
+    border-radius: 8px;
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .online-users-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .online-users-controls {
+        flex-direction: column;
+    }
+    
+    .online-user-item {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .user-details {
+        justify-content: center;
+    }
+}
+
+
+
+/* ===== SISTEMA DE NOTIFICAÇÕES GAMING ===== */
+.notification-system {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    max-width: 400px;
+}
+
+.game-notification {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    border: 2px solid #00ff88;
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 10px 30px rgba(0, 255, 136, 0.3);
+    transform: translateX(400px);
+    opacity: 0;
+    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+}
+
+.game-notification.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.game-notification.hide {
+    transform: translateX(400px);
+    opacity: 0;
+}
+
+.notification-glowing-border {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #00ff88, #00ffea, #00ff88);
+    animation: borderGlow 2s infinite;
+}
+
+@keyframes borderGlow {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.notification-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    color: #00ff88;
+}
+
+.notification-icon {
+    font-size: 24px;
+    margin-right: 12px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.notification-title {
+    font-weight: bold;
+    font-size: 18px;
+    margin: 0;
+    text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+}
+
+.notification-content {
+    color: white;
+    margin-bottom: 15px;
+    line-height: 1.5;
+}
+
+.notification-challenge-info {
+    background: rgba(0, 255, 136, 0.1);
+    padding: 12px;
+    border-radius: 8px;
+    margin: 10px 0;
+    border-left: 3px solid #00ff88;
+}
+
+.challenge-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.challenge-stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.challenge-stat i {
+    color: #00ff88;
+    width: 16px;
+}
+
+.notification-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.notification-btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    font-size: 14px;
+    letter-spacing: 1px;
+}
+
+.notification-btn.accept {
+    background: linear-gradient(135deg, #00ff88, #00cc66);
+    color: #000;
+}
+
+.notification-btn.accept:hover {
+    background: linear-gradient(135deg, #00ffaa, #00ee77);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 255, 136, 0.4);
+}
+
+.notification-btn.decline {
+    background: linear-gradient(135deg, #ff4757, #ff3742);
+    color: white;
+}
+
+.notification-btn.decline:hover {
+    background: linear-gradient(135deg, #ff5e6d, #ff4d58);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(255, 71, 87, 0.4);
+}
+
+.notification-timer {
+    text-align: center;
+    margin-top: 10px;
+    color: #00ff88;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+/* Efeitos especiais */
+.notification-particle {
+    position: absolute;
+    background: #00ff88;
+    border-radius: 50%;
+    pointer-events: none;
+    animation: float 1s ease-out forwards;
+}
+
+@keyframes float {
+    0% {
+        transform: translate(0, 0) scale(0);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(var(--tx), var(--ty)) scale(1);
+        opacity: 0;
+    }
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .notification-system {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+    
+    .game-notification {
+        padding: 15px;
+    }
+    
+    .notification-actions {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Animações especiais */
+@keyframes notificationShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+.notification-urgent {
+    animation: notificationShake 0.5s ease, borderPulse 1s infinite;
+}
+
+@keyframes borderPulse {
+    0%, 100% { border-color: #00ff88; }
+    50% { border-color: #ff4757; }
+}
