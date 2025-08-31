@@ -7201,21 +7201,20 @@ document.addEventListener('click', function(e) {
 // ===== SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 let activeNotifications = new Map();
 let notificationSound = null;
-
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
-function initializeChallengeNotifications() {
+// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
+async function initializeChallengeNotifications() {
     console.log('Inicializando sistema de notificações de desafio...');
     
-    // Criar container de notificações
-    if (!document.getElementById('notification-system')) {
-        const notificationHTML = `
-            <div class="notification-system" id="notification-system"></div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', notificationHTML);
-    }
+    // 🔥 CORREÇÃO: Esperar o DOM estar pronto
+    await waitForDOM();
+    
+    // Criar container de notificações SE NÃO EXISTIR
+    createNotificationContainer();
     
     // Configurar som de notificação
     setupNotificationSound();
+    setupDOMMutationObserver()
     
     // Só iniciar listener se usuário estiver logado
     if (currentUser) {
@@ -7223,10 +7222,65 @@ function initializeChallengeNotifications() {
         setupChallengeListener();
     } else {
         console.log('Usuário não logado, aguardando autenticação...');
-        // O listener será iniciado quando o usuário fizer login
+    }
+}
+// ===== TESTAR CONTAINER DE NOTIFICAÇÕES =====
+function testNotificationContainer() {
+    console.log('=== TESTANDO CONTAINER DE NOTIFICAÇÕES ===');
+    
+    // Testar se o container existe
+    const container = document.getElementById('notification-system');
+    console.log('Container existe:', !!container);
+    
+    if (container) {
+        console.log('Container no DOM:', !!container.parentNode);
+        console.log('Container HTML:', container.outerHTML);
+    } else {
+        console.log('Criando container...');
+        createNotificationContainer();
+        console.log('Container criado:', !!document.getElementById('notification-system'));
     }
 }
 
+// Adicione ao window para testar
+window.testContainer = testNotificationContainer;
+
+// ===== OBTER CONTAINER DE NOTIFICAÇÕES COM FALLBACK =====
+function getNotificationContainer() {
+    let container = document.getElementById('notification-system');
+    
+    if (!container) {
+        console.log('Container não encontrado, criando...');
+        createNotificationContainer();
+        container = document.getElementById('notification-system');
+    }
+    
+    // Verificar se o container está no DOM
+    if (!container.parentNode) {
+        console.log('Container não está no DOM, recolocando...');
+        document.body.appendChild(container);
+    }
+    
+    return container;
+}
+
+
+// ===== CRIAR CONTAINER DE NOTIFICAÇÕES =====
+function createNotificationContainer() {
+    // Remover container existente se houver
+    const existingContainer = document.getElementById('notification-system');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    
+    // Criar novo container
+    const notificationHTML = `
+        <div class="notification-system" id="notification-system"></div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', notificationHTML);
+    
+    console.log('✅ Container de notificações criado');
+}
 // ===== CONFIGURAR SOM DE NOTIFICAÇÃO =====
 function setupNotificationSound() {
     try {
@@ -7344,13 +7398,22 @@ function checkActiveListener() {
 // Adicione ao window para testar
 window.checkListener = checkActiveListener;
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 async function showChallengeNotification(notification) {
     console.log('Novo desafio recebido:', notification);
     
     // Evitar notificações duplicadas
     if (activeNotifications.has(notification.id)) {
+        console.log('Notificação duplicada, ignorando...');
         return;
     }
+    
+    // 🔥 CORREÇÃO: Garantir que o container existe
+    const notificationSystem = getNotificationContainer();
+if (!notificationSystem) {
+    console.error('❌ Não foi possível criar o container de notificações');
+    return;
+}
     
     // Tocar som de notificação
     if (notificationSound) {
@@ -7412,8 +7475,15 @@ async function showChallengeNotification(notification) {
         </div>
     `;
     
+    // 🔥 CORREÇÃO: Verificar novamente se o container existe antes de adicionar
+    if (!notificationSystem.parentNode) {
+        console.log('Container perdeu parent, recriando...');
+        createNotificationContainer();
+        notificationSystem = document.getElementById('notification-system');
+    }
+    
     // Adicionar ao sistema de notificações
-    document.getElementById('notification-system').appendChild(notificationEl);
+    notificationSystem.appendChild(notificationEl);
     
     // Animação de entrada
     setTimeout(() => {
@@ -7440,6 +7510,49 @@ async function showChallengeNotification(notification) {
         }
     }, timeLeft * 1000);
 }
+
+
+// ===== VERIFICAÇÃO DE SEGURANÇA PARA DOM =====
+function isDOMReady() {
+    return document.readyState === 'complete' || document.readyState === 'interactive';
+}
+
+function waitForDOM() {
+    return new Promise((resolve) => {
+        if (isDOMReady()) {
+            resolve();
+        } else {
+            document.addEventListener('DOMContentLoaded', resolve);
+            window.addEventListener('load', resolve);
+            
+            // Timeout de segurança
+            setTimeout(resolve, 5000);
+        }
+    });
+}
+
+
+// ===== OBSERVAR MUDANÇAS NO DOM =====
+function setupDOMMutationObserver() {
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.removedNodes.length > 0) {
+                mutation.removedNodes.forEach((node) => {
+                    if (node.id === 'notification-system') {
+                        console.log('⚠️ Container de notificações removido do DOM, recriando...');
+                        createNotificationContainer();
+                    }
+                });
+            }
+        });
+    });
+    
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+}
+
 
 // ===== ATUALIZAR TIMER DA NOTIFICAÇÃO =====
 function updateNotificationTimer(notificationId) {
