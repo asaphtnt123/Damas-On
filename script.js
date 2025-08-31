@@ -366,11 +366,17 @@ function initializeApp() {
     console.log('✅ Aplicação inicializada com sucesso!');
 }
 
-// ===== ENVIAR DESAFIO =====
+// ===== ENVIAR DESAFIO (COM LOGS DETALHADOS) =====
 async function sendChallenge(targetUserId, targetUserName) {
+    console.log('=== ENVIANDO DESAFIO ===');
+    console.log('De:', currentUser.uid, userData.displayName);
+    console.log('Para:', targetUserId, targetUserName);
+    
     const timeLimit = parseInt(document.getElementById('challenge-time').value);
     const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
     const message = document.getElementById('challenge-message').value;
+    
+    console.log('Detalhes:', { timeLimit, betAmount, message });
     
     // Validar aposta
     if (betAmount > 0 && userData.coins < betAmount) {
@@ -379,8 +385,9 @@ async function sendChallenge(targetUserId, targetUserName) {
     }
     
     try {
-        // Criar notificação de desafio
-        await db.collection('notifications').add({
+        console.log('Criando notificação no Firestore...');
+        
+        const notificationData = {
             type: 'challenge',
             fromUserId: currentUser.uid,
             fromUserName: userData.displayName,
@@ -390,18 +397,95 @@ async function sendChallenge(targetUserId, targetUserName) {
             betAmount: betAmount,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             status: 'pending',
-            expiresAt: new Date(Date.now() + 5 * 60000), // Expira em 5 minutos
+            expiresAt: new Date(Date.now() + 5 * 60000),
             read: false
-        });
+        };
+        
+        console.log('Dados da notificação:', notificationData);
+        
+        const docRef = await db.collection('notifications').add(notificationData);
+        
+        console.log('Notificação criada com ID:', docRef.id);
+        console.log('Desafio enviado com sucesso!');
         
         showNotification(`Desafio enviado para ${targetUserName}! Aguardando resposta...`, 'success');
         
+        // Debug: verificar se a notificação foi realmente criada
+        setTimeout(() => debugNotifications(), 2000);
+        
     } catch (error) {
         console.error('Erro ao enviar desafio:', error);
-        showNotification('Erro ao enviar desafio', 'error');
+        console.error('Detalhes do erro:', error.message);
+        showNotification('Erro ao enviar desafio: ' + error.message, 'error');
     }
 }
 
+// ===== TESTAR NOTIFICAÇÃO =====
+async function testNotification() {
+    if (!currentUser || !db) {
+        console.log('Usuário não logado ou DB não disponível');
+        return;
+    }
+    
+    console.log('=== TESTANDO NOTIFICAÇÃO ===');
+    
+    try {
+        // Enviar uma notificação para si mesmo para teste
+        const testData = {
+            type: 'challenge',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: currentUser.uid, // Enviar para si mesmo
+            message: 'Esta é uma notificação de TESTE!',
+            timeLimit: 60,
+            betAmount: 0,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: 'pending',
+            expiresAt: new Date(Date.now() + 5 * 60000),
+            read: false
+        };
+        
+        const docRef = await db.collection('notifications').add(testData);
+        console.log('Notificação de teste criada com ID:', docRef.id);
+        
+        showNotification('Notificação de teste enviada!', 'success');
+        
+    } catch (error) {
+        console.error('Erro no teste:', error);
+    }
+}
+
+// Adicione ao window para testar no console
+// ===== VERIFICAR PERMISSÕES =====
+async function checkPermissions() {
+    if (!db) return;
+    
+    try {
+        // Tentar ler uma notificação
+        const testRead = await db.collection('notifications').limit(1).get();
+        console.log('Permissão de LEITURA: ✅ OK');
+        
+        // Tentar escrever uma notificação
+        const testWrite = await db.collection('notifications').add({
+            test: true,
+            timestamp: new Date()
+        });
+        await testWrite.delete();
+        console.log('Permissão de ESCRITA: ✅ OK');
+        
+    } catch (error) {
+        console.error('Erro de permissão:', error);
+        console.error('Código:', error.code);
+        
+        if (error.code === 'permission-denied') {
+            console.error('❌ PERMISSÃO NEGADA - Verifique as regras do Firestore');
+            showNotification('Erro de permissão - Contate o administrador', 'error');
+        }
+    }
+}
+
+// Adicione ao window para testar
+window.checkPerms = checkPermissions;
 // ===== LIMPAR NOTIFICAÇÕES =====
 function cleanupNotifications() {
     // Parar todos os timers
@@ -873,27 +957,79 @@ async function sendChallenge(targetUserId, targetUserName) {
     }
     
     try {
-        // Criar notificação de desafio
+        // CORREÇÃO: Enviar a notificação para o USUÁRIO ALVO (targetUserId)
         await db.collection('notifications').add({
             type: 'challenge',
             fromUserId: currentUser.uid,
             fromUserName: userData.displayName,
-            toUserId: targetUserId,
+            toUserId: targetUserId, // ← ESTAVA CORRETO AQUI
             message: message || `${userData.displayName} te desafiou para uma partida!`,
             timeLimit: timeLimit,
             betAmount: betAmount,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             status: 'pending',
-            expiresAt: new Date(Date.now() + 5 * 60000) // Expira em 5 minutos
+            expiresAt: new Date(Date.now() + 5 * 60000),
+            read: false
         });
         
-        showNotification(`Desafio enviado para ${targetUserName}!`, 'success');
+        showNotification(`Desafio enviado para ${targetUserName}! Aguardando resposta...`, 'success');
         
     } catch (error) {
         console.error('Erro ao enviar desafio:', error);
         showNotification('Erro ao enviar desafio', 'error');
     }
 }
+
+// ===== DEBUG: VERIFICAR NOTIFICAÇÕES =====
+async function debugNotifications() {
+    if (!db) {
+        console.error('Firestore não está disponível');
+        return;
+    }
+    
+    console.log('=== DEBUG DE NOTIFICAÇÕES ===');
+    
+    try {
+        // Verificar todas as notificações no banco
+        const allNotifications = await db.collection('notifications').get();
+        console.log(`Total de notificações no sistema: ${allNotifications.size}`);
+        
+        allNotifications.forEach(doc => {
+            const notif = doc.data();
+            console.log(`Notificação ${doc.id}:`, {
+                type: notif.type,
+                from: notif.fromUserName,
+                to: notif.toUserId,
+                status: notif.status,
+                timestamp: notif.timestamp?.toDate()
+            });
+        });
+        
+        // Verificar notificações do usuário atual
+        if (currentUser) {
+            const myNotifications = await db.collection('notifications')
+                .where('toUserId', '==', currentUser.uid)
+                .get();
+            
+            console.log(`Notificações para mim (${currentUser.uid}): ${myNotifications.size}`);
+            
+            myNotifications.forEach(doc => {
+                const notif = doc.data();
+                console.log(`Minha notificação ${doc.id}:`, {
+                    type: notif.type,
+                    from: notif.fromUserName,
+                    status: notif.status
+                });
+            });
+        }
+        
+    } catch (error) {
+        console.error('Erro no debug:', error);
+    }
+}
+
+// Adicione esta função para testar no console
+window.debugNotif = debugNotifications;
 
 // ===== FILTRAR JOGADORES ONLINE =====
 function filterOnlineUsers() {
@@ -940,7 +1076,10 @@ function initializeAuth() {
         
         if (user) {
             currentUser = user;
-            
+              // Reiniciar listener de notificações
+        if (typeof setupChallengeListener === 'function') {
+            setupChallengeListener();
+        }
             // Marcar usuário como online ao fazer login
             await updateUserOnlineStatus();
             
@@ -958,6 +1097,13 @@ function initializeAuth() {
             setupActiveTableListener();
             
         } else {
+
+            // Limpar notificações ao fazer logout
+        if (typeof cleanupNotifications === 'function') {
+            cleanupNotifications();
+        }
+
+        
             // Marcar como offline ao fazer logout
             if (currentUser) {
                 await setUserOffline();
@@ -7064,7 +7210,7 @@ document.addEventListener('click', function(e) {
 let activeNotifications = new Map();
 let notificationSound = null;
 
-// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES =====
+// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 function initializeChallengeNotifications() {
     console.log('Inicializando sistema de notificações de desafio...');
     
@@ -7079,8 +7225,14 @@ function initializeChallengeNotifications() {
     // Configurar som de notificação
     setupNotificationSound();
     
-    // Iniciar listener de desafios
-    setupChallengeListener();
+    // Só iniciar listener se usuário estiver logado
+    if (currentUser) {
+        console.log('Usuário logado, iniciando listener de desafios...');
+        setupChallengeListener();
+    } else {
+        console.log('Usuário não logado, aguardando autenticação...');
+        // O listener será iniciado quando o usuário fizer login
+    }
 }
 
 // ===== CONFIGURAR SOM DE NOTIFICAÇÃO =====
@@ -7119,34 +7271,55 @@ function setupNotificationSound() {
 
 // ===== CONFIGURAR LISTENER DE DESAFIOS =====
 function setupChallengeListener() {
-    if (!currentUser || !db) return;
+    if (!currentUser || !db) {
+        console.log('Não é possível configurar listener: usuário ou DB não disponível');
+        return null;
+    }
     
-    // Listener para notificações de desafio
-    return db.collection('notifications')
-        .where('toUserId', '==', currentUser.uid)
-        .where('type', '==', 'challenge')
-        .where('status', '==', 'pending')
-        .orderBy('timestamp', 'desc')
-        .onSnapshot(async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === 'added') {
-                    const notification = {
-                        id: change.doc.id,
-                        ...change.doc.data()
-                    };
+    console.log('Configurando listener de desafios para usuário:', currentUser.uid);
+    
+    try {
+        // Listener para notificações de desafio
+        return db.collection('notifications')
+            .where('toUserId', '==', currentUser.uid)
+            .where('type', '==', 'challenge')
+            .where('status', '==', 'pending')
+            .orderBy('timestamp', 'desc')
+            .onSnapshot(async (snapshot) => {
+                console.log('Mudança detectada em notificações de desafio');
+                
+                snapshot.docChanges().forEach(async (change) => {
+                    console.log('Mudança tipo:', change.type, 'ID:', change.doc.id);
                     
-                    // Mostrar notificação de desafio
-                    await showChallengeNotification(notification);
-                    
-                    // Marcar como visualizada
-                    await markNotificationAsSeen(notification.id);
-                }
+                    if (change.type === 'added') {
+                        const notification = {
+                            id: change.doc.id,
+                            ...change.doc.data()
+                        };
+                        
+                        console.log('Nova notificação recebida:', {
+                            from: notification.fromUserName,
+                            message: notification.message
+                        });
+                        
+                        // Mostrar notificação de desafio
+                        await showChallengeNotification(notification);
+                        
+                        // Marcar como visualizada
+                        await markNotificationAsSeen(notification.id);
+                    }
+                });
+            }, (error) => {
+                console.error('Erro no listener de desafios:', error);
+                console.error('Código do erro:', error.code);
+                console.error('Mensagem do erro:', error.message);
             });
-        }, (error) => {
-            console.error('Erro no listener de desafios:', error);
-        });
+            
+    } catch (error) {
+        console.error('Erro ao configurar listener de desafios:', error);
+        return null;
+    }
 }
-
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 async function showChallengeNotification(notification) {
     console.log('Novo desafio recebido:', notification);
