@@ -3786,3 +3786,22 @@ input:checked + .slider:before {
     0%, 100% { border-color: #00ff88; }
     50% { border-color: #ff4757; }
 }
+
+/* NOTIFICAÇÃO DE DESAFIO ACEITO */
+.challenge-accepted {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    border: 2px solid #ffd700;
+}
+
+.challenge-accepted .notification-header {
+    color: #ffd700;
+}
+
+.challenge-accepted .notification-btn.accept {
+    background: linear-gradient(135deg, #ffd700, #ffaa00);
+    color: #000;
+}
+
+.challenge-accepted .notification-btn.accept:hover {
+    background: linear-gradient(135deg, #ffed4e, #ffbb00);
+}

@@ -2579,6 +2579,20 @@ async function joinTable(tableId) {
         }
         
         const table = tableDoc.data();
+
+
+
+        // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
+        if (table.isChallenge && table.status === 'waiting') {
+            console.log('✅ Entrando em mesa de desafio');
+            
+            // Atualizar mesa para status playing
+            await tableRef.update({
+                status: 'playing',
+                waitingForOpponent: false,
+                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
         
         // Se usuário já está na mesa, apenas entrar
         if (table.players.some(p => p.uid === currentUser.uid)) {
@@ -7151,27 +7165,96 @@ let activeNotifications = new Map();
 let notificationSound = null;
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
-async function initializeChallengeNotifications() {
+// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
+function initializeChallengeNotifications() {
     console.log('Inicializando sistema de notificações de desafio...');
     
-    // 🔥 CORREÇÃO: Esperar o DOM estar pronto
-    await waitForDOM();
-    
-    // Criar container de notificações SE NÃO EXISTIR
+    // Criar container de notificações
     createNotificationContainer();
     
     // Configurar som de notificação
     setupNotificationSound();
-    setupDOMMutationObserver()
     
-    // Só iniciar listener se usuário estiver logado
+    // Só iniciar listeners se usuário estiver logado
     if (currentUser) {
-        console.log('Usuário logado, iniciando listener de desafios...');
+        console.log('Usuário logado, iniciando listeners de desafio...');
+        
+        // Listener para desafios recebidos
         setupChallengeListener();
-    } else {
-        console.log('Usuário não logado, aguardando autenticação...');
+        
+        // 🔥 NOVO: Listener para desafios aceitos
+        setupChallengeAcceptedListener();
     }
 }
+
+
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO ACEITO =====
+function showChallengeAcceptedNotification(notification) {
+    const notificationEl = document.createElement('div');
+    notificationEl.className = 'game-notification challenge-accepted';
+    notificationEl.innerHTML = `
+        <div class="notification-glowing-border" style="background: linear-gradient(90deg, #00ff88, #ffd700, #00ff88);"></div>
+        <div class="notification-header">
+            <div class="notification-icon">🎯</div>
+            <h3 class="notification-title">DESAFIO ACEITO!</h3>
+        </div>
+        
+        <div class="notification-content">
+            <p><strong>${notification.fromUserName}</strong> aceitou seu desafio!</p>
+            <p>Pronto para jogar?</p>
+        </div>
+        
+        <div class="notification-actions">
+            <button class="notification-btn accept" onclick="joinChallengeTable('${notification.tableId}', '${notification.id}')">
+                <i class="fas fa-play"></i> ENTRAR NA MESA
+            </button>
+        </div>
+        
+        <div class="notification-timer">
+            Mesa aguardando sua entrada...
+        </div>
+    `;
+    
+    const notificationSystem = getNotificationContainer();
+    notificationSystem.appendChild(notificationEl);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notificationEl.classList.add('show');
+    }, 100);
+    
+    // Auto-remover após 30 segundos
+    setTimeout(() => {
+        if (notificationEl.parentNode) {
+            notificationEl.classList.remove('show');
+            setTimeout(() => notificationEl.remove(), 500);
+        }
+    }, 30000);
+}
+
+// ===== ENTRAR NA MESA DE DESAFIO =====
+async function joinChallengeTable(tableId, notificationId) {
+    try {
+        console.log('Entrando na mesa de desafio:', tableId);
+        
+        // Entrar na mesa
+        await joinTable(tableId);
+        
+        // Marcar notificação como processada
+        if (notificationId) {
+            await db.collection('notifications').doc(notificationId).update({
+                status: 'processed',
+                processedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+    } catch (error) {
+        console.error('Erro ao entrar na mesa de desafio:', error);
+        showNotification('Erro ao entrar na mesa', 'error');
+    }
+}
+
+
 // ===== TESTAR CONTAINER DE NOTIFICAÇÕES =====
 function testNotificationContainer() {
     console.log('=== TESTANDO CONTAINER DE NOTIFICAÇÕES ===');
@@ -7641,7 +7724,9 @@ function removeChallengeNotification(notificationId, reason = 'dismissed') {
     
     console.log(`Notificação ${notificationId} removida: ${reason}`);
 }
-// ===== CRIAR MESA PARA DESAFIO (COM VALIDAÇÃO) =====
+
+
+// ===== CRIAR MESA PARA DESAFIO =====
 async function createChallengeTable(challenge) {
     try {
         console.log('Criando mesa para desafio:', challenge);
@@ -7657,7 +7742,7 @@ async function createChallengeTable(challenge) {
             name: tableName,
             timeLimit: validatedChallenge.timeLimit,
             bet: validatedChallenge.betAmount,
-            status: 'playing',
+            status: 'waiting', // 🔥 MUDAR para 'waiting' inicialmente
             players: [
                 {
                     uid: validatedChallenge.fromUserId,
@@ -7676,15 +7761,11 @@ async function createChallengeTable(challenge) {
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             currentTurn: 'black',
             board: boardData,
-            waitingForOpponent: false,
+            waitingForOpponent: true, // 🔥 Esperando o desafiante entrar
             platformFee: calculatePlatformFee(validatedChallenge.betAmount),
-            isChallenge: true
+            isChallenge: true,
+            challengeId: validatedChallenge.id || null
         };
-        
-        // Só adicionar challengeId se existir
-        if (validatedChallenge.id) {
-            tableData.challengeId = validatedChallenge.id;
-        }
         
         console.log('Dados da mesa validados:', tableData);
         
@@ -7692,31 +7773,111 @@ async function createChallengeTable(challenge) {
         
         console.log('✅ Mesa de desafio criada com ID:', tableRef.id);
         
-        // Entrar na mesa
+        // 🔥 NOTIFICAR O DESAFIANTE SOBRE A MESA CRIADA
+        await notifyChallengerAboutTable(validatedChallenge.fromUserId, tableRef.id, validatedChallenge);
+        
+        // Entrar na mesa (quem aceitou)
         userActiveTable = tableRef.id;
         setupGameListener(tableRef.id);
         showScreen('game-screen');
         
-        showNotification('Mesa de desafio criada! Boa sorte!', 'success');
+        showNotification('Mesa criada! Aguardando o desafiante entrar...', 'success');
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa de desafio:', error);
-    console.error('Código do erro:', error.code);
-    console.error('Mensagem do erro:', error.message);
-    console.error('Stack do erro:', error.stack);
-    
-    if (error.code === 'invalid-argument') {
-        console.error('Provável erro nos dados enviados para o Firestore');
-        // Log dos dados que causaram o erro
-        console.log('Dados que causaram o erro:', tableData);
-    }
-    
-    showNotification('Erro ao criar mesa: ' + error.message, 'error');
-    
-    // Tentar fallback
-    await createFallbackTable(challenge);
+        showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
+
+
+// ===== NOTIFICAR DESAFIANTE SOBRE MESA CRIADA =====
+async function notifyChallengerAboutTable(challengerUserId, tableId, challenge) {
+    try {
+        console.log('Notificando desafiante:', challengerUserId);
+        
+        // Criar notificação para o desafiante
+        await db.collection('notifications').add({
+            type: 'challenge_accepted',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: challengerUserId,
+            message: `${userData.displayName} aceitou seu desafio! Clique para entrar na mesa.`,
+            tableId: tableId,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: 'pending',
+            challengeData: challenge
+        });
+        
+        console.log('✅ Desafiante notificado sobre a mesa');
+        
+    } catch (error) {
+        console.error('❌ Erro ao notificar desafiante:', error);
+    }
+}
+
+// ===== CONFIGURAR LISTENER PARA DESAFIOS ACEITOS =====
+function setupChallengeAcceptedListener() {
+    if (!currentUser || !db) {
+        console.log('Não é possível configurar listener de desafios aceitos');
+        return null;
+    }
+    
+    console.log('Configurando listener de desafios aceitos para:', currentUser.uid);
+    
+    return db.collection('notifications')
+        .where('toUserId', '==', currentUser.uid)
+        .where('type', '==', 'challenge_accepted')
+        .where('status', '==', 'pending')
+        .orderBy('timestamp', 'desc')
+        .onSnapshot(async (snapshot) => {
+            console.log('Mudança em notificações de desafio aceito');
+            
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const notification = {
+                        id: change.doc.id,
+                        ...change.doc.data()
+                    };
+                    
+                    console.log('🎯 Desafio aceito recebido:', notification);
+                    
+                    // Mostrar notificação e entrar na mesa
+                    await handleChallengeAccepted(notification);
+                    
+                    // Marcar como vista
+                    await markNotificationAsSeen(notification.id);
+                }
+            });
+        }, (error) => {
+            console.error('Erro no listener de desafios aceitos:', error);
+        });
+}
+
+// ===== LIDAR COM DESAFIO ACEITO =====
+// ===== LIDAR COM DESAFIO ACEITO =====
+async function handleChallengeAccepted(notification) {
+    try {
+        console.log('Processando desafio aceito:', notification);
+        
+        // 🔥 MOSTRAR NOTIFICAÇÃO INTERATIVA
+        showChallengeAcceptedNotification(notification);
+        
+        // 🔥 TAMBÉM MOSTRAR NOTIFICAÇÃO SIMPLES DO SISTEMA
+        showNotification(
+            `🎯 ${notification.fromUserName} aceitou seu desafio! Clique para entrar na mesa.`,
+            'success',
+            () => {
+                // Ao clicar na notificação, entrar na mesa
+                joinChallengeTable(notification.tableId, notification.id);
+            }
+        );
+        
+    } catch (error) {
+        console.error('❌ Erro ao processar desafio aceito:', error);
+        showNotification('Erro ao processar desafio aceito', 'error');
+    }
+}
+
 
 // ===== CRIAR MESA FALLBACK =====
 async function createFallbackTable(challenge) {
