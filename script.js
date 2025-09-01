@@ -2479,13 +2479,9 @@ function initializeBrazilianCheckersBoard() {
   return board;
 }
 
+
 // ===== CREATE NEW TABLE (CORRIGIDA) =====
 async function createNewTable() {
-const originalCreateNewTable = createNewTable;
-createNewTable = async function() {
-    audioManager.playGameStartSound();
-    return originalCreateNewTable.apply(this, arguments);
-};
     console.log('🎯 Criando nova mesa...');
     
     // Verificar se já tem mesa ativa
@@ -2493,7 +2489,6 @@ createNewTable = async function() {
     if (activeTableInfo.hasActiveTable) {
         showNotification('Você já tem uma mesa ativa! Finalize-a antes de criar outra.', 'error');
         
-        // ✅ AGORA tableId está garantido no retorno
         if (activeTableInfo.tableId) {
             setTimeout(() => {
                 joinTable(activeTableInfo.tableId);
@@ -2507,9 +2502,15 @@ createNewTable = async function() {
     const timeLimit = parseInt(document.getElementById('table-time').value);
     const bet = parseInt(document.getElementById('table-bet').value) || 0;
     
-    if (bet > 0 && userData.coins < bet) {
-        showNotification('Você não tem moedas suficientes para esta aposta', 'error');
-        return;
+    // 🔥 CORREÇÃO: Verificar se o usuário tem saldo suficiente ANTES de criar a mesa
+    if (bet > 0) {
+        // Carregar dados atualizados do usuário para verificar saldo
+        await loadUserData(currentUser.uid);
+        
+        if (!userData || userData.coins < bet) {
+            showNotification(`Você não tem moedas suficientes para esta aposta! Saldo: ${userData?.coins || 0} moedas`, 'error');
+            return;
+        }
     }
     
     try {
@@ -2538,10 +2539,12 @@ createNewTable = async function() {
         userActiveTable = tableRef.id;
         console.log('✅ Mesa criada com ID:', userActiveTable);
         
+        // 🔥 CORREÇÃO: Deduzir aposta apenas se for maior que 0
         if (bet > 0) {
             await db.collection('users').doc(currentUser.uid).update({
                 coins: firebase.firestore.FieldValue.increment(-bet)
             });
+            // Atualizar dados locais do usuário
             userData.coins -= bet;
         }
         
@@ -2641,12 +2644,17 @@ joinTable = async function(tableId) {
             return;
         }
         
-        // Verificar aposta
-        if (table.bet > 0 && userData.coins < table.bet) {
-            console.log('❌ Saldo insuficiente para aposta');
-            showNotification('Você não tem moedas suficientes para entrar nesta mesa', 'error');
-            userActiveTable = null;
-            return;
+        
+        // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
+        if (table.bet > 0) {
+            // Carregar dados atualizados do usuário
+            await loadUserData(currentUser.uid);
+            
+            if (!userData || userData.coins < table.bet) {
+                showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
+                userActiveTable = null;
+                return;
+            }
         }
         
         // Adicionar jogador à mesa
