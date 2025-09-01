@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Administrativo - Damas Online</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .admin-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .admin-header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .admin-header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .admin-header p {
+            opacity: 0.9;
+        }
+
+        .admin-nav {
+            background: #ecf0f1;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            background: #3498db;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .nav-btn:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .nav-btn.active {
+            background: #e74c3c;
+        }
+
+        .admin-content {
+            padding: 20px;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card i {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+
+        .stat-card h3 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+
+        .stat-card p {
+            opacity: 0.9;
+        }
+
+        .filters {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        select, input {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .transactions-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .transactions-table th,
+        .transactions-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .transactions-table th {
+            background: #34495e;
+            color: white;
+            font-weight: 500;
+        }
+
+        .transactions-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .loading i {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .error {
+            background: #ffeaa7;
+            color: #d63031;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .filter-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .transactions-table {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1><i class="fas fa-crown"></i> Painel Administrativo</h1>
+            <p>Damas Online - Monitoramento de Lucros da Plataforma</p>
+        </div>
+
+        <div class="admin-nav">
+            <button class="nav-btn active" data-tab="dashboard">
+                <i class="fas fa-tachometer-alt"></i> Dashboard
+            </button>
+            <button class="nav-btn" data-tab="transactions">
+                <i class="fas fa-list"></i> Transações
+            </button>
+            <button class="nav-btn" data-tab="users">
+                <i class="fas fa-users"></i> Usuários
+            </button>
+        </div>
+
+        <div class="admin-content">
+            <!-- Dashboard Tab -->
+            <div class="tab-content active" id="dashboard">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <i class="fas fa-coins"></i>
+                        <h3 id="total-earnings">0</h3>
+                        <p>Total Arrecadado</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-chart-line"></i>
+                        <h3 id="total-transactions">0</h3>
+                        <p>Total de Transações</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-gamepad"></i>
+                        <h3 id="total-bets">0</h3>
+                        <p>Total Apostado</p>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-calculator"></i>
+                        <h3 id="avg-earnings">0</h3>
+                        <p>Média por Jogo</p>
+                    </div>
+                </div>
+
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Período:</label>
+                        <select id="period-select">
+                            <option value="today">Hoje</option>
+                            <option value="week">Última Semana</option>
+                            <option value="month">Último Mês</option>
+                            <option value="all" selected>Todos</option>
+                        </select>
+                        
+                        <label>Ordenar por:</label>
+                        <select id="sort-select">
+                            <option value="date">Data</option>
+                            <option value="amount">Valor</option>
+                            <option value="games">Jogos</option>
+                        </select>
+                        
+                        <button class="btn btn-primary" id="refresh-btn">
+                            <i class="fas fa-sync"></i> Atualizar
+                        </button>
+                        
+                        <button class="btn btn-success" id="export-btn">
+                            <i class="fas fa-download"></i> Exportar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h3><i class="fas fa-chart-bar"></i> Evolução de Lucros</h3>
+                    <canvas id="earnings-chart" height="100"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3><i class="fas fa-pie-chart"></i> Distribuição por Tipo</h3>
+                    <canvas id="distribution-chart" height="100"></canvas>
+                </div>
+            </div>
+
+            <!-- Transactions Tab -->
+            <div class="tab-content" id="transactions">
+                <div class="filters">
+                    <div class="filter-group">
+                        <input type="date" id="start-date" placeholder="Data Início">
+                        <input type="date" id="end-date" placeholder="Data Fim">
+                        <input type="number" id="min-amount" placeholder="Valor Mínimo" min="0">
+                        <button class="btn btn-primary" id="filter-btn">
+                            <i class="fas fa-filter"></i> Filtrar
+                        </button>
+                        <button class="btn btn-danger" id="clear-btn">
+                            <i class="fas fa-times"></i> Limpar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="transactions-container">
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Mesa</th>
+                                <th>Aposta</th>
+                                <th>Taxa (15%)</th>
+                                <th>Vencedor</th>
+                                <th>Tipo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactions-body">
+                            <tr>
+                                <td colspan="6" class="loading">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <p>Carregando transações...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Users Tab -->
+            <div class="tab-content" id="users">
+                <div class="filters">
+                    <div class="filter-group">
+                        <input type="text" id="user-search" placeholder="Buscar usuário...">
+                        <select id="user-sort">
+                            <option value="coins">Mais Ricos</option>
+                            <option value="rating">Melhor Rating</option>
+                            <option value="wins">Mais Vitórias</option>
+                            <option value="losses">Mais Derrotas</option>
+                        </select>
+                        <button class="btn btn-primary" id="search-btn">
+                            <i class="fas fa-search"></i> Buscar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="users-container">
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Usuário</th>
+                                <th>Rating</th>
+                                <th>Moedas</th>
+                                <th>Vitórias</th>
+                                <th>Derrotas</th>
+                                <th>Empates</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-body">
+                            <tr>
+                                <td colspan="7" class="loading">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <p>Carregando usuários...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+        // admin-firebase.js - Integração com Firebase
+const firebaseConfig = {
+    apiKey: "AIzaSyCNr5JoKsWJVeUYAaVDqmPznZo100v0uvg",
+    authDomain: "corretorcerto-76933.firebaseapp.com",
+    databaseURL: "https://corretorcerto-76933-default-rtdb.firebaseio.com",
+    projectId: "corretorcerto-76933",
+    storageBucket: "corretorcerto-76933.firebasestorage.app",
+    messagingSenderId: "357149829474",
+    appId: "1:357149829474:web:324b2005d82eabbce5e43b"
+};
+
+// Inicializar Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// Funções reais para buscar dados do Firebase
+async function fetchRealEarningsData(period) {
+    try {
+        let query = db.collection('platformEarnings').orderBy('timestamp', 'desc');
+        
+        // Aplicar filtro de período
+        if (period !== 'all') {
+            const now = new Date();
+            let startDate;
+            
+            switch(period) {
+                case 'today':
+                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    break;
+                case 'week':
+                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+                    break;
+                case 'month':
+                    startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                    break;
+            }
+            
+            if (startDate) {
+                query = query.where('timestamp', '>=', startDate);
+            }
+        }
+        
+        const snapshot = await query.get();
+        
+        let totalEarnings = 0;
+        let totalBets = 0;
+        let earningsByDate = {};
+        let distribution = {
+            'Normal': 0,
+            'Desistência': 0,
+            'Tempo Esgotado': 0
+        };
+        
+        const transactions = [];
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            totalEarnings += data.amount;
+            totalBets += data.betAmount;
+            
+            // Agrupar por data
+            const date = data.timestamp.toDate().toLocaleDateString('pt-BR');
+            earningsByDate[date] = (earningsByDate[date] || 0) + data.amount;
+            
+            // Distribuição por tipo
+            if (data.surrendered) {
+                distribution['Desistência']++;
+            } else if (data.timeout) {
+                distribution['Tempo Esgotado']++;
+            } else {
+                distribution['Normal']++;
+            }
+            
+            // Transações para a tabela
+            transactions.push({
+                id: doc.id,
+                date: data.timestamp.toDate().toLocaleString('pt-BR'),
+                tableId: data.tableId,
+                betAmount: data.betAmount,
+                platformFee: data.amount,
+                winner: data.winner,
+                type: data.surrendered ? 'Desistência' : data.timeout ? 'Tempo Esgotado' : 'Normal'
+            });
+        });
+        
+        return {
+            totalEarnings,
+            totalTransactions: snapshot.size,
+            totalBets,
+            averagePerGame: snapshot.size > 0 ? totalEarnings / snapshot.size : 0,
+            earningsByDate,
+            distribution,
+            transactions
+        };
+        
+    } catch (error) {
+        console.error('Erro ao buscar dados:', error);
+        throw error;
+    }
+}
+
+// Função para carregar usuários
+async function fetchUsers(sortBy = 'coins') {
+    try {
+        let query = db.collection('users').orderBy(sortBy, 'desc');
+        const snapshot = await query.limit(50).get();
+        
+        const users = [];
+        snapshot.forEach(doc => {
+            const user = { id: doc.id, ...doc.data() };
+            users.push(user);
+        });
+        
+        return users;
+    } catch (error) {
+        console.error('Erro ao carregar usuários:', error);
+        throw error;
+    }
+}
+
+        // Configuração inicial
+        let earningsChart = null;
+        let distributionChart = null;
+        let currentData = null;
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeAdminPanel();
+            loadDashboardData('all');
+        });
+
+        // Navegação entre abas
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Remover active de todos
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                
+                // Adicionar active ao selecionado
+                this.classList.add('active');
+                document.getElementById(this.dataset.tab).classList.add('active');
+                
+                // Carregar dados da aba
+                switch(this.dataset.tab) {
+                    case 'dashboard':
+                        loadDashboardData(document.getElementById('period-select').value);
+                        break;
+                    case 'transactions':
+                        loadTransactions();
+                        break;
+                    case 'users':
+                        loadUsers();
+                        break;
+                }
+            });
+        });
+
+        // Event listeners
+        document.getElementById('refresh-btn').addEventListener('click', function() {
+            loadDashboardData(document.getElementById('period-select').value);
+        });
+
+        document.getElementById('period-select').addEventListener('change', function() {
+            loadDashboardData(this.value);
+        });
+
+        document.getElementById('export-btn').addEventListener('click', exportData);
+
+        // Funções principais
+        async function initializeAdminPanel() {
+            // Verificar se usuário é admin
+            try {
+                const user = JSON.parse(localStorage.getItem('currentUser'));
+                if (!user || !user.isAdmin) {
+                    showError('Acesso restrito a administradores');
+                    return;
+                }
+            } catch (error) {
+                showError('Erro ao verificar permissões');
+            }
+        }
+
+        async function loadDashboardData(period) {
+            showLoading('dashboard');
+            
+            try {
+                // Simular dados (substituir pela API real)
+                const data = await fetchEarningsData(period);
+                currentData = data;
+                
+                updateStats(data);
+                renderCharts(data);
+                
+            } catch (error) {
+                showError('Erro ao carregar dados: ' + error.message);
+            }
+        }
+
+        async function fetchEarningsData(period) {
+            // Simulação de dados - substituir pela API real
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    const mockData = {
+                        totalEarnings: 12570,
+                        totalTransactions: 84,
+                        totalBets: 83700,
+                        averagePerGame: 149.64,
+                        earningsByDate: {
+                            '01/12/2024': 450,
+                            '02/12/2024': 620,
+                            '03/12/2024': 380,
+                            '04/12/2024': 710,
+                            '05/12/2024': 540,
+                            '06/12/2024': 890,
+                            '07/12/2024': 670
+                        },
+                        distribution: {
+                            'Normal': 65,
+                            'Desistência': 12,
+                            'Tempo Esgotado': 7
+                        },
+                        transactions: [
+                            {
+                                date: '07/12/2024 15:30',
+                                tableId: 'MESA001',
+                                betAmount: 100,
+                                platformFee: 30,
+                                winner: 'Jogador123',
+                                type: 'Normal'
+                            }
+                        ]
+                    };
+                    resolve(mockData);
+                }, 1000);
+            });
+        }
+
+        function updateStats(data) {
+            document.getElementById('total-earnings').textContent = data.totalEarnings.toLocaleString();
+            document.getElementById('total-transactions').textContent = data.totalTransactions.toLocaleString();
+            document.getElementById('total-bets').textContent = data.totalBets.toLocaleString();
+            document.getElementById('avg-earnings').textContent = data.averagePerGame.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+
+        function renderCharts(data) {
+            // Gráfico de linhas - Evolução temporal
+            const earningsCtx = document.getElementById('earnings-chart').getContext('2d');
+            if (earningsChart) earningsChart.destroy();
+            
+            earningsChart = new Chart(earningsCtx, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(data.earningsByDate),
+                    datasets: [{
+                        label: 'Lucros Diários',
+                        data: Object.values(data.earningsByDate),
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Evolução dos Lucros'
+                        }
+                    }
+                }
+            });
+
+            // Gráfico de pizza - Distribuição
+            const distributionCtx = document.getElementById('distribution-chart').getContext('2d');
+            if (distributionChart) distributionChart.destroy();
+            
+            distributionChart = new Chart(distributionCtx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(data.distribution),
+                    datasets: [{
+                        data: Object.values(data.distribution),
+                        backgroundColor: [
+                            '#3498db',
+                            '#e74c3c',
+                            '#f39c12',
+                            '#27ae60',
+                            '#9b59b6'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadTransactions() {
+            // Implementar carregamento de transações
+            showLoading('transactions');
+        }
+
+        async function loadUsers() {
+            // Implementar carregamento de usuários
+            showLoading('users');
+        }
+
+        function exportData() {
+            if (!currentData) {
+                showError('Nenhum dado para exportar');
+                return;
+            }
+            
+            const dataStr = JSON.stringify(currentData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            
+            const exportFileDefaultName = `lucros-plataforma-${new Date().toISOString().split('T')[0]}.json`;
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        }
+
+        function showLoading(tab) {
+            const body = document.getElementById(tab === 'dashboard' ? 'transactions-body' : tab + '-body');
+            body.innerHTML = `
+                <tr>
+                    <td colspan="${tab === 'users' ? '7' : '6'}" class="loading">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Carregando dados...</p>
+                    </td>
+                </tr>
+            `;
+        }
+
+        function showError(message) {
+            // Mostrar mensagem de erro
+            alert('Erro: ' + message);
+        }
+    </script>
+</body>
+</html>
