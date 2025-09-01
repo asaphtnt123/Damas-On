@@ -3896,3 +3896,53 @@ input:checked + .slider:before {
         width: 60px;
     }
 }
+
+/* ===== CONTROLES DE SOM ===== */
+.sound-controls {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    gap: 10px;
+    z-index: 1000;
+}
+
+.sound-btn {
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    color: #00ff88;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    border: 2px solid #00ff88;
+}
+
+.sound-btn:hover {
+    transform: scale(1.1);
+    background: linear-gradient(135deg, #34495e, #2c3e50);
+}
+
+.sound-btn.muted {
+    opacity: 0.5;
+    border-color: #7f8c8d;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .sound-controls {
+        bottom: 10px;
+        right: 10px;
+    }
+    
+    .sound-btn {
+        width: 35px;
+        height: 35px;
+        font-size: 14px;
+    }
+}

@@ -330,7 +330,7 @@ function initializeApp() {
      // 1. Inicializar sistema de som
     createSoundControls();
     initializeGameWithSound();
-    
+
     
     // 1. Sistemas de autenticação e UI
     initializeAuth();
@@ -2158,8 +2158,11 @@ function showLoading(show) {
 }
 
 function showNotification(message, type = 'info') {
-        playNotificationSound();
-
+const originalShowNotification = showNotification;
+showNotification = function(message, type) {
+    audioManager.playNotificationSound();
+    return originalShowNotification.call(this, message, type);
+};
   // Remover notificações anteriores
   removeExistingNotifications();
   
@@ -2478,8 +2481,11 @@ function initializeBrazilianCheckersBoard() {
 
 // ===== CREATE NEW TABLE (CORRIGIDA) =====
 async function createNewTable() {
-        playGameStartSound();
-
+const originalCreateNewTable = createNewTable;
+createNewTable = async function() {
+    audioManager.playGameStartSound();
+    return originalCreateNewTable.apply(this, arguments);
+};
     console.log('🎯 Criando nova mesa...');
     
     // Verificar se já tem mesa ativa
@@ -2564,7 +2570,11 @@ async function createNewTable() {
 }
 // ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
-        playGameStartSound();
+const originalJoinTable = joinTable;
+joinTable = async function(tableId) {
+    audioManager.playGameStartSound();
+    return originalJoinTable.call(this, tableId);
+};
 
     console.log('🎯 Entrando na mesa:', tableId);
     
@@ -3792,8 +3802,11 @@ let capturingPieces = [];
 
 // ===== FUNÇÃO HANDLE CELL CLICK (VERIFICAÇÃO FINAL) =====
 function handleCellClick(row, col) {
-        playClickSound();
-
+const originalHandleCellClick = handleCellClick;
+handleCellClick = function(row, col) {
+    audioManager.playClickSound();
+    return originalHandleCellClick.call(this, row, col);
+};
     if (!selectedPiece) return;
     
     const moves = getPossibleMoves(selectedPiece.row, selectedPiece.col);
@@ -3821,7 +3834,11 @@ function highlightCapturingPieces() {
 
 // ===== FUNÇÃO HANDLE PIECE CLICK (ATUALIZADA) =====
 function handlePieceClick(row, col) {
-        playClickSound();
+       const originalHandlePieceClick = handlePieceClick;
+handlePieceClick = function(row, col) {
+    audioManager.playClickSound();
+    return originalHandlePieceClick.call(this, row, col);
+};
 
     console.log('Peça clicada:', row, col);
     
@@ -4408,8 +4425,21 @@ async function showDrawProposalModal(title, message) {
 let isGameEnding = false; // Variável global para controle
 // ===== FUNÇÃO ENDGAME CORRIGIDA =====
 async function endGame(result) {
-        playGameEndSound(result === currentPlayer?.color);
-
+const originalEndGame = endGame;
+endGame = async function(result) {
+    if (result === 'draw') {
+        // Som neutro para empate
+        audioManager.createSound(500, 0.5, 'sine', 0.3);
+    } else {
+        const currentPlayer = gameState.players.find(p => p.uid === currentUser?.uid);
+        if (currentPlayer && result === currentPlayer.color) {
+            audioManager.playVictorySound();
+        } else {
+            audioManager.playDefeatSound();
+        }
+    }
+    return originalEndGame.apply(this, arguments);
+};
     // Prevenir múltiplas execuções
     if (isGameEnding) {
         console.log('endGame já em execução, ignorando chamada duplicada');
@@ -7772,8 +7802,11 @@ window.checkListener = checkActiveListener;
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 async function showChallengeNotification(notification) {
-        playChallengeSound();
-
+const originalShowChallengeNotification = showChallengeNotification;
+showChallengeNotification = function(notification) {
+    audioManager.playChallengeSound();
+    return originalShowChallengeNotification.call(this, notification);
+};
     console.log('Novo desafio recebido:', notification);
     
     // Evitar notificações duplicadas
@@ -8443,151 +8476,132 @@ const audioCache = new Map();
 let backgroundAudio = null;
 let currentMusic = null;
 
-// ===== SISTEMA DE ÁUDIO =====
+// ===== SISTEMA DE SONS PROGRAMÁTICOS =====
 class AudioManager {
     constructor() {
         this.enabled = true;
         this.musicEnabled = true;
         this.sfxEnabled = true;
-        this.loaded = false;
+        this.audioContext = null;
         this.init();
     }
 
     // Inicializar sistema de áudio
-    async init() {
+    init() {
         try {
-            // Pré-carregar sons essenciais
-            await this.preloadEssentialSounds();
-            this.loaded = true;
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             console.log('✅ Sistema de áudio inicializado');
         } catch (error) {
             console.error('❌ Erro ao inicializar áudio:', error);
+            this.enabled = false;
+        }
+        
+        // Carregar preferências
+        this.loadPreferences();
+    }
+
+    // Criar som programático
+    createSound(frequency, duration, type = 'sine', volume = 0.3) {
+        if (!this.enabled || !this.sfxEnabled || !this.audioContext) return;
+        
+        try {
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+            
+            gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.start();
+            oscillator.stop(this.audioContext.currentTime + duration);
+            
+        } catch (error) {
+            console.error('❌ Erro ao criar som:', error);
         }
     }
 
-    // Pré-carregar sons essenciais
-    async preloadEssentialSounds() {
-        const essentialSounds = ['move', 'capture', 'click', 'notification'];
-        
-        for (const soundKey of essentialSounds) {
-            await this.loadSound(soundKey);
-        }
+    // Sons específicos do jogo
+    playMoveSound() {
+        this.createSound(400, 0.1, 'sine', 0.2);
     }
 
-    // Carregar som individual
-    async loadSound(soundKey) {
-        if (audioCache.has(soundKey)) return audioCache.get(soundKey);
-        
-        const soundConfig = gameSounds[soundKey];
-        if (!soundConfig) {
-            console.error('❌ Som não encontrado:', soundKey);
-            return null;
-        }
+    playCaptureSound() {
+        this.createSound(800, 0.2, 'square', 0.4);
+    }
 
-        return new Promise((resolve) => {
-            const audio = new Audio(soundConfig.url);
-            audio.volume = soundConfig.volume || 0.5;
-            audio.preload = 'auto';
-            
-            audio.oncanplaythrough = () => {
-                audioCache.set(soundKey, audio);
-                resolve(audio);
-            };
-            
-            audio.onerror = () => {
-                console.error('❌ Erro ao carregar som:', soundKey);
-                resolve(null);
-            };
-            
-            // Timeout para não travar o jogo
-            setTimeout(() => resolve(null), 3000);
+    playMultipleCaptureSound() {
+        this.createSound(1200, 0.3, 'sine', 0.5);
+        setTimeout(() => this.createSound(1000, 0.2, 'sine', 0.4), 100);
+    }
+
+    playKingPromotionSound() {
+        this.createSound(600, 0.1, 'sine', 0.4);
+        setTimeout(() => this.createSound(800, 0.1, 'sine', 0.4), 100);
+        setTimeout(() => this.createSound(1000, 0.2, 'sine', 0.5), 200);
+    }
+
+    playClickSound() {
+        this.createSound(300, 0.05, 'sine', 0.2);
+    }
+
+    playNotificationSound() {
+        this.createSound(500, 0.15, 'triangle', 0.3);
+        setTimeout(() => this.createSound(600, 0.1, 'triangle', 0.2), 150);
+    }
+
+    playChallengeSound() {
+        this.createSound(700, 0.1, 'sine', 0.4);
+        setTimeout(() => this.createSound(900, 0.1, 'sine', 0.3), 100);
+        setTimeout(() => this.createSound(1100, 0.2, 'sine', 0.4), 200);
+    }
+
+    playGameStartSound() {
+        this.createSound(400, 0.1, 'sine', 0.3);
+        setTimeout(() => this.createSound(600, 0.1, 'sine', 0.3), 100);
+        setTimeout(() => this.createSound(800, 0.2, 'sine', 0.4), 200);
+    }
+
+    playVictorySound() {
+        [400, 600, 800, 1000, 1200].forEach((freq, index) => {
+            setTimeout(() => this.createSound(freq, 0.2, 'sine', 0.4), index * 100);
         });
     }
 
-    // Tocar efeito sonoro
-    async playSound(soundKey, options = {}) {
-        if (!this.enabled || !this.sfxEnabled) return;
-        
-        try {
-            let audio = audioCache.get(soundKey);
-            if (!audio) {
-                audio = await this.loadSound(soundKey);
-            }
-            
-            if (audio) {
-                const audioClone = audio.cloneNode();
-                audioClone.volume = options.volume || audio.volume;
-                
-                if (options.playbackRate) {
-                    audioClone.playbackRate = options.playbackRate;
-                }
-                
-                audioClone.play().catch(e => {
-                    console.log('⚠️ Auto-play bloqueado, tentando com interação do usuário');
-                });
-                
-                return audioClone;
-            }
-        } catch (error) {
-            console.error('❌ Erro ao tocar som:', soundKey, error);
-        }
-    }
-
-    // Tocar música
-    async playMusic(musicKey, force = false) {
-        if (!this.enabled || !this.musicEnabled) return;
-        if (currentMusic === musicKey && !force) return;
-        
-        this.stopMusic();
-        
-        try {
-            const musicConfig = gameSounds[musicKey];
-            if (!musicConfig) return;
-            
-            const audio = new Audio(musicConfig.url);
-            audio.volume = musicConfig.volume || 0.1;
-            audio.loop = musicConfig.loop || false;
-            
-            audio.addEventListener('canplaythrough', () => {
-                audio.play().catch(e => {
-                    console.log('⚠️ Música precisa de interação do usuário');
-                });
-            });
-            
-            backgroundAudio = audio;
-            currentMusic = musicKey;
-            
-        } catch (error) {
-            console.error('❌ Erro ao tocar música:', error);
-        }
-    }
-
-    // Parar música
-    stopMusic() {
-        if (backgroundAudio) {
-            backgroundAudio.pause();
-            backgroundAudio = null;
-        }
-        currentMusic = null;
-    }
-
-    // Alterar volume
-    setVolume(type, volume) {
-        const clampedVolume = Math.max(0, Math.min(1, volume));
-        
-        if (type === 'music' && backgroundAudio) {
-            backgroundAudio.volume = clampedVolume;
-        }
-        
-        // Atualizar cache de volumes
-        Object.keys(gameSounds).forEach(key => {
-            if (audioCache.has(key)) {
-                audioCache.get(key).volume = clampedVolume;
-            }
+    playDefeatSound() {
+        [600, 500, 400, 300].forEach((freq, index) => {
+            setTimeout(() => this.createSound(freq, 0.3, 'sawtooth', 0.3), index * 150);
         });
     }
 
-    // Habilitar/desabilitar sons
+    // Música de fundo simples
+    playBackgroundMusic() {
+        if (!this.musicEnabled) return;
+        
+        // Música simples usando setInterval
+        let noteIndex = 0;
+        const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
+        
+        this.musicInterval = setInterval(() => {
+            if (this.musicEnabled) {
+                this.createSound(notes[noteIndex % notes.length], 0.3, 'sine', 0.1);
+                noteIndex++;
+            }
+        }, 500);
+    }
+
+    stopBackgroundMusic() {
+        if (this.musicInterval) {
+            clearInterval(this.musicInterval);
+            this.musicInterval = null;
+        }
+    }
+
+    // Controles
     toggleSound(enabled) {
         this.sfxEnabled = enabled;
         localStorage.setItem('sfxEnabled', enabled);
@@ -8597,14 +8611,13 @@ class AudioManager {
         this.musicEnabled = enabled;
         localStorage.setItem('musicEnabled', enabled);
         
-        if (enabled && currentMusic) {
-            this.playMusic(currentMusic, true);
+        if (enabled) {
+            this.playBackgroundMusic();
         } else {
-            this.stopMusic();
+            this.stopBackgroundMusic();
         }
     }
 
-    // Carregar preferências
     loadPreferences() {
         const sfx = localStorage.getItem('sfxEnabled');
         const music = localStorage.getItem('musicEnabled');
@@ -8614,25 +8627,23 @@ class AudioManager {
     }
 }
 
+
 // Instância global do gerenciador de áudio
 const audioManager = new AudioManager();
 
-// ===== INTERFACE DE CONTROLE DE SOM =====
+// ===== CONTROLES DE SOM SIMPLIFICADOS =====
 function createSoundControls() {
     // Verificar se já existe
     if (document.getElementById('sound-controls')) return;
     
     const controlsHTML = `
         <div id="sound-controls" class="sound-controls">
-            <button id="btn-sound-toggle" class="sound-btn">
+            <button id="btn-sound-toggle" class="sound-btn" title="Efeitos sonoros">
                 <i class="fas fa-volume-up"></i>
             </button>
-            <button id="btn-music-toggle" class="sound-btn">
+            <button id="btn-music-toggle" class="sound-btn" title="Música">
                 <i class="fas fa-music"></i>
             </button>
-            <div class="volume-controls">
-                <input type="range" id="sound-volume" min="0" max="1" step="0.1" value="0.7">
-            </div>
         </div>
     `;
     
@@ -8642,38 +8653,38 @@ function createSoundControls() {
     document.getElementById('btn-sound-toggle').addEventListener('click', () => {
         audioManager.toggleSound(!audioManager.sfxEnabled);
         updateSoundButtons();
+        audioManager.playClickSound(); // Feedback
     });
     
     document.getElementById('btn-music-toggle').addEventListener('click', () => {
         audioManager.toggleMusic(!audioManager.musicEnabled);
         updateSoundButtons();
-    });
-    
-    document.getElementById('sound-volume').addEventListener('input', (e) => {
-        const volume = parseFloat(e.target.value);
-        audioManager.setVolume('master', volume);
+        audioManager.playClickSound(); // Feedback
     });
     
     // Carregar preferências e atualizar botões
     audioManager.loadPreferences();
     updateSoundButtons();
+    
+    // Iniciar música se habilitada
+    if (audioManager.musicEnabled) {
+        audioManager.playBackgroundMusic();
+    }
 }
-
-// Atualizar botões de som
 function updateSoundButtons() {
     const soundBtn = document.getElementById('btn-sound-toggle');
     const musicBtn = document.getElementById('btn-music-toggle');
     
     if (soundBtn) {
+        soundBtn.classList.toggle('muted', !audioManager.sfxEnabled);
         soundBtn.innerHTML = audioManager.sfxEnabled ? 
             '<i class="fas fa-volume-up"></i>' : 
             '<i class="fas fa-volume-mute"></i>';
     }
     
     if (musicBtn) {
-        musicBtn.innerHTML = audioManager.musicEnabled ? 
-            '<i class="fas fa-music"></i>' : 
-            '<i class="fas fa-music" style="opacity: 0.5"></i>';
+        musicBtn.classList.toggle('muted', !audioManager.musicEnabled);
+        musicBtn.innerHTML = '<i class="fas fa-music"></i>';
     }
 }
 
@@ -8722,30 +8733,52 @@ function playChallengeSound() {
     audioManager.playSound('challenge');
 }
 
-// Modificar funções existentes para incluir sons
+// ===== INTEGRAÇÃO SIMPLIFICADA =====
 function initializeGameWithSound() {
-    // Sons de movimento
+    console.log('🔊 Inicializando sistema de som...');
+    
+    // Sons de movimento - modificar makeMove diretamente
     const originalMakeMove = makeMove;
-    makeMove = async function(...args) {
-        const result = await originalMakeMove.apply(this, args);
-        playMoveSound();
+    makeMove = async function(fromRow, fromCol, toRow, toCol, captures) {
+        const result = await originalMakeMove.call(this, fromRow, fromCol, toRow, toCol, captures);
+        
+        // Tocar som apropriado
+        if (captures && captures.length > 0) {
+            if (captures.length > 1) {
+                audioManager.playMultipleCaptureSound();
+            } else {
+                audioManager.playCaptureSound();
+            }
+        } else {
+            audioManager.playMoveSound();
+        }
+        
         return result;
     };
 
-    // Sons de captura
-    const originalHandleCapture = handleCapture;
-    handleCapture = function(...args) {
-        const result = originalHandleCapture.apply(this, args);
-        playCaptureSound(args.length > 3); // Se for captura múltipla
-        return result;
+    // Verificar promoção a dama - adicionar à makeMove ou criar função separada
+    const gameStateHandler = {
+        set: function(target, property, value) {
+            target[property] = value;
+            
+            // Verificar se uma peça foi promovida a dama
+            if (property === 'board' && value) {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const piece = value[row] && value[row][col];
+                        if (piece && piece.king && 
+                            !(target[property][row] && target[property][row][col] && target[property][row][col].king)) {
+                            audioManager.playKingPromotionSound();
+                        }
+                    }
+                }
+            }
+            return true;
+        }
     };
-
-    // Sons de promoção
-    const originalPromotePiece = promotePiece;
-    promotePiece = function(...args) {
-        const result = originalPromotePiece.apply(this, args);
-        playKingPromotionSound();
-        return result;
-    };
+    
+    // Aplicar handler se gameState existir
+    if (gameState) {
+        gameState = new Proxy(gameState, gameStateHandler);
+    }
 }
-
