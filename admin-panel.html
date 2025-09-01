@@ -244,6 +244,56 @@
     </style>
 </head>
 <body>
+   
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Administrativo - Damas Online</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Firebase SDK versão compat -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    
+    <style>
+        /* Seus estilos CSS permanecem os mesmos */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .admin-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        /* ... resto do CSS ... */
+    </style>
+</head>
+<body>
     <div class="admin-container">
         <div class="admin-header">
             <h1><i class="fas fa-crown"></i> Painel Administrativo</h1>
@@ -409,130 +459,26 @@
             </div>
         </div>
     </div>
+ 
+
 
     <script>
-
-        // admin-firebase.js - Integração com Firebase
-const firebaseConfig = {
-    apiKey: "AIzaSyCNr5JoKsWJVeUYAaVDqmPznZo100v0uvg",
-    authDomain: "corretorcerto-76933.firebaseapp.com",
-    databaseURL: "https://corretorcerto-76933-default-rtdb.firebaseio.com",
-    projectId: "corretorcerto-76933",
-    storageBucket: "corretorcerto-76933.firebasestorage.app",
-    messagingSenderId: "357149829474",
-    appId: "1:357149829474:web:324b2005d82eabbce5e43b"
-};
-
-// Inicializar Firebase
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-// Funções reais para buscar dados do Firebase
-async function fetchRealEarningsData(period) {
-    try {
-        let query = db.collection('platformEarnings').orderBy('timestamp', 'desc');
-        
-        // Aplicar filtro de período
-        if (period !== 'all') {
-            const now = new Date();
-            let startDate;
-            
-            switch(period) {
-                case 'today':
-                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                    break;
-                case 'week':
-                    startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-                    break;
-                case 'month':
-                    startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-                    break;
-            }
-            
-            if (startDate) {
-                query = query.where('timestamp', '>=', startDate);
-            }
-        }
-        
-        const snapshot = await query.get();
-        
-        let totalEarnings = 0;
-        let totalBets = 0;
-        let earningsByDate = {};
-        let distribution = {
-            'Normal': 0,
-            'Desistência': 0,
-            'Tempo Esgotado': 0
+        // Configuração do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCNr5JoKsWJVeUYAaVDqmPznZo100v0uvg",
+            authDomain: "corretorcerto-76933.firebaseapp.com",
+            databaseURL: "https://corretorcerto-76933-default-rtdb.firebaseio.com",
+            projectId: "corretorcerto-76933",
+            storageBucket: "corretorcerto-76933.firebasestorage.app",
+            messagingSenderId: "357149829474",
+            appId: "1:357149829474:web:324b2005d82eabbce5e43b"
         };
-        
-        const transactions = [];
-        
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            totalEarnings += data.amount;
-            totalBets += data.betAmount;
-            
-            // Agrupar por data
-            const date = data.timestamp.toDate().toLocaleDateString('pt-BR');
-            earningsByDate[date] = (earningsByDate[date] || 0) + data.amount;
-            
-            // Distribuição por tipo
-            if (data.surrendered) {
-                distribution['Desistência']++;
-            } else if (data.timeout) {
-                distribution['Tempo Esgotado']++;
-            } else {
-                distribution['Normal']++;
-            }
-            
-            // Transações para a tabela
-            transactions.push({
-                id: doc.id,
-                date: data.timestamp.toDate().toLocaleString('pt-BR'),
-                tableId: data.tableId,
-                betAmount: data.betAmount,
-                platformFee: data.amount,
-                winner: data.winner,
-                type: data.surrendered ? 'Desistência' : data.timeout ? 'Tempo Esgotado' : 'Normal'
-            });
-        });
-        
-        return {
-            totalEarnings,
-            totalTransactions: snapshot.size,
-            totalBets,
-            averagePerGame: snapshot.size > 0 ? totalEarnings / snapshot.size : 0,
-            earningsByDate,
-            distribution,
-            transactions
-        };
-        
-    } catch (error) {
-        console.error('Erro ao buscar dados:', error);
-        throw error;
-    }
-}
 
-// Função para carregar usuários
-async function fetchUsers(sortBy = 'coins') {
-    try {
-        let query = db.collection('users').orderBy(sortBy, 'desc');
-        const snapshot = await query.limit(50).get();
-        
-        const users = [];
-        snapshot.forEach(doc => {
-            const user = { id: doc.id, ...doc.data() };
-            users.push(user);
-        });
-        
-        return users;
-    } catch (error) {
-        console.error('Erro ao carregar usuários:', error);
-        throw error;
-    }
-}
+        // Inicializar Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
 
-        // Configuração inicial
+        // Variáveis globais
         let earningsChart = null;
         let distributionChart = null;
         let currentData = null;
@@ -541,56 +487,79 @@ async function fetchUsers(sortBy = 'coins') {
         document.addEventListener('DOMContentLoaded', function() {
             initializeAdminPanel();
             loadDashboardData('all');
+            setupEventListeners();
         });
 
-        // Navegação entre abas
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                // Remover active de todos
-                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-                
-                // Adicionar active ao selecionado
-                this.classList.add('active');
-                document.getElementById(this.dataset.tab).classList.add('active');
-                
-                // Carregar dados da aba
-                switch(this.dataset.tab) {
-                    case 'dashboard':
-                        loadDashboardData(document.getElementById('period-select').value);
-                        break;
-                    case 'transactions':
-                        loadTransactions();
-                        break;
-                    case 'users':
-                        loadUsers();
-                        break;
-                }
+        function setupEventListeners() {
+            // Navegação entre abas
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                    
+                    this.classList.add('active');
+                    document.getElementById(this.dataset.tab).classList.add('active');
+                    
+                    switch(this.dataset.tab) {
+                        case 'dashboard':
+                            loadDashboardData(document.getElementById('period-select').value);
+                            break;
+                        case 'transactions':
+                            loadTransactions();
+                            break;
+                        case 'users':
+                            loadUsers();
+                            break;
+                    }
+                });
             });
-        });
 
-        // Event listeners
-        document.getElementById('refresh-btn').addEventListener('click', function() {
-            loadDashboardData(document.getElementById('period-select').value);
-        });
+            document.getElementById('refresh-btn').addEventListener('click', function() {
+                loadDashboardData(document.getElementById('period-select').value);
+            });
 
-        document.getElementById('period-select').addEventListener('change', function() {
-            loadDashboardData(this.value);
-        });
+            document.getElementById('period-select').addEventListener('change', function() {
+                loadDashboardData(this.value);
+            });
 
-        document.getElementById('export-btn').addEventListener('click', exportData);
+            document.getElementById('export-btn').addEventListener('click', exportData);
+        }
 
-        // Funções principais
         async function initializeAdminPanel() {
-            // Verificar se usuário é admin
             try {
-                const user = JSON.parse(localStorage.getItem('currentUser'));
-                if (!user || !user.isAdmin) {
-                    showError('Acesso restrito a administradores');
-                    return;
+                // Verificar autenticação
+                firebase.auth().onAuthStateChanged(function(user) {
+                    if (user) {
+                        // Usuário logado, verificar se é admin
+                        checkIfUserIsAdmin(user.uid);
+                    } else {
+                        // Redirecionar para login
+                        showError('Por favor, faça login primeiro');
+                        setTimeout(() => {
+                            window.location.href = 'index.html'; // Ajuste para sua página de login
+                        }, 2000);
+                    }
+                });
+            } catch (error) {
+                showError('Erro ao verificar permissões: ' + error.message);
+            }
+        }
+
+        async function checkIfUserIsAdmin(userId) {
+            try {
+                const userDoc = await db.collection('users').doc(userId).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    if (!userData.isAdmin) {
+                        showError('Acesso restrito a administradores');
+                        // Redirecionar após 2 segundos
+                        setTimeout(() => {
+                            window.location.href = 'index.html';
+                        }, 2000);
+                    }
                 }
             } catch (error) {
-                showError('Erro ao verificar permissões');
+                showError('Erro ao verificar permissões de administrador');
             }
         }
 
@@ -598,8 +567,7 @@ async function fetchUsers(sortBy = 'coins') {
             showLoading('dashboard');
             
             try {
-                // Simular dados (substituir pela API real)
-                const data = await fetchEarningsData(period);
+                const data = await fetchRealEarningsData(period);
                 currentData = data;
                 
                 updateStats(data);
@@ -610,43 +578,74 @@ async function fetchUsers(sortBy = 'coins') {
             }
         }
 
-        async function fetchEarningsData(period) {
-            // Simulação de dados - substituir pela API real
-            return new Promise(resolve => {
-                setTimeout(() => {
-                    const mockData = {
-                        totalEarnings: 12570,
-                        totalTransactions: 84,
-                        totalBets: 83700,
-                        averagePerGame: 149.64,
-                        earningsByDate: {
-                            '01/12/2024': 450,
-                            '02/12/2024': 620,
-                            '03/12/2024': 380,
-                            '04/12/2024': 710,
-                            '05/12/2024': 540,
-                            '06/12/2024': 890,
-                            '07/12/2024': 670
-                        },
-                        distribution: {
-                            'Normal': 65,
-                            'Desistência': 12,
-                            'Tempo Esgotado': 7
-                        },
-                        transactions: [
-                            {
-                                date: '07/12/2024 15:30',
-                                tableId: 'MESA001',
-                                betAmount: 100,
-                                platformFee: 30,
-                                winner: 'Jogador123',
-                                type: 'Normal'
-                            }
-                        ]
-                    };
-                    resolve(mockData);
-                }, 1000);
-            });
+        async function fetchRealEarningsData(period) {
+            try {
+                let query = db.collection('platformEarnings').orderBy('timestamp', 'desc');
+                
+                if (period !== 'all') {
+                    const now = new Date();
+                    let startDate;
+                    
+                    switch(period) {
+                        case 'today':
+                            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            break;
+                        case 'week':
+                            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+                            break;
+                        case 'month':
+                            startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                            break;
+                    }
+                    
+                    if (startDate) {
+                        query = query.where('timestamp', '>=', startDate);
+                    }
+                }
+                
+                const snapshot = await query.get();
+                
+                let totalEarnings = 0;
+                let totalBets = 0;
+                let earningsByDate = {};
+                let distribution = {
+                    'Normal': 0,
+                    'Desistência': 0,
+                    'Tempo Esgotado': 0
+                };
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    totalEarnings += data.amount;
+                    totalBets += data.betAmount;
+                    
+                    // Agrupar por data
+                    const date = data.timestamp.toDate().toLocaleDateString('pt-BR');
+                    earningsByDate[date] = (earningsByDate[date] || 0) + data.amount;
+                    
+                    // Distribuição por tipo
+                    if (data.surrendered) {
+                        distribution['Desistência']++;
+                    } else if (data.timeout) {
+                        distribution['Tempo Esgotado']++;
+                    } else {
+                        distribution['Normal']++;
+                    }
+                });
+                
+                return {
+                    totalEarnings,
+                    totalTransactions: snapshot.size,
+                    totalBets,
+                    averagePerGame: snapshot.size > 0 ? totalEarnings / snapshot.size : 0,
+                    earningsByDate,
+                    distribution
+                };
+                
+            } catch (error) {
+                console.error('Erro ao buscar dados:', error);
+                throw error;
+            }
         }
 
         function updateStats(data) {
@@ -660,7 +659,7 @@ async function fetchUsers(sortBy = 'coins') {
         }
 
         function renderCharts(data) {
-            // Gráfico de linhas - Evolução temporal
+            // Gráfico de linhas
             const earningsCtx = document.getElementById('earnings-chart').getContext('2d');
             if (earningsChart) earningsChart.destroy();
             
@@ -676,19 +675,10 @@ async function fetchUsers(sortBy = 'coins') {
                         borderWidth: 2,
                         fill: true
                     }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Evolução dos Lucros'
-                        }
-                    }
                 }
             });
 
-            // Gráfico de pizza - Distribuição
+            // Gráfico de pizza
             const distributionCtx = document.getElementById('distribution-chart').getContext('2d');
             if (distributionChart) distributionChart.destroy();
             
@@ -698,34 +688,97 @@ async function fetchUsers(sortBy = 'coins') {
                     labels: Object.keys(data.distribution),
                     datasets: [{
                         data: Object.values(data.distribution),
-                        backgroundColor: [
-                            '#3498db',
-                            '#e74c3c',
-                            '#f39c12',
-                            '#27ae60',
-                            '#9b59b6'
-                        ]
+                        backgroundColor: ['#3498db', '#e74c3c', '#f39c12']
                     }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
                 }
             });
         }
 
         async function loadTransactions() {
-            // Implementar carregamento de transações
             showLoading('transactions');
+            try {
+                const query = db.collection('platformEarnings').orderBy('timestamp', 'desc').limit(50);
+                const snapshot = await query.get();
+                
+                const transactionsBody = document.getElementById('transactions-body');
+                transactionsBody.innerHTML = '';
+                
+                if (snapshot.empty) {
+                    transactionsBody.innerHTML = `
+                        <tr>
+                            <td colspan="6" class="loading">
+                                <i class="fas fa-info-circle"></i>
+                                <p>Nenhuma transação encontrada</p>
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const row = `
+                        <tr>
+                            <td>${data.timestamp.toDate().toLocaleString('pt-BR')}</td>
+                            <td>${data.tableId || 'N/A'}</td>
+                            <td>${data.betAmount || 0} moedas</td>
+                            <td>${data.amount || 0} moedas</td>
+                            <td>${data.winner || 'N/A'}</td>
+                            <td>${data.surrendered ? 'Desistência' : data.timeout ? 'Tempo Esgotado' : 'Normal'}</td>
+                        </tr>
+                    `;
+                    transactionsBody.innerHTML += row;
+                });
+                
+            } catch (error) {
+                showError('Erro ao carregar transações: ' + error.message);
+            }
         }
 
         async function loadUsers() {
-            // Implementar carregamento de usuários
             showLoading('users');
+            try {
+                const query = db.collection('users').orderBy('coins', 'desc').limit(50);
+                const snapshot = await query.get();
+                
+                const usersBody = document.getElementById('users-body');
+                usersBody.innerHTML = '';
+                
+                if (snapshot.empty) {
+                    usersBody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="loading">
+                                <i class="fas fa-info-circle"></i>
+                                <p>Nenhum usuário encontrado</p>
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+                
+                snapshot.forEach(doc => {
+                    const user = doc.data();
+                    const row = `
+                        <tr>
+                            <td>${user.displayName || 'Usuário'}</td>
+                            <td>${user.rating || 1000}</td>
+                            <td>${user.coins || 0} moedas</td>
+                            <td>${user.wins || 0}</td>
+                            <td>${user.losses || 0}</td>
+                            <td>${user.draws || 0}</td>
+                            <td>
+                                <button class="btn btn-primary btn-small">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    usersBody.innerHTML += row;
+                });
+                
+            } catch (error) {
+                showError('Erro ao carregar usuários: ' + error.message);
+            }
         }
 
         function exportData() {
@@ -746,20 +799,22 @@ async function fetchUsers(sortBy = 'coins') {
         }
 
         function showLoading(tab) {
-            const body = document.getElementById(tab === 'dashboard' ? 'transactions-body' : tab + '-body');
-            body.innerHTML = `
-                <tr>
-                    <td colspan="${tab === 'users' ? '7' : '6'}" class="loading">
-                        <i class="fas fa-spinner fa-spin"></i>
-                        <p>Carregando dados...</p>
-                    </td>
-                </tr>
-            `;
+            const body = document.getElementById(tab + '-body');
+            if (body) {
+                body.innerHTML = `
+                    <tr>
+                        <td colspan="${tab === 'users' ? '7' : '6'}" class="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <p>Carregando dados...</p>
+                        </td>
+                    </tr>
+                `;
+            }
         }
 
         function showError(message) {
-            // Mostrar mensagem de erro
             alert('Erro: ' + message);
+            console.error(message);
         }
     </script>
 </body>

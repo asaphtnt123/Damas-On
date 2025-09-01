@@ -8880,3 +8880,100 @@ function initializeGameWithSound() {
         gameState = new Proxy(gameState, gameStateHandler);
     }
 }
+
+// Configuração simples de WebRTC
+class VoiceChat {
+    constructor() {
+        this.localStream = null;
+        this.peerConnection = null;
+        this.isAudioActive = false;
+    }
+
+    async initVoiceChat() {
+        try {
+            // Solicitar permissão de microfone
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false
+            });
+            
+            this.setupUI();
+            console.log('Microfone ativado com sucesso!');
+            
+        } catch (error) {
+            console.error('Erro ao acessar microfone:', error);
+            this.showError('Não foi possível acessar o microfone');
+        }
+    }
+
+    setupUI() {
+        const toggleBtn = document.getElementById('voice-toggle');
+        const statusDiv = document.getElementById('voice-status');
+
+        toggleBtn.addEventListener('click', () => {
+            this.isAudioActive = !this.isAudioActive;
+            
+            if (this.isAudioActive) {
+                this.startVoiceChat();
+                toggleBtn.style.background = '#2ecc71';
+                toggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                statusDiv.style.display = 'block';
+            } else {
+                this.stopVoiceChat();
+                toggleBtn.style.background = '#e74c3c';
+                toggleBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                statusDiv.style.display = 'none';
+            }
+        });
+
+        // Visualização de áudio (opcional)
+        this.createAudioVisualizer();
+    }
+
+    async startVoiceChat() {
+        // Aqui você conectaria com o oponente via WebRTC
+        console.log('Voice chat iniciado');
+        this.showNotification('Chat de voz ativado');
+    }
+
+    stopVoiceChat() {
+        console.log('Voice chat parado');
+        this.showNotification('Chat de voz desativado');
+    }
+
+    createAudioVisualizer() {
+        // Implementação simples de visualizador de áudio
+        const audioContext = new AudioContext();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(this.localStream);
+        
+        source.connect(analyser);
+        // ... código do visualizador
+    }
+
+    showNotification(message) {
+        // Usar seu sistema de notificação existente
+        if (typeof showNotification === 'function') {
+            showNotification(message, 'info');
+        }
+    }
+
+    showError(message) {
+        if (typeof showNotification === 'function') {
+            showNotification(message, 'error');
+        }
+    }
+}
+
+// Inicializar quando o jogo começar
+const voiceChat = new VoiceChat();
+
+// Iniciar quando o jogo começar
+function startGameVoiceChat() {
+    voiceChat.initVoiceChat();
+}
+
+// Parar quando o jogo terminar
+function stopGameVoiceChat() {
+    voiceChat.stopVoiceChat();
+}
