@@ -4111,9 +4111,8 @@ function updateGameHeader(currentPlayer, opponent) {
     }
 }
 
-
-// ===== FUNÇÃO SURRENDER GAME CORRIGIDA =====
-async function surrenderFromGame () {
+// ===== FUNÇÃO SURRENDER FROM GAME (CORRIGIDA) =====
+async function surrenderFromGame() {
     console.log('Iniciando processo de desistência...');
     
     if (!currentGameRef || !gameState) {
@@ -4136,39 +4135,48 @@ async function surrenderFromGame () {
             return;
         }
         
-        // Calcular recompensas
         const betAmount = gameState.bet || 0;
-        const reward = betAmount * 2; // O vencedor recebe o dobro da aposta
         
-        // Atualizar estatísticas dos jogadores
-        const updates = {};
+        if (betAmount > 0) {
+            // 🔥 CORREÇÃO: Cálculo correto do prêmio
+            const calculation = calculatePrize(betAmount);
+            
+            // Vencedor recebe o prêmio líquido
+            await db.collection('users').doc(winnerPlayer.uid).update({
+                coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
+                wins: firebase.firestore.FieldValue.increment(1),
+                rating: firebase.firestore.FieldValue.increment(10)
+            });
+            
+            // Registrar lucro da plataforma
+            await db.collection('platformEarnings').add({
+                amount: calculation.platformFee,
+                betAmount: betAmount,
+                tableId: currentGameRef.id,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                winner: winnerPlayer.uid,
+                surrendered: true
+            });
+            
+        } else {
+            // Sem aposta - apenas estatísticas
+            await db.collection('users').doc(winnerPlayer.uid).update({
+                wins: firebase.firestore.FieldValue.increment(1),
+                rating: firebase.firestore.FieldValue.increment(10)
+            });
+        }
         
-        // Vencedor
-        updates[`users/${winnerPlayer.uid}`] = {
-            wins: firebase.firestore.FieldValue.increment(1),
-            rating: firebase.firestore.FieldValue.increment(10),
-            coins: firebase.firestore.FieldValue.increment(reward)
-        };
-        
-        // Perdedor (quem desistiu)
-        updates[`users/${currentUser.uid}`] = {
+        // Atualizar perdedor
+        await db.collection('users').doc(currentUser.uid).update({
             losses: firebase.firestore.FieldValue.increment(1),
             rating: firebase.firestore.FieldValue.increment(-15)
-        };
-        
-        // Executar atualizações em batch
-        const batch = db.batch();
-        Object.keys(updates).forEach(path => {
-            const ref = db.doc(path);
-            batch.update(ref, updates[path]);
         });
-        await batch.commit();
         
         // ENVIAR NOTIFICAÇÃO PARA O OPONENTE
         await db.collection('notifications').add({
             type: 'game_surrender',
             userId: winnerPlayer.uid,
-            message: `${currentPlayer.displayName} desistiu da partida. Você venceu!`,
+            message: `${currentPlayer.displayName} desistiu do jogo. Você venceu!`,
             tableId: currentGameRef.id,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             read: false
@@ -4197,7 +4205,6 @@ async function surrenderFromGame () {
         showNotification('Erro ao desistir: ' + error.message, 'error');
     }
 }
-
 // ===== FUNÇÃO SHOW CONFIRM MODAL =====
 async function showConfirmModal(title, message) {
   return new Promise((resolve) => {
@@ -4659,8 +4666,7 @@ function cleanFirestoreData(data) {
     });
     return cleaned;
 }
-
-// ===== FUNÇÃO ENDGAME SAFE COMPLETA =====
+// ===== FUNÇÃO ENDGAME SAFE COMPLETA (CORRIGIDA) =====
 async function endGameSafe(result) {
     // Prevenir múltiplas execuções
     if (isGameEnding) {
@@ -4685,51 +4691,112 @@ async function endGameSafe(result) {
         const betAmount = gameState.bet || 0;
         
         if (result === 'draw') {
-            // Processar empate
+            // Processar empate - devolver apostas
+            console.log('🤝 Processando empate - devolvendo apostas');
+            
             for (const player of gameState.players) {
-                if (player.uid) {
+                if (player.uid && betAmount > 0) {
                     await db.collection('users').doc(player.uid).update({
                         coins: firebase.firestore.FieldValue.increment(betAmount),
                         draws: firebase.firestore.FieldValue.increment(1),
                         rating: firebase.firestore.FieldValue.increment(2)
                     });
+                    
+                    // Atualizar dados locais
+                    if (player.uid === currentUser.uid) {
+                        userData.coins += betAmount;
+                        userData.draws = (userData.draws || 0) + 1;
+                        userData.rating = (userData.rating || 1000) + 2;
+                    }
                 }
             }
             showNotification('Empate! Apostas devolvidas.', 'info');
+            
         } else {
             // Processar vitória
-            const calculation = calculatePrize(betAmount);
+            console.log('🎯 Processando vitória para:', result);
+            
             const winningPlayer = gameState.players.find(p => p.color === result);
-            
-            if (winningPlayer && winningPlayer.uid) {
-                await db.collection('users').doc(winningPlayer.uid).update({
-                    coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
-                    wins: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(10)
-                });
-            }
-            
             const losingPlayer = gameState.players.find(p => p.color !== result);
-            if (losingPlayer && losingPlayer.uid) {
-                await db.collection('users').doc(losingPlayer.uid).update({
-                    losses: firebase.firestore.FieldValue.increment(1),
-                    rating: firebase.firestore.FieldValue.increment(-5)
-                });
+            
+            if (!winningPlayer || !losingPlayer) {
+                console.error('Jogadores não encontrados para processar vitória');
+                return;
             }
             
-            // Registrar earnings apenas se houver aposta e winner definido
-            if (betAmount > 0 && winningPlayer) {
+            if (betAmount > 0) {
+                // 🔥 CORREÇÃO: Cálculo correto do prêmio
+                const calculation = calculatePrize(betAmount);
+                
+                console.log('📊 Distribuição de prêmios:');
+                console.log('- Vencedor recebe:', calculation.winnerPrize, 'moedas');
+                console.log('- Taxa da plataforma:', calculation.platformFee, 'moedas');
+                
+                // VENCEDOR: Recebe o prêmio líquido
+                if (winningPlayer.uid) {
+                    await db.collection('users').doc(winningPlayer.uid).update({
+                        coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
+                        wins: firebase.firestore.FieldValue.increment(1),
+                        rating: firebase.firestore.FieldValue.increment(10)
+                    });
+                    
+                    // Atualizar dados locais se for o usuário atual
+                    if (winningPlayer.uid === currentUser.uid) {
+                        userData.coins += calculation.winnerPrize;
+                        userData.wins = (userData.wins || 0) + 1;
+                        userData.rating = (userData.rating || 1000) + 10;
+                    }
+                }
+                
+                // PERDEDOR: Não recebe nada (já foi debitado quando entrou na mesa)
+                if (losingPlayer.uid) {
+                    await db.collection('users').doc(losingPlayer.uid).update({
+                        losses: firebase.firestore.FieldValue.increment(1),
+                        rating: firebase.firestore.FieldValue.increment(-5)
+                    });
+                    
+                    // Atualizar dados locais se for o usuário atual
+                    if (losingPlayer.uid === currentUser.uid) {
+                        userData.losses = (userData.losses || 0) + 1;
+                        userData.rating = (userData.rating || 1000) - 5;
+                    }
+                }
+                
+                // Registrar lucro da plataforma
                 const earningsData = cleanFirestoreData({
                     amount: calculation.platformFee,
                     betAmount: betAmount,
                     tableId: currentGameRef.id,
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     players: gameState.players.map(p => p.uid),
-                    winner: winningPlayer.uid
+                    winner: winningPlayer.uid,
+                    winnerPrize: calculation.winnerPrize
                 });
                 
                 await db.collection('platformEarnings').add(earningsData);
-                showNotification(`Ganhador recebeu ${calculation.winnerPrize} moedas`, 'success');
+                
+                showNotification(
+                    `Vitória! Você recebeu ${calculation.winnerPrize} moedas (${calculation.platformFee} moedas de taxa)`, 
+                    'success'
+                );
+                
+            } else {
+                // Jogo sem aposta - apenas atualizar estatísticas
+                if (winningPlayer.uid) {
+                    await db.collection('users').doc(winningPlayer.uid).update({
+                        wins: firebase.firestore.FieldValue.increment(1),
+                        rating: firebase.firestore.FieldValue.increment(10)
+                    });
+                }
+                
+                if (losingPlayer.uid) {
+                    await db.collection('users').doc(losingPlayer.uid).update({
+                        losses: firebase.firestore.FieldValue.increment(1),
+                        rating: firebase.firestore.FieldValue.increment(-5)
+                    });
+                }
+                
+                showNotification('Vitória! +10 pontos de rating', 'success');
             }
         }
         
@@ -4823,17 +4890,29 @@ const PLATFORM_FEES = {
 
 
 
-
-
-function calculatePrize(totalPot) {
-    const houseFee = totalPot * (HOUSE_FEE_PERCENTAGE / 100);
-    const prize = totalPot - houseFee;
+// ===== FUNÇÃO CALCULAR PRÊMIO (CORRIGIDA) =====
+function calculatePrize(betAmount) {
+    // Em uma aposta de 100 vs 100, o pote total é 200
+    const totalPot = betAmount * 2;
     
-    console.log(`Pote total: ${totalPot} moedas`);
-    console.log(`Taxa da casa (${HOUSE_FEE_PERCENTAGE}%): ${houseFee} moedas`);
-    console.log(`Prêmio líquido: ${prize} moedas`);
+    // Taxa da plataforma (15%)
+    const platformFee = totalPot * 0.15;
     
-    return prize;
+    // Prêmio líquido para o vencedor (85% do pote)
+    const winnerPrize = totalPot - platformFee;
+    
+    console.log(`💰 Cálculo de prêmio:`);
+    console.log(`• Aposta individual: ${betAmount} moedas`);
+    console.log(`• Pote total: ${totalPot} moedas`);
+    console.log(`• Taxa da plataforma (15%): ${platformFee} moedas`);
+    console.log(`• Prêmio do vencedor: ${winnerPrize} moedas`);
+    
+    return {
+        totalPot: totalPot,
+        platformFee: platformFee,
+        winnerPrize: winnerPrize,
+        originalBet: betAmount
+    };
 }
 
 /**
@@ -6959,8 +7038,7 @@ function updateTimerDisplay() {
         timerElement.className = 'game-timer';
     }
 }
-
-// ===== FUNÇÃO TIME EXPIRED =====
+// ===== FUNÇÃO TIME EXPIRED (CORRIGIDA) =====
 async function timeExpired() {
     console.log('Tempo esgotado! Finalizando jogo...');
     stopMoveTimer();
@@ -6969,7 +7047,7 @@ async function timeExpired() {
     
     const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
     
-    // Verificar se ainda é a vez do jogador (pode ter mudado durante o tempo)
+    // Verificar se ainda é a vez do jogador
     if (currentPlayer && currentPlayer.color === gameState.currentTurn) {
         try {
             showNotification('Tempo esgotado! Você perdeu.', 'error');
@@ -6983,30 +7061,42 @@ async function timeExpired() {
                 return;
             }
             
-            // Calcular recompensas
             const betAmount = gameState.bet || 0;
-            const reward = betAmount * 2; // O vencedor recebe o dobro
             
-            // Preparar atualizações em batch
-            const batch = db.batch();
-            const usersRef = db.collection('users');
+            if (betAmount > 0) {
+                // 🔥 CORREÇÃO: Cálculo correto do prêmio
+                const calculation = calculatePrize(betAmount);
+                
+                // Vencedor recebe o prêmio líquido
+                await db.collection('users').doc(winningPlayer.uid).update({
+                    coins: firebase.firestore.FieldValue.increment(calculation.winnerPrize),
+                    wins: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(10)
+                });
+                
+                // Registrar lucro da plataforma
+                await db.collection('platformEarnings').add({
+                    amount: calculation.platformFee,
+                    betAmount: betAmount,
+                    tableId: currentGameRef.id,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    winner: winningPlayer.uid,
+                    timeout: true
+                });
+                
+            } else {
+                // Sem aposta - apenas estatísticas
+                await db.collection('users').doc(winningPlayer.uid).update({
+                    wins: firebase.firestore.FieldValue.increment(1),
+                    rating: firebase.firestore.FieldValue.increment(10)
+                });
+            }
             
-            // Atualizar perdedor (quem ficou sem tempo)
-            batch.update(usersRef.doc(currentPlayer.uid), {
+            // Atualizar perdedor
+            await db.collection('users').doc(currentPlayer.uid).update({
                 losses: firebase.firestore.FieldValue.increment(1),
-                rating: firebase.firestore.FieldValue.increment(-15),
-                coins: firebase.firestore.FieldValue.increment(-betAmount)
+                rating: firebase.firestore.FieldValue.increment(-15)
             });
-            
-            // Atualizar vencedor
-            batch.update(usersRef.doc(winningPlayer.uid), {
-                wins: firebase.firestore.FieldValue.increment(1),
-                rating: firebase.firestore.FieldValue.increment(10),
-                coins: firebase.firestore.FieldValue.increment(reward)
-            });
-            
-            // Executar atualizações
-            await batch.commit();
             
             // Atualizar estado do jogo com vitória por tempo
             await currentGameRef.update({
@@ -7021,7 +7111,7 @@ async function timeExpired() {
             
             console.log('Jogo finalizado por tempo esgotado');
             
-            // Notificar ambos os jogadores
+            // Notificar vencedor
             if (winningPlayer.uid) {
                 await db.collection('notifications').add({
                     type: 'timeout_win',
