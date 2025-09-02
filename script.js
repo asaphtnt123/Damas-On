@@ -411,6 +411,8 @@ function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
         // 9. SISTEMA DE VOZ
     initializeVoiceChat();
+        initializeVoiceListeners(); // ADICIONE ESTA LINHA
+
     
     // 1. DECLARAR TODAS AS VARIÁVEIS PRIMEIRO
     if (typeof notificationSound === 'undefined') {
@@ -470,6 +472,8 @@ function initializeApp() {
     // 8. CONFIGURAÇÕES DE MANUTENÇÃO
     setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
     setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
+
+    setupAudioTest()
     
     // 9. VERIFICAR DESAFIOS PENDENTES AO INICIAR
     if (currentUser) {
@@ -526,37 +530,97 @@ async function toggleVoiceChat() {
         showNotification('Erro ao ativar voz: ' + error.message, 'error');
     }
 }
-
-// ===== INICIAR CHAT DE VOZ =====
+// ===== INICIAR CHAT DE VOZ (CORRIGIDA) =====
 async function startVoiceChat() {
     try {
+        console.log('Solicitando acesso ao microfone...');
+        
         // Obter permissão de microfone
         voiceChatSystem.localStream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
+                autoGainControl: true,
+                channelCount: 1
             },
             video: false
         });
         
         console.log('🎤 Microfone acessado com sucesso');
+        console.log('Audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
+        
+        // Verificar se há áudio
+        const audioTracks = voiceChatSystem.localStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+            throw new Error('Nenhum microfone detectado');
+        }
+        
+        // Testar o microfone localmente
+        const localAudio = document.createElement('audio');
+        localAudio.srcObject = voiceChatSystem.localStream;
+        localAudio.volume = 0.1; // Volume baixo para feedback
+        document.body.appendChild(localAudio);
+        
+        setTimeout(() => {
+            localAudio.remove();
+        }, 2000);
         
         // Iniciar conexões com outros jogadores/espectadores
         if (currentGameRef) {
             await setupVoiceConnections();
         }
         
+        showNotification('Microfone ativado', 'success');
+        
     } catch (error) {
         console.error('Erro ao acessar microfone:', error);
         if (error.name === 'NotAllowedError') {
             showNotification('Permissão de microfone negada', 'error');
+        } else if (error.name === 'NotFoundError') {
+            showNotification('Nenhum microfone encontrado', 'error');
         } else {
             showNotification('Erro ao acessar microfone: ' + error.message, 'error');
         }
+        
+        // Resetar estado
+        voiceChatSystem.isEnabled = false;
+        const voiceToggle = document.getElementById('voice-toggle');
+        if (voiceToggle) {
+            voiceToggle.classList.remove('active');
+            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
+        }
+        
         throw error;
     }
 }
+
+// ===== TESTAR ÁUDIO =====
+function setupAudioTest() {
+    const testButton = document.getElementById('test-audio');
+    if (testButton) {
+        testButton.style.display = 'block';
+        testButton.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audio = document.createElement('audio');
+                audio.srcObject = stream;
+                audio.volume = 0.5;
+                audio.play();
+                showNotification('Teste de áudio iniciado', 'success');
+                
+                setTimeout(() => {
+                    audio.pause();
+                    stream.getTracks().forEach(track => track.stop());
+                    showNotification('Teste de áudio finalizado', 'info');
+                }, 3000);
+            } catch (error) {
+                showNotification('Erro no teste de áudio: ' + error.message, 'error');
+            }
+        });
+    }
+}
+
+
 
 // ===== PARAR CHAT DE VOZ =====
 function stopVoiceChat() {
@@ -614,38 +678,61 @@ async function setupVoiceConnections() {
         console.error('Erro ao configurar conexões de voz:', error);
     }
 }
+
 // ===== CRIAR CONEXÃO PEER (CORRIGIDA) =====
 function createPeerConnection(userId) {
     if (voiceChatSystem.peerConnections[userId]) {
         return voiceChatSystem.peerConnections[userId];
     }
     
+    console.log('Criando conexão peer para:', userId);
+    
     const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
     voiceChatSystem.peerConnections[userId] = peerConnection;
     
     // Adicionar stream local se disponível
     if (voiceChatSystem.localStream) {
+        console.log('Adicionando tracks locais à conexão');
         voiceChatSystem.localStream.getTracks().forEach(track => {
+            console.log('Adicionando track:', track.kind);
             peerConnection.addTrack(track, voiceChatSystem.localStream);
         });
+    } else {
+        console.warn('Stream local não disponível ao criar peer connection');
     }
     
     // Manipular stream remoto
     peerConnection.ontrack = (event) => {
+        console.log('Stream remoto recebido de:', userId);
         const remoteStream = event.streams[0];
-        setupAudioElement(userId, remoteStream);
+        if (remoteStream) {
+            console.log('Stream remoto tem áudio tracks:', remoteStream.getAudioTracks().length);
+            setupAudioElement(userId, remoteStream);
+        }
     };
     
     // Manipular ICE candidates
     peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log('Novo ICE candidate para:', userId);
             sendIceCandidate(userId, event.candidate);
         }
     };
     
     // Manipular mudanças de estado
     peerConnection.onconnectionstatechange = () => {
-        console.log(`Conexão com ${userId}: ${peerConnection.connectionState}`);
+        const state = peerConnection.connectionState;
+        console.log(`Conexão com ${userId}: ${state}`);
+        
+        if (state === 'connected') {
+            showNotification('Conexão de voz estabelecida', 'success');
+        } else if (state === 'disconnected' || state === 'failed') {
+            showNotification('Conexão de voz perdida', 'warning');
+        }
+    };
+    
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log(`Estado ICE com ${userId}: ${peerConnection.iceConnectionState}`);
     };
     
     return peerConnection;
@@ -710,12 +797,21 @@ async function createOffer(userId) {
         console.error('Erro ao criar oferta:', error);
     }
 }
-
-// ===== CONFIGURAR ELEMENTO DE ÁUDIO =====
+// ===== CONFIGURAR ELEMENTO DE ÁUDIO (COM DEBUG) =====
 function setupAudioElement(userId, stream) {
+    console.log('Configurando áudio para usuário:', userId);
+    console.log('Stream recebido:', stream);
+    console.log('Áudio tracks:', stream.getAudioTracks().length);
+    
+    if (stream.getAudioTracks().length === 0) {
+        console.error('Nenhuma audio track no stream remoto');
+        return;
+    }
+    
     // Remover elemento existente
     if (audioElements[userId]) {
         audioElements[userId].remove();
+        delete audioElements[userId];
     }
     
     // Criar novo elemento de áudio
@@ -725,11 +821,60 @@ function setupAudioElement(userId, stream) {
     audio.style.display = 'none';
     audio.srcObject = stream;
     
+    // Event listeners para debug
+    audio.addEventListener('loadedmetadata', () => {
+        console.log('Áudio carregado para usuário:', userId);
+    });
+    
+    audio.addEventListener('canplay', () => {
+        console.log('Áudio pode ser reproduzido para usuário:', userId);
+        audio.play().catch(error => {
+            console.error('Erro ao reproduzir áudio:', error);
+        });
+    });
+    
+    audio.addEventListener('error', (error) => {
+        console.error('Erro no elemento de áudio:', error);
+    });
+    
     document.body.appendChild(audio);
     audioElements[userId] = audio;
     
     console.log('🔊 Áudio configurado para usuário:', userId);
+    
+    // Tentar reproduzir manualmente
+    setTimeout(() => {
+        audio.play().catch(error => {
+            console.error('Erro ao reproduzir áudio (timeout):', error);
+        });
+    }, 1000);
 }
+
+// ===== VERIFICAR CONEXÕES DE VOZ =====
+function checkVoiceConnections() {
+    console.log('=== VERIFICAÇÃO DE CONEXÕES DE VOZ ===');
+    console.log('Voice chat enabled:', voiceChatSystem.isEnabled);
+    console.log('Local stream:', voiceChatSystem.localStream ? 'Disponível' : 'Não disponível');
+    
+    if (voiceChatSystem.localStream) {
+        console.log('Local audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
+        voiceChatSystem.localStream.getAudioTracks().forEach((track, index) => {
+            console.log(`Track ${index}:`, track.enabled ? 'Ativa' : 'Inativa', track.muted ? 'Muted' : 'Not muted');
+        });
+    }
+    
+    console.log('Peer connections:', Object.keys(voiceChatSystem.peerConnections).length);
+    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
+        console.log(`Conexão ${userId}:`, pc.connectionState, pc.iceConnectionState);
+    });
+    
+    console.log('Audio elements:', Object.keys(audioElements).length);
+}
+
+// Adicione ao window para testar no console
+window.checkVoice = checkVoiceConnections;
+
+
 // ===== ENVIAR ICE CANDIDATE (CORRIGIDA) =====
 async function sendIceCandidate(userId, candidate) {
     try {
