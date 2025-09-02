@@ -411,7 +411,6 @@ function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
         // 9. SISTEMA DE VOZ
     initializeVoiceChat();
-        initializeVoiceListeners(); // ADICIONE ESTA LINHA
 
     
     // 1. DECLARAR TODAS AS VARIÁVEIS PRIMEIRO
@@ -504,9 +503,13 @@ function initializeVoiceChat() {
     
     console.log('✅ Sistema de voz inicializado');
 }
-
-// ===== TOGGLE VOICE CHAT =====
+// ===== TOGGLE VOICE CHAT (COM VERIFICAÇÃO DE SEGURANÇA) =====
 async function toggleVoiceChat() {
+    if (!currentUser || !currentUser.uid) {
+        showNotification('Você precisa estar logado para usar o chat de voz', 'error');
+        return;
+    }
+    
     const voiceToggle = document.getElementById('voice-toggle');
     
     try {
@@ -897,14 +900,15 @@ async function sendIceCandidate(userId, candidate) {
         console.error('Erro ao enviar ICE candidate:', error);
     }
 }
-
-// ===== INICIALIZAR LISTENERS DE VOZ (COMPLETO) =====
+// ===== INICIALIZAR LISTENERS DE VOZ (CORRIGIDA) =====
 function initializeVoiceListeners() {
-        if (!db) return;
+    if (!db || !currentUser || !currentUser.uid) {
+        console.log('🎧 Listeners de voz não inicializados - usuário não logado');
+        return;
+    }
 
-        console.log('🎧 Inicializando listeners de voz...');
-
-
+    console.log('🎧 Inicializando listeners de voz para usuário:', currentUser.uid);
+    
     // Listener para ofertas de voz
     db.collection('voiceOffers')
         .where('to', '==', currentUser.uid)
@@ -1642,15 +1646,20 @@ function setupTimerPause() {
 function initializeAuth() {
     console.log('Inicializando autenticação...');
     
-     auth.onAuthStateChanged(async (user) => {
+    auth.onAuthStateChanged(async (user) => {
         console.log('Estado de autenticação alterado:', user);
         
         if (user) {
             currentUser = user;
-              // Reiniciar listener de notificações
-        if (typeof setupChallengeListener === 'function') {
-            setupChallengeListener();
-        }
+            
+            // Reiniciar listener de notificações
+            if (typeof setupChallengeListener === 'function') {
+                setupChallengeListener();
+            }
+            
+            // Inicializar listeners de voz APÓS o login
+            initializeVoiceListeners();
+            
             // Marcar usuário como online ao fazer login
             await updateUserOnlineStatus();
             
@@ -1666,25 +1675,26 @@ function initializeAuth() {
             
             // Iniciar listener de mesa ativa
             setupActiveTableListener();
-              // 🔥 IMPORTANTE: Reiniciar listener de notificações
-        console.log('🔄 Reiniciando listener de notificações para usuário:', user.uid);
-        setTimeout(() => {
-            setupChallengeListener();
-            checkActiveListener();
-        }, 2000);
+            
+            // 🔥 IMPORTANTE: Reiniciar listener de notificações
+            console.log('🔄 Reiniciando listener de notificações para usuário:', user.uid);
+            setTimeout(() => {
+                setupChallengeListener();
+                checkActiveListener();
+            }, 2000);
 
         } else {
-
             // Limpar notificações ao fazer logout
-        if (typeof cleanupNotifications === 'function') {
-            cleanupNotifications();
-        }
- // Parar listener ao fazer logout
-        if (window.challengeListener) {
-            window.challengeListener();
-            window.challengeListener = null;
-            console.log('🔌 Listener de notificações parado (logout)');
-        }
+            if (typeof cleanupNotifications === 'function') {
+                cleanupNotifications();
+            }
+            
+            // Parar listener ao fazer logout
+            if (window.challengeListener) {
+                window.challengeListener();
+                window.challengeListener = null;
+                console.log('🔌 Listener de notificações parado (logout)');
+            }
 
             // Marcar como offline ao fazer logout
             if (currentUser) {
