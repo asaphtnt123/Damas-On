@@ -13,8 +13,51 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
+// ===== VARIÁVEIS GLOBAIS COMPLETAS =====
+// Sistema de áudio
+let audioManager = {
+    playNotificationSound: function() { console.log('🔊 Som de notificação (fallback)'); },
+    playChallengeSound: function() { console.log('🎯 Som de desafio (fallback)'); },
+    playGameStartSound: function() { console.log('🎮 Som de início de jogo (fallback)'); },
+    playClickSound: function() { console.log('🖱️ Som de clique (fallback)'); },
+    playVictorySound: function() { console.log('🎉 Som de vitória (fallback)'); },
+    playDefeatSound: function() { console.log('😞 Som de derrota (fallback)'); },
+    playSelectionSound: function() { console.log('🔘 Som de seleção (fallback)'); },
+    createSound: function() { console.log('🎵 Criando som (fallback)'); }
+};
 
-// ===== VARIÁVEIS GLOBAIS =====
+let notificationSound = null;
+
+// Sistema de renderização
+let lastRenderTime = 0;
+let lastRenderedBoardHash = '';
+
+// Sistema de notificações
+let activeNotifications = new Map();
+
+// Sistema de espectadores
+let spectatorsModal = null;
+
+// Sistema de mesas
+let activeTableListener = null;
+
+// Sistema de voz
+// Sistema de voz
+let voiceChatSystem = {
+    isEnabled: false,
+    localStream: null,
+    peerConnections: {},
+    configuration: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    }
+};
+let audioElements = {};
+
+
+// Variáveis principais do jogo
 let currentUser = null;
 let userData = null;
 let gameState = null;
@@ -24,9 +67,16 @@ let gameListener = null;
 let tablesListener = null;
 let userActiveTable = null;
 
+// Sistema de timer
 let moveTimer = null;
 let timeLeft = 0;
 let currentTimeLimit = 0;
+
+// Sistema de capturas (ADICIONE ESTAS VARIÁVEIS)
+let lastCaptureCheckTime = 0;
+let lastBoardStateHash = '';
+let hasGlobalMandatoryCaptures = false;
+let capturingPieces = [];
 
 
 // ===== ATUALIZAR LAST LOGIN E STATUS ONLINE =====
@@ -323,54 +373,6 @@ function checkRequiredElements() {
     }
   });
 }
-
-
-function initializeApp() {
-    console.log('🚀 Inicializando aplicação Damas Online...');
-     // 1. Inicializar sistema de som
-    createSoundControls();
-    initializeGameWithSound();
-
-    
-    // 1. Sistemas de autenticação e UI
-    initializeAuth();
-    initializeUI();
-    initializeRegisterForm();
-    
-    // 2. Sistemas de jogo
-    initializeGame();
-    initializeNotifications();
-    initializeChallengeNotifications(); // ← ADICIONAR ESTA LINHA
-    setupConnectionMonitoring();
-    setupTimerPause();
-    initializeTableCheck();
-    
-    // 3. Sistemas de usuário e online
-    setupWindowCloseHandler();
-    initializeOnlineUsersModal();
-    
-    // 4. Outros sistemas
-    initializeChat();
-    initializeSpectatorsModal();
-    initializeProfileModal();
-    initializeCoinsModal();
-    
-    // 5. Configurações de manutenção
-    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
-    setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
-    
-    // 6. Verificar desafios pendentes ao iniciar
-    if (currentUser) {
-        setTimeout(checkPendingChallenges, 3000);
-    }
-    
-    // 7. Debug e verificação
-    checkRequiredElements();
-    
-    console.log('✅ Aplicação inicializada com sucesso!');
-}
-
-
 // ===== TESTAR NOTIFICAÇÃO =====
 async function testNotification() {
     if (!currentUser || !db) {
@@ -404,6 +406,396 @@ async function testNotification() {
     } catch (error) {
         console.error('Erro no teste:', error);
     }
+}
+function initializeApp() {
+    console.log('🚀 Inicializando aplicação Damas Online...');
+        // 9. SISTEMA DE VOZ
+    initializeVoiceChat();
+    
+    // 1. DECLARAR TODAS AS VARIÁVEIS PRIMEIRO
+    if (typeof notificationSound === 'undefined') {
+        var notificationSound = null;
+        console.log('🔊 notificationSound declarado');
+    }
+    
+    if (typeof audioManager === 'undefined') {
+        var audioManager = {
+            playChallengeSound: function() { console.log('🎯 Som de desafio (fallback)'); },
+            playNotificationSound: function() { console.log('🔊 Som de notificação (fallback)'); },
+            playGameStartSound: function() { console.log('🎮 Som de início de jogo (fallback)'); },
+            playClickSound: function() { console.log('🖱️ Som de clique (fallback)'); },
+            playVictorySound: function() { console.log('🎉 Som de vitória (fallback)'); },
+            playDefeatSound: function() { console.log('😞 Som de derrota (fallback)'); },
+            playSelectionSound: function() { console.log('🔘 Som de seleção (fallback)'); },
+            createSound: function() { console.log('🎵 Criando som (fallback)'); }
+        };
+        console.log('🔊 audioManager declarado');
+    }
+    
+    if (typeof activeNotifications === 'undefined') {
+        var activeNotifications = new Map();
+        console.log('📋 activeNotifications declarado');
+    }
+    
+    // 2. INICIALIZAR VARIÁVEIS GLOBAIS
+    initializeGlobalVariables();
+    
+    // 3. SISTEMAS BÁSICOS
+    createSoundControls();
+    initializeGameWithSound();
+    
+    // 4. SISTEMAS PRINCIPAIS
+    initializeAuth();
+    initializeUI();
+    initializeRegisterForm();
+    
+    // 5. SISTEMAS DE JOGO
+    initializeGame();
+    initializeNotifications();
+    initializeChallengeNotifications();
+    setupConnectionMonitoring();
+    setupTimerPause();
+    initializeTableCheck();
+    
+    // 6. SISTEMAS SECUNDÁRIOS
+    setupWindowCloseHandler();
+    initializeOnlineUsersModal();
+    
+    // 7. OUTROS SISTEMAS
+    initializeChat();
+    initializeSpectatorsModal();
+    initializeProfileModal();
+    initializeCoinsModal();
+    
+    // 8. CONFIGURAÇÕES DE MANUTENÇÃO
+    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
+    setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
+    
+    // 9. VERIFICAR DESAFIOS PENDENTES AO INICIAR
+    if (currentUser) {
+        setTimeout(checkPendingChallenges, 3000);
+    }
+    
+    console.log('✅ Aplicação inicializada com sucesso!');
+}
+
+// ===== INICIALIZAR SISTEMA DE VOZ =====
+function initializeVoiceChat() {
+    console.log('🎤 Inicializando sistema de voz...');
+    
+    const voiceToggle = document.getElementById('voice-toggle');
+    if (!voiceToggle) {
+        console.error('Botão de voz não encontrado');
+        return;
+    }
+    
+    voiceToggle.addEventListener('click', toggleVoiceChat);
+    
+    // Verificar suporte a WebRTC
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('WebRTC não suportado neste navegador');
+        voiceToggle.style.display = 'none';
+        return;
+    }
+    
+    console.log('✅ Sistema de voz inicializado');
+}
+
+// ===== TOGGLE VOICE CHAT =====
+async function toggleVoiceChat() {
+    const voiceToggle = document.getElementById('voice-toggle');
+    
+    try {
+        if (!voiceChatSystem.isEnabled) {
+            // Ativar voz
+            await startVoiceChat();
+            voiceToggle.classList.add('active');
+            voiceToggle.innerHTML = '<i class="fas fa-microphone"></i> Voz Ativa';
+            voiceChatSystem.isEnabled = true;
+            showNotification('Chat de voz ativado', 'success');
+        } else {
+            // Desativar voz
+            stopVoiceChat();
+            voiceToggle.classList.remove('active');
+            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
+            voiceChatSystem.isEnabled = false;
+            showNotification('Chat de voz desativado', 'info');
+        }
+    } catch (error) {
+        console.error('Erro ao alternar voz:', error);
+        showNotification('Erro ao ativar voz: ' + error.message, 'error');
+    }
+}
+
+// ===== INICIAR CHAT DE VOZ =====
+async function startVoiceChat() {
+    try {
+        // Obter permissão de microfone
+        voiceChatSystem.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            video: false
+        });
+        
+        console.log('🎤 Microfone acessado com sucesso');
+        
+        // Iniciar conexões com outros jogadores/espectadores
+        if (currentGameRef) {
+            await setupVoiceConnections();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao acessar microfone:', error);
+        if (error.name === 'NotAllowedError') {
+            showNotification('Permissão de microfone negada', 'error');
+        } else {
+            showNotification('Erro ao acessar microfone: ' + error.message, 'error');
+        }
+        throw error;
+    }
+}
+
+// ===== PARAR CHAT DE VOZ =====
+function stopVoiceChat() {
+    // Parar stream local
+    if (voiceChatSystem.localStream) {
+        voiceChatSystem.localStream.getTracks().forEach(track => track.stop());
+        voiceChatSystem.localStream = null;
+    }
+    
+    // Fechar todas as conexões
+    Object.values(voiceChatSystem.peerConnections).forEach(pc => {
+        pc.close();
+    });
+    voiceChatSystem.peerConnections = {};
+    
+    // Remover todos os elementos de áudio
+    Object.values(audioElements).forEach(audio => {
+        if (audio.parentNode) {
+            audio.parentNode.removeChild(audio);
+        }
+    });
+    audioElements = {};
+    
+    console.log('🔇 Chat de voz parado');
+}
+
+// ===== CONFIGURAR CONEXÕES DE VOZ =====
+async function setupVoiceConnections() {
+    if (!currentGameRef || !voiceChatSystem.localStream) return;
+    
+    try {
+        // Obter lista de jogadores e espectadores
+        const tableDoc = await currentGameRef.get();
+        const tableData = tableDoc.data();
+        
+        // Conectar com outros jogadores
+        if (tableData.players) {
+            tableData.players.forEach(player => {
+                if (player.uid !== currentUser.uid) {
+                    createPeerConnection(player.uid);
+                }
+            });
+        }
+        
+        // Conectar com espectadores (opcional)
+        if (currentSpectators.length > 0) {
+            currentSpectators.forEach(spectator => {
+                if (spectator.id !== currentUser.uid) {
+                    createPeerConnection(spectator.id);
+                }
+            });
+        }
+        
+    } catch (error) {
+        console.error('Erro ao configurar conexões de voz:', error);
+    }
+}
+
+// ===== CRIAR CONEXÃO PEER =====
+function createPeerConnection(userId) {
+    if (voiceChatSystem.peerConnections[userId]) {
+        return; // Conexão já existe
+    }
+    
+    const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
+    voiceChatSystem.peerConnections[userId] = peerConnection;
+    
+    // Adicionar stream local
+    voiceChatSystem.localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, voiceChatSystem.localStream);
+    });
+    
+    // Manipular stream remoto
+    peerConnection.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        setupAudioElement(userId, remoteStream);
+    };
+    
+    // Manipular ICE candidates
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+            sendIceCandidate(userId, event.candidate);
+        }
+    };
+    
+    // Criar oferta
+    createOffer(userId);
+}
+// ===== CRIAR OFERTA =====
+async function createOffer(userId) {
+    try {
+        const peerConnection = voiceChatSystem.peerConnections[userId];
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        // Enviar oferta via Firestore
+        await db.collection('voiceOffers').add({
+            from: currentUser.uid,
+            to: userId,
+            offer: offer,
+            tableId: currentGameRef.id,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+    } catch (error) {
+        console.error('Erro ao criar oferta:', error);
+    }
+}
+
+// ===== CONFIGURAR ELEMENTO DE ÁUDIO =====
+function setupAudioElement(userId, stream) {
+    // Remover elemento existente
+    if (audioElements[userId]) {
+        audioElements[userId].remove();
+    }
+    
+    // Criar novo elemento de áudio
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.controls = false;
+    audio.style.display = 'none';
+    audio.srcObject = stream;
+    
+    document.body.appendChild(audio);
+    audioElements[userId] = audio;
+    
+    console.log('🔊 Áudio configurado para usuário:', userId);
+}
+
+// ===== ENVIAR ICE CANDIDATE =====
+async function sendIceCandidate(userId, candidate) {
+    try {
+        await db.collection('voiceCandidates').add({
+            from: currentUser.uid,
+            to: userId,
+            candidate: candidate,
+            tableId: currentGameRef.id,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error('Erro ao enviar ICE candidate:', error);
+    }
+}
+
+// ===== INICIALIZAR LISTENERS DE VOZ =====
+function initializeVoiceListeners() {
+    // Listener para ofertas de voz
+    db.collection('voiceOffers')
+        .where('to', '==', currentUser.uid)
+        .onSnapshot(async (snapshot) => {
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const offerData = change.doc.data();
+                    await handleVoiceOffer(offerData);
+                }
+            });
+        });
+    
+    // Listener para ICE candidates
+    db.collection('voiceCandidates')
+        .where('to', '==', currentUser.uid)
+        .onSnapshot(async (snapshot) => {
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const candidateData = change.doc.data();
+                    await handleIceCandidate(candidateData);
+                }
+            });
+        });
+}
+
+// ===== MANIPULAR OFERTA DE VOZ =====
+async function handleVoiceOffer(offerData) {
+    try {
+        const peerConnection = voiceChatSystem.peerConnections[offerData.from] || 
+                              createPeerConnection(offerData.from);
+        
+        await peerConnection.setRemoteDescription(offerData.offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        
+        // Enviar resposta
+        await db.collection('voiceAnswers').add({
+            from: currentUser.uid,
+            to: offerData.from,
+            answer: answer,
+            tableId: currentGameRef.id,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+    } catch (error) {
+        console.error('Erro ao manipular oferta de voz:', error);
+    }
+}
+
+// ===== MANIPULAR ICE CANDIDATE =====
+async function handleIceCandidate(candidateData) {
+    try {
+        const peerConnection = voiceChatSystem.peerConnections[candidateData.from];
+        if (peerConnection) {
+            await peerConnection.addIceCandidate(candidateData.candidate);
+        }
+    } catch (error) {
+        console.error('Erro ao manipular ICE candidate:', error);
+    }
+}
+// ===== INICIALIZAR VARIÁVEIS GLOBAIS =====
+function initializeGlobalVariables() {
+    console.log('📦 Inicializando variáveis globais...');
+    
+    // Garantir que todas as variáveis globais existam
+    if (typeof spectatorsModal === 'undefined') spectatorsModal = null;
+    if (typeof activeTableListener === 'undefined') activeTableListener = null;
+    if (typeof voiceChatSystem === 'undefined') voiceChatSystem = null;
+    if (typeof currentSpectators === 'undefined') currentSpectators = [];
+    
+    // Variáveis do sistema de notificações - CORRIGIDO
+    if (typeof activeNotifications === 'undefined') activeNotifications = new Map();
+    if (typeof notificationSound === 'undefined') {
+        window.notificationSound = null; // Usar window para garantir acesso global
+        console.log('🔊 notificationSound inicializado');
+    }
+    
+    // Variáveis do sistema de áudio
+    if (typeof audioManager === 'undefined') {
+        window.audioManager = {
+            playChallengeSound: function() { console.log('🎯 Som de desafio'); },
+            playNotificationSound: function() { console.log('🔊 Som de notificação'); },
+            playGameStartSound: function() { console.log('🎮 Som de início de jogo'); },
+            playClickSound: function() { console.log('🖱️ Som de clique'); },
+            playVictorySound: function() { console.log('🎉 Som de vitória'); },
+            playDefeatSound: function() { console.log('😞 Som de derrota'); },
+            playSelectionSound: function() { console.log('🔘 Som de seleção'); },
+            createSound: function() { console.log('🎵 Criando som'); }
+        };
+        console.log('🔊 audioManager inicializado');
+    }
+    
+    console.log('✅ Variáveis globais inicializadas');
 }
 
 // Adicione ao window para testar no console
@@ -1588,6 +1980,13 @@ function tryToDetectCountry() {
 }
 // ===== INTERFACE DO USUÁRIO =====
 function initializeUI() {
+
+    spectatorsModal = document.getElementById('spectators-modal');
+if (!spectatorsModal) {
+    spectatorsModal = null; // ou crie o modal
+}
+
+
   console.log('Inicializando interface do usuário...');
       // Inicializar chat
     initializeChat();
@@ -2156,52 +2555,69 @@ function showLoading(show) {
     }
   }
 }
-
-function showNotification(message, type = 'info') {
-const originalShowNotification = showNotification;
-showNotification = function(message, type) {
-    audioManager.playNotificationSound();
-    return originalShowNotification.call(this, message, type);
-};
-  // Remover notificações anteriores
-  removeExistingNotifications();
-  
-  // Criar elemento de notificação
-  const notification = document.createElement('div');
-  notification.className = `notification ${type}`;
-  
-  // Ícone baseado no tipo
-  let icon = 'info-circle';
-  if (type === 'error') icon = 'exclamation-triangle';
-  if (type === 'success') icon = 'check-circle';
-  if (type === 'warning') icon = 'exclamation-circle';
-  
-  notification.innerHTML = `
-    <i class="fas fa-${icon}"></i>
-    <span>${message}</span>
-  `;
-  
-  // Adicionar ao documento
-  document.body.appendChild(notification);
-  
-  // Remover após 5 segundos
-  setTimeout(() => {
-    notification.classList.add('fade-out');
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
-    }, 500);
-  }, 5000);
-}
-
-function removeExistingNotifications() {
-  const notifications = document.querySelectorAll('.notification');
-  notifications.forEach(notification => {
-    if (notification.parentNode) {
-      notification.parentNode.removeChild(notification);
+// ===== SHOW NOTIFICATION (CORRIGIDA) =====
+function showNotification(message, type = 'info', duration = 5000) {
+    console.log(`📢 Notificação [${type}]: ${message}`);
+    
+    // ✅ VERIFICAÇÃO SEGURA do audioManager
+    if (audioManager && typeof audioManager.playNotificationSound === 'function') {
+        try {
+            audioManager.playNotificationSound();
+        } catch (error) {
+            console.warn('Erro ao reproduzir som de notificação:', error);
+        }
+    } else {
+        console.warn('audioManager não disponível para tocar som de notificação');
     }
-  });
+    
+    // Remover notificações anteriores
+    removeExistingNotifications();
+    
+    // Criar elemento de notificação
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    
+    // Ícone baseado no tipo
+    let icon = 'info-circle';
+    if (type === 'error') icon = 'exclamation-triangle';
+    if (type === 'success') icon = 'check-circle';
+    if (type === 'warning') icon = 'exclamation-circle';
+    
+    notification.innerHTML = `
+        <i class="fas fa-${icon}"></i>
+        <span>${message}</span>
+    `;
+    
+    // Adicionar ao documento
+    document.body.appendChild(notification);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 100);
+    
+    // Remover após o tempo especificado
+    setTimeout(() => {
+        notification.classList.add('fade-out');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 500);
+    }, duration);
+}
+// ===== REMOVER NOTIFICAÇÕES EXISTENTES (CORRIGIDA) =====
+function removeExistingNotifications() {
+    try {
+        const notifications = document.querySelectorAll('.notification');
+        notifications.forEach(notification => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        });
+    } catch (error) {
+        console.warn('Erro ao remover notificações:', error);
+    }
 }
 
 // ===== GERENCIAMENTO DE USUÁRIO =====
@@ -2565,6 +2981,8 @@ async function createNewTable() {
         
         setupGameListener(tableRef.id);
         showScreen('game-screen');
+        setupGameListener(tableRef.id); // ← Use o ID da mesa criada
+
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa:', error);
@@ -2581,7 +2999,7 @@ joinTable = async function(tableId) {
 
     console.log('🎯 Entrando na mesa:', tableId);
     
-    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
+    // ✅ VERIFICAÇÃO CRÍTICA: garantir que tableId não está vazio
     if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
         console.error('❌ TableId inválido:', tableId);
         showNotification('Erro: ID da mesa inválido', 'error');
@@ -2603,7 +3021,19 @@ joinTable = async function(tableId) {
         
         const table = tableDoc.data();
 
-
+ // ✅ VERIFICAÇÃO: Garantir que table existe e tem status
+        if (!table) {
+            console.error('❌ Dados da mesa não encontrados');
+            showNotification('Erro ao carregar mesa', 'error');
+            userActiveTable = null;
+            return;
+        }
+        
+        // ✅ VALOR PADRÃO para status se não existir
+        if (!table.status) {
+            console.warn('⚠️ Status da mesa não definido, usando padrão "waiting"');
+            table.status = 'waiting';
+        }
 
         // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
         if (table.isChallenge && table.status === 'waiting') {
@@ -2820,8 +3250,7 @@ function setupSpectatorsListener(tableId) {
                 currentSpectators.push({ id: doc.id, ...doc.data() });
             });
             
-            // Atualizar contagem na mesa principal
-            await updateTableSpectatorsCount(tableId, currentSpectators.length);
+          
             
             // Atualizar badge do botão
             const badge = document.getElementById('spectators-count');
@@ -2842,13 +3271,21 @@ function setupSpectatorsListener(tableId) {
             console.error('Erro no listener de espectadores:', error);
         });
 }
+
+
 // ===== ATUALIZAR SPECTATORS UI CORRIGIDA =====
 function updateSpectatorsUI(oldSpectators = []) {
-    const spectatorsContainer = document.getElementById('spectators-container');
+     const spectatorsContainer = document.getElementById('spectators-container');
     const supportersContainer = document.getElementById('supporters-container');
     const spectatorsCountBadge = document.querySelector('.spectators-count-badge');
     
     if (!spectatorsContainer || !supportersContainer) return;
+    
+    // Atualizar contador na mesa principal (se tableId for fornecido)
+    if (tableId) {
+        updateTableSpectatorsCount(tableId, currentSpectators.length);
+    }
+    
     
     // Atualizar contador
     if (spectatorsCountBadge) {
@@ -3103,8 +3540,27 @@ function renderTable(table, container) {
 
 
 // ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
+// ===== SETUP GAME LISTENER (CORRIGIDA) =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
+    
+    // ✅ VERIFICAÇÃO EXTRA: Garantir que tableId existe
+    if (typeof tableId === 'undefined') {
+        console.error('❌ tableId não definido em setupGameListener');
+        
+        // Tentar obter tableId de outras fontes
+        if (userActiveTable) {
+            tableId = userActiveTable;
+            console.log('🔄 Usando userActiveTable como tableId:', tableId);
+        } else if (currentGameRef) {
+            tableId = currentGameRef.id;
+            console.log('🔄 Usando currentGameRef.id como tableId:', tableId);
+        } else {
+            console.error('❌ Não foi possível determinar tableId');
+            showNotification('Erro ao conectar com o jogo', 'error');
+            return;
+        }
+    }
     
     // Remover listener anterior se existir
     if (gameListener) {
@@ -3113,10 +3569,10 @@ function setupGameListener(tableId) {
         gameListener = null;
     }
     
-    // Verificar se tableId é válido
-    if (!tableId) {
-        console.error('❌ ID da mesa inválido');
-        showNotification('Erro ao entrar na mesa', 'error');
+    // ✅ VERIFICAÇÃO CRÍTICA: Garantir que tableId é válido
+    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
+        console.error('❌ ID da mesa inválido em setupGameListener:', tableId);
+        showNotification('Erro ao conectar com o jogo', 'error');
         return;
     }
     
@@ -3134,7 +3590,7 @@ function setupGameListener(tableId) {
         isProcessing = true;
         
         try {
-            // Verificar se a referência ainda é a mesma
+            // ✅ VERIFICAÇÃO: Verificar se a referência ainda é a mesma
             if (!currentGameRef || currentGameRef.id !== tableId) {
                 console.log('🔀 Referência mudou, ignorando listener');
                 isProcessing = false;
@@ -3152,6 +3608,13 @@ function setupGameListener(tableId) {
             const newGameState = doc.data();
             const newStateHash = JSON.stringify(newGameState);
             
+            // ✅ VERIFICAÇÃO: Garantir que newGameState existe
+            if (!newGameState) {
+                console.error('❌ newGameState é null ou undefined');
+                isProcessing = false;
+                return;
+            }
+            
             // Verificar se o estado realmente mudou
             if (newStateHash === lastProcessedStateHash) {
                 console.log('⚡ Estado inalterado, ignorando update');
@@ -3165,16 +3628,22 @@ function setupGameListener(tableId) {
             
             console.log('🔄 Novo estado do jogo recebido:', gameState.status);
             
-            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
+            // ✅ VERIFICAÇÃO: Garantir que gameState tem as propriedades necessárias
             if (!gameState.players) gameState.players = [];
             if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
             
-            // 2. CONVERSÃO DO TABULEIRO (se necessário)
+            // 1. CONVERSÃO DO TABULEIRO (se necessário)
             if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            // 3. VERIFICAR SE JOGO TERMINOU
+            // ✅ VERIFICAÇÃO: Garantir que gameState.status existe
+            if (!gameState.status) {
+                console.error('❌ gameState.status não definido');
+                gameState.status = 'waiting'; // Valor padrão
+            }
+            
+            // 2. VERIFICAR SE JOGO TERMINOU
             if (gameState.status === 'finished' || gameState.status === 'draw') {
                 console.log('🏁 Jogo finalizado, processando estado final');
                 await handleFinishedGame(oldGameState, gameState);
@@ -3182,7 +3651,7 @@ function setupGameListener(tableId) {
                 return;
             }
             
-            // 4. DETECTAR MUDANÇAS IMPORTANTES
+            // DETECTAR MUDANÇAS IMPORTANTES
             const boardChanged = !oldGameState || 
                                JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
             
@@ -3192,7 +3661,7 @@ function setupGameListener(tableId) {
             const playersChanged = !oldGameState || 
                                  JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
             
-            // 5. PROCESSAR EVENTOS ESPECÍFICOS
+            // PROCESSAR EVENTOS ESPECÍFICOS
             if (playersChanged && oldGameState) {
                 await handlePlayersChange(oldGameState, gameState);
             }
@@ -3201,26 +3670,26 @@ function setupGameListener(tableId) {
                 await handleDrawOffer(gameState.drawOffer);
             }
             
-           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-if (boardChanged || turnChanged || playersChanged) {
-    console.log('🎨 Atualizando interface');
-    updateGameInterface();
-}
-
-// 7. GERENCIAR TIMER
-manageGameTimer(oldGameState, gameState);
-
-// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-    console.log('🎮 Jogo iniciado, configurando sistemas');
-    setupChatListener();
-    setupSpectatorsListener(tableId);
-}
-
-// 9. VERIFICAR FIM DE JOGO
-if (boardChanged && gameState.status === 'playing') {
-    checkGameEnd(gameState.board, gameState.currentTurn);
-}
+            // ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+            if (boardChanged || turnChanged || playersChanged) {
+                console.log('🎨 Atualizando interface');
+                updateGameInterface();
+            }
+            
+            // GERENCIAR TIMER
+            manageGameTimer(oldGameState, gameState);
+            
+            // INICIALIZAR SISTEMAS SECUNDÁRIOS
+            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+                console.log('🎮 Jogo iniciado, configurando sistemas');
+                setupChatListener();
+                setupSpectatorsListener(tableId);
+            }
+            
+            // VERIFICAR FIM DE JOGO
+            if (boardChanged && gameState.status === 'playing') {
+                checkGameEnd(gameState.board, gameState.currentTurn);
+            }
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
@@ -3241,6 +3710,8 @@ if (boardChanged && gameState.status === 'playing') {
         }
     });
 }
+
+
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
@@ -3607,6 +4078,9 @@ function renderDrawOfferIndicator() {
 // ===== SISTEMA DE NOTIFICAÇÕES =====
 function initializeNotifications() {
     // Verificar se usuário está logado
+    if (!activeNotifications) {
+    activeNotifications = new Map();
+}
     if (!currentUser) return;
     
     // Listener para notificações
@@ -3738,8 +4212,12 @@ function setupSpectatorUI() {
 
 // ===== FUNÇÃO LEAVE GAME CORRIGIDA =====
 function leaveGame() {
+
+
     console.log('Saindo do jogo...');
-    
+        cleanupGameVoiceChat();
+
+
     // Remover listener do jogo primeiro
     if (gameListener) {
         gameListener();
@@ -3803,9 +4281,7 @@ async function initializeTableCheck() {
 }
 
 
-// ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
-let hasGlobalMandatoryCaptures = false;
-let capturingPieces = [];
+
 
 
 // ===== FUNÇÃO HANDLE CELL CLICK (VERIFICAÇÃO FINAL) =====
@@ -4114,6 +4590,8 @@ function updateGameHeader(currentPlayer, opponent) {
 // ===== FUNÇÃO SURRENDER FROM GAME (CORRIGIDA) =====
 async function surrenderFromGame() {
     console.log('Iniciando processo de desistência...');
+    cleanupGameVoiceChat();
+
     
     if (!currentGameRef || !gameState) {
         showNotification('Nenhum jogo ativo para desistir', 'error');
@@ -4668,6 +5146,8 @@ function cleanFirestoreData(data) {
 }
 // ===== FUNÇÃO ENDGAME SAFE COMPLETA (CORRIGIDA) =====
 async function endGameSafe(result) {
+
+     cleanupGameVoiceChat();
     // Prevenir múltiplas execuções
     if (isGameEnding) {
         console.log('endGameSafe já em execução, ignorando chamada duplicada');
@@ -5939,9 +6419,7 @@ function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures = []
     
     return additionalCaptures;
 }
-// ===== RENDER BOARD OTIMIZADA =====
-let lastRenderTime = 0;
-let lastRenderedBoardHash = '';
+
 
 function renderBoard(boardState) {
 
@@ -6231,11 +6709,23 @@ function getNormalMoves(fromRow, fromCol, piece) {
     }
     
     return moves;
-}// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES OTIMIZADA =====
-let lastCaptureCheckTime = 0;
-let lastBoardStateHash = '';
-
+}
+// ===== CHECK GLOBAL MANDATORY CAPTURES (CORRIGIDA) =====
 function checkGlobalMandatoryCaptures() {
+    // ✅ INICIALIZAÇÃO SEGURA: Garantir que as variáveis existam
+    if (typeof lastCaptureCheckTime === 'undefined') {
+        lastCaptureCheckTime = 0;
+    }
+    if (typeof lastBoardStateHash === 'undefined') {
+        lastBoardStateHash = '';
+    }
+    if (typeof hasGlobalMandatoryCaptures === 'undefined') {
+        hasGlobalMandatoryCaptures = false;
+    }
+    if (typeof capturingPieces === 'undefined') {
+        capturingPieces = [];
+    }
+    
     // Prevenir checks muito frequentes
     const now = Date.now();
     if (now - lastCaptureCheckTime < 500) { // Só verificar a cada 500ms
@@ -6283,7 +6773,6 @@ function checkGlobalMandatoryCaptures() {
     
     return hasGlobalMandatoryCaptures;
 }
-
 // ===== FUNÇÃO GET NORMAL MOVES PARA PEÇAS NORMAIS =====
 function getNormalMoves(fromRow, fromCol, piece) {
     const moves = [];
@@ -6712,11 +7201,18 @@ function cleanupChat() {
 
 
 
-// ===== VARIÁVEIS GLOBAIS =====
-let spectatorsModal = null;
 
-// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES =====
+// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES (CORRIGIDA) =====
 function initializeSpectatorsModal() {
+    console.log('Initializando modal de espectadores...');
+    
+    // Verificar se o botão existe antes de adicionar event listeners
+    const spectatorsBtn = document.getElementById('btn-spectators');
+    if (!spectatorsBtn) {
+        console.error('Botão de espectadores não encontrado (#btn-spectators)');
+        return;
+    }
+    
     // Criar modal se não existir
     if (!document.getElementById('spectators-modal')) {
         const modalHTML = `
@@ -6733,11 +7229,11 @@ function initializeSpectatorsModal() {
                                 <span>Total: <strong id="total-spectators">0</strong></span>
                             </div>
                             <div class="stat-item">
-                                <i class="fas fa-heart red"></i>
+                                <i class="fas fa-heart" style="color: #e74c3c;"></i>
                                 <span>Vermelhas: <strong id="red-supporters-count">0</strong></span>
                             </div>
                             <div class="stat-item">
-                                <i class="fas fa-heart black"></i>
+                                <i class="fas fa-heart" style="color: #2c3e50;"></i>
                                 <span>Pretas: <strong id="black-supporters-count">0</strong></span>
                             </div>
                         </div>
@@ -6776,54 +7272,90 @@ function initializeSpectatorsModal() {
         `;
         
         document.body.insertAdjacentHTML('beforeend', modalHTML);
+        console.log('Modal de espectadores criado');
     }
     
+    // Inicializar a variável global
     spectatorsModal = document.getElementById('spectators-modal');
     
-    // Event listeners
-    document.getElementById('btn-spectators').addEventListener('click', openSpectatorsModal);
-    document.getElementById('close-spectators').addEventListener('click', closeSpectatorsModal);
+    if (!spectatorsModal) {
+        console.error('❌ Modal de espectadores não foi criado corretamente');
+        return;
+    }
+    
+    // Configurar event listeners com verificações de segurança
+    setupSpectatorsModalEvents();
+    
+    console.log('✅ Modal de espectadores inicializado com sucesso');
+}
+
+// ===== CONFIGURAR EVENTOS DO MODAL =====
+function setupSpectatorsModalEvents() {
+    // Remover event listeners existentes para evitar duplicação
+    const newSpectatorsBtn = document.getElementById('btn-spectators').cloneNode(true);
+    document.getElementById('btn-spectators').parentNode.replaceChild(newSpectatorsBtn, document.getElementById('btn-spectators'));
+    
+    // Event listener para abrir modal
+    newSpectatorsBtn.addEventListener('click', openSpectatorsModal);
+    
+    // Event listener para fechar modal
+    const closeBtn = document.getElementById('close-spectators');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeSpectatorsModal);
+    } else {
+        console.error('Botão de fechar modal não encontrado (#close-spectators)');
+    }
     
     // Fechar modal clicando fora
-    spectatorsModal.addEventListener('click', (e) => {
-        if (e.target === spectatorsModal) {
-            closeSpectatorsModal();
-        }
-    });
+    if (spectatorsModal) {
+        spectatorsModal.addEventListener('click', (e) => {
+            if (e.target === spectatorsModal) {
+                closeSpectatorsModal();
+            }
+        });
+    }
     
     // Sistema de tabs
     const tabButtons = document.querySelectorAll('.tab-btn');
-    tabButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            // Remover classe active de todos
-            tabButtons.forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            
-            // Adicionar classe active ao selecionado
-            btn.classList.add('active');
-            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    if (tabButtons.length > 0) {
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remover classe active de todos
+                tabButtons.forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+                
+                // Adicionar classe active ao selecionado
+                btn.classList.add('active');
+                const tabContent = document.getElementById(`tab-${btn.dataset.tab}`);
+                if (tabContent) {
+                    tabContent.classList.add('active');
+                }
+            });
         });
-    });
+    }
 }
 
 // ===== FUNÇÃO PARA ABRIR MODAL =====
 function openSpectatorsModal() {
     if (!spectatorsModal) {
-        initializeSpectatorsModal();
+        console.error('Modal de espectadores não inicializado');
+        return;
     }
     
     // Atualizar dados antes de abrir
     updateSpectatorsModal();
     
     spectatorsModal.classList.add('active');
-    document.body.style.overflow = 'hidden'; // Previne scroll do body
+    document.body.style.overflow = 'hidden';
+    
+    console.log('Modal de espectadores aberto');
 }
 
 // ===== FUNÇÃO PARA FECHAR MODAL =====
 function closeSpectatorsModal() {
     if (spectatorsModal) {
         spectatorsModal.classList.remove('active');
-        document.body.style.overflow = ''; // Restaura scroll
+        document.body.style.overflow = '';
     }
 }
 
@@ -6831,22 +7363,24 @@ function closeSpectatorsModal() {
 function updateSpectatorsModal() {
     if (!spectatorsModal || !spectatorsModal.classList.contains('active')) return;
     
-    const totalSpectators = currentSpectators.length;
-    const redSupporters = currentSpectators.filter(s => s.supporting === 'red');
-    const blackSupporters = currentSpectators.filter(s => s.supporting === 'black');
-    const neutralSpectators = currentSpectators.filter(s => !s.supporting);
+    // Usar dados atuais dos espectadores
+    const totalSpectators = currentSpectators?.length || 0;
+    const redSupporters = currentSpectators?.filter(s => s.supporting === 'red').length || 0;
+    const blackSupporters = currentSpectators?.filter(s => s.supporting === 'black').length || 0;
     
     // Atualizar estatísticas
-    document.getElementById('total-spectators').textContent = totalSpectators;
-    document.getElementById('red-supporters-count').textContent = redSupporters.length;
-    document.getElementById('black-supporters-count').textContent = blackSupporters.length;
+    const totalEl = document.getElementById('total-spectators');
+    const redEl = document.getElementById('red-supporters-count');
+    const blackEl = document.getElementById('black-supporters-count');
     
-    // Atualizar lista completa
-    updateSpectatorsList('all', currentSpectators);
+    if (totalEl) totalEl.textContent = totalSpectators;
+    if (redEl) redEl.textContent = redSupporters;
+    if (blackEl) blackEl.textContent = blackSupporters;
     
-    // Atualizar listas por time
-    updateSpectatorsList('red', redSupporters);
-    updateSpectatorsList('black', blackSupporters);
+    // Atualizar listas
+    updateSpectatorsList('all', currentSpectators || []);
+    updateSpectatorsList('red', currentSpectators?.filter(s => s.supporting === 'red') || []);
+    updateSpectatorsList('black', currentSpectators?.filter(s => s.supporting === 'black') || []);
 }
 
 // ===== FUNÇÃO PARA ATUALIZAR LISTA =====
@@ -6872,7 +7406,7 @@ function updateSpectatorsList(type, spectators) {
                 <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(spectator.displayName)}&background=random" 
                      alt="${spectator.displayName}">
                 ${spectator.supporting ? `
-                    <div class="support-badge ${spectator.supporting}">
+                    <div class="support-badge ${spectator.supporting}" style="background: ${spectator.supporting === 'red' ? '#e74c3c' : '#2c3e50'}">
                         <i class="fas fa-heart"></i>
                     </div>
                 ` : ''}
@@ -6892,20 +7426,28 @@ function updateSpectatorsList(type, spectators) {
     `).join('');
 }
 
-// ===== FUNÇÃO FORMATAR TEMPO =====
+// ===== FUNÇÃO FORMATAR TEMPO (SE NÃO EXISTIR) =====
 function formatTimeAgo(timestamp) {
     if (!timestamp) return 'Agora';
     
-    const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const now = new Date();
-    const diff = now - time;
-    const minutes = Math.floor(diff / 60000);
-    
-    if (minutes < 1) return 'Agora';
-    if (minutes < 60) return `Há ${minutes} min`;
-    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
-    return `Há ${Math.floor(minutes / 1440)} d`;
+    try {
+        const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const now = new Date();
+        const diff = now - time;
+        const minutes = Math.floor(diff / 60000);
+        
+        if (minutes < 1) return 'Agora';
+        if (minutes < 60) return `Há ${minutes} min`;
+        if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
+        return `Há ${Math.floor(minutes / 1440)} d`;
+    } catch (error) {
+        return 'Agora';
+    }
 }
+
+
+
+
 // ===== FUNÇÃO MANAGE GAME TIMER =====
 function manageGameTimer(oldGameState, newGameState) {
     if (!newGameState || !oldGameState) return;
@@ -7225,13 +7767,14 @@ async function checkUserActiveTable(userId = null) {
 }
 
 
-// ===== LISTENER DE MESAS ATIVAS =====
-let activeTableListener = null;
 // ===== SETUP ACTIVE TABLE LISTENER (CORRIGIDA) =====
 function setupActiveTableListener() {
-    // Remover listener anterior
-    if (activeTableListener) {
-        activeTableListener();
+     // Garantir que a variável existe
+    if (!activeTableListener) {
+        activeTableListener = null;
+    } 
+     // Garantir que a variável existe
+    if (!activeTableListener) {
         activeTableListener = null;
     }
     
@@ -7629,9 +8172,8 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// ===== SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
-let activeNotifications = new Map();
-let notificationSound = null;
+
+
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
@@ -7897,125 +8439,119 @@ function checkActiveListener() {
 
 // Adicione ao window para testar
 window.checkListener = checkActiveListener;
-// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
-// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
-async function showChallengeNotification(notification) {
-const originalShowChallengeNotification = showChallengeNotification;
-showChallengeNotification = function(notification) {
-    audioManager.playChallengeSound();
-    return originalShowChallengeNotification.call(this, notification);
-};
-    console.log('Novo desafio recebido:', notification);
+// ===== SHOW CHALLENGE NOTIFICATION (CORRIGIDA) =====
+function showChallengeNotification(notification) {
+    console.log('🎯 Mostrando notificação de desafio:', notification);
     
-    // Evitar notificações duplicadas
-    if (activeNotifications.has(notification.id)) {
-        console.log('Notificação duplicada, ignorando...');
-        return;
+    // Garantir que audioManager existe e tem o método
+    if (audioManager && typeof audioManager.playChallengeSound === 'function') {
+        audioManager.playChallengeSound();
+    } else {
+        console.warn('audioManager.playChallengeSound não disponível');
+        // Fallback para outro som
+        if (audioManager && typeof audioManager.playNotificationSound === 'function') {
+            audioManager.playNotificationSound();
+        }
     }
     
-    // 🔥 CORREÇÃO: Garantir que o container existe
-    const notificationSystem = getNotificationContainer();
-if (!notificationSystem) {
-    console.error('❌ Não foi possível criar o container de notificações');
-    return;
-}
-    
-    // Tocar som de notificação
-    if (notificationSound) {
-        notificationSound();
+    // Garantir que activeNotifications existe
+    if (!activeNotifications) {
+        activeNotifications = new Map();
+        console.warn('activeNotifications não estava inicializado, criando novo Map');
     }
     
-    // Criar elemento de notificação
-    const notificationEl = document.createElement('div');
-    notificationEl.className = 'game-notification';
-    notificationEl.id = `notification-${notification.id}`;
-    notificationEl.dataset.notificationId = notification.id;
+    const notificationId = 'challenge-' + Date.now();
+    const notificationElement = createNotificationElement(notification, notificationId);
     
-    // Formatar informações do desafio
-    const timeLimit = notification.timeLimit || 60;
-    const betAmount = notification.betAmount || 0;
-    const expiresAt = notification.expiresAt ? notification.expiresAt.toDate() : new Date(Date.now() + 5 * 60000);
-    const timeLeft = Math.max(0, Math.floor((expiresAt - new Date()) / 1000));
+    // Adicionar ao contêiner de notificações
+    const notificationsContainer = document.getElementById('notifications-container') || createNotificationsContainer();
+    notificationsContainer.appendChild(notificationElement);
     
-    notificationEl.innerHTML = `
-        <div class="notification-glowing-border"></div>
-        <div class="notification-header">
-            <div class="notification-icon">⚔️</div>
-            <h3 class="notification-title">DESAFIO RECEBIDO!</h3>
-        </div>
-        
-        <div class="notification-content">
-            <p><strong>${notification.fromUserName}</strong> te desafiou para uma partida!</p>
-            ${notification.message ? `<p>"${notification.message}"</p>` : ''}
-        </div>
-        
-        <div class="notification-challenge-info">
-            <div class="challenge-stats">
-                <div class="challenge-stat">
-                    <i class="fas fa-clock"></i>
-                    <span>${timeLimit}s por jogada</span>
-                </div>
-                <div class="challenge-stat">
-                    <i class="fas fa-coins"></i>
-                    <span>${betAmount} moedas</span>
-                </div>
-                <div class="challenge-stat">
-                    <i class="fas fa-hourglass-half"></i>
-                    <span>${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}</span>
-                </div>
-            </div>
-        </div>
-        
-        <div class="notification-actions">
-            <button class="notification-btn accept" onclick="acceptChallenge('${notification.id}')">
-                <i class="fas fa-check"></i> ACEITAR
-            </button>
-            <button class="notification-btn decline" onclick="declineChallenge('${notification.id}')">
-                <i class="fas fa-times"></i> RECUSAR
-            </button>
-        </div>
-        
-        <div class="notification-timer" id="timer-${notification.id}">
-            Expira em: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}
-        </div>
-    `;
-    
-    // 🔥 CORREÇÃO: Verificar novamente se o container existe antes de adicionar
-    if (!notificationSystem.parentNode) {
-        console.log('Container perdeu parent, recriando...');
-        createNotificationContainer();
-        notificationSystem = document.getElementById('notification-system');
-    }
-    
-    // Adicionar ao sistema de notificações
-    notificationSystem.appendChild(notificationEl);
-    
-    // Animação de entrada
-    setTimeout(() => {
-        notificationEl.classList.add('show');
-        createParticleEffect(notificationEl);
-    }, 100);
-    
-    // Adicionar à lista de notificações ativas
-    activeNotifications.set(notification.id, {
-        element: notificationEl,
-        expiresAt: expiresAt,
-        timer: setInterval(() => updateNotificationTimer(notification.id), 1000)
+    // Adicionar ao mapa de notificações ativas
+    activeNotifications.set(notificationId, {
+        element: notificationElement,
+        data: notification,
+        timer: setTimeout(() => removeNotification(notificationId), 10000)
     });
     
-    // Adicionar efeito de urgência se faltar pouco tempo
-    if (timeLeft < 60) {
-        notificationEl.classList.add('notification-urgent');
-    }
-    
-    // Auto-remover quando expirar
+    // Animar entrada
     setTimeout(() => {
-        if (activeNotifications.has(notification.id)) {
-            removeChallengeNotification(notification.id, 'expired');
-        }
-    }, timeLeft * 1000);
+        notificationElement.classList.add('show');
+    }, 100);
+    
+    // Configurar evento de clique
+    notificationElement.addEventListener('click', () => {
+        handleChallengeClick(notification);
+        removeNotification(notificationId);
+    });
 }
 
+// ===== FUNÇÕES AUXILIARES (SE NÃO EXISTIREM) =====
+function createNotificationElement(notification, id) {
+    const element = document.createElement('div');
+    element.className = 'notification challenge';
+    element.id = id;
+    element.innerHTML = `
+        <div class="notification-content">
+            <i class="fas fa-trophy"></i>
+            <div>
+                <strong>${notification.fromUserName} te desafiou!</strong>
+                <p>${notification.message || 'Partida de damas'}</p>
+                <small>Tempo: ${notification.timeLimit}s | Aposta: ${notification.betAmount || 0} moedas</small>
+            </div>
+        </div>
+        <button class="notification-close">&times;</button>
+    `;
+    
+    // Evento para fechar
+    element.querySelector('.notification-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeNotification(id);
+    });
+    
+    return element;
+}
+
+function createNotificationsContainer() {
+    const container = document.createElement('div');
+    container.id = 'notifications-container';
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 350px;
+    `;
+    document.body.appendChild(container);
+    return container;
+}
+
+function removeNotification(id) {
+    if (activeNotifications && activeNotifications.has(id)) {
+        const notification = activeNotifications.get(id);
+        
+        // Remover elemento com animação
+        notification.element.classList.remove('show');
+        setTimeout(() => {
+            if (notification.element.parentNode) {
+                notification.element.parentNode.removeChild(notification.element);
+            }
+        }, 300);
+        
+        // Limpar timer e remover do mapa
+        clearTimeout(notification.timer);
+        activeNotifications.delete(id);
+    }
+}
+
+function handleChallengeClick(notification) {
+    console.log('Desafio clicado:', notification);
+    // Aqui você implementaria a lógica para aceitar o desafio
+    showNotification('Funcionalidade de aceitar desafio em desenvolvimento', 'info');
+}
 
 // ===== VERIFICAÇÃO DE SEGURANÇA PARA DOM =====
 function isDOMReady() {
@@ -8726,49 +9262,82 @@ class AudioManager {
 }
 
 
-// Instância global do gerenciador de áudio
-const audioManager = new AudioManager();
 
-// ===== CONTROLES DE SOM SIMPLIFICADOS =====
 function createSoundControls() {
-    // Verificar se já existe
-    if (document.getElementById('sound-controls')) return;
+    console.log('🔊 Criando controles de som...');
+    // Implementação básica para evitar erros
+    // No lugar onde você define o audioManager (provavelmente no topo do arquivo)
+// ===== AUDIO MANAGER COMPLETO =====
+let audioManager = {
+    // Métodos de som
+    playNotificationSound: function() {
+        this.createSound(800, 0.3, 'sine', 0.1);
+        console.log('🔊 Som de notificação');
+    },
     
-    const controlsHTML = `
-        <div id="sound-controls" class="sound-controls">
-            <button id="btn-sound-toggle" class="sound-btn" title="Efeitos sonoros">
-                <i class="fas fa-volume-up"></i>
-            </button>
-            <button id="btn-music-toggle" class="sound-btn" title="Música">
-                <i class="fas fa-music"></i>
-            </button>
-        </div>
-    `;
+    playGameStartSound: function() {
+        this.createSound(600, 0.5, 'sine', 0.2);
+        console.log('🎮 Som de início de jogo');
+    },
     
-    document.body.insertAdjacentHTML('beforeend', controlsHTML);
+    playClickSound: function() {
+        this.createSound(300, 0.1, 'sine', 0.1);
+        console.log('🖱️ Som de clique');
+    },
     
-    // Configurar event listeners
-    document.getElementById('btn-sound-toggle').addEventListener('click', () => {
-        audioManager.toggleSound(!audioManager.sfxEnabled);
-        updateSoundButtons();
-        audioManager.playClickSound(); // Feedback
-    });
+    playVictorySound: function() {
+        this.createSound(800, 0.8, 'sine', 0.3);
+        console.log('🎉 Som de vitória');
+    },
     
-    document.getElementById('btn-music-toggle').addEventListener('click', () => {
-        audioManager.toggleMusic(!audioManager.musicEnabled);
-        updateSoundButtons();
-        audioManager.playClickSound(); // Feedback
-    });
+    playDefeatSound: function() {
+        this.createSound(400, 0.8, 'sine', 0.3);
+        console.log('😞 Som de derrota');
+    },
     
-    // Carregar preferências e atualizar botões
-    audioManager.loadPreferences();
-    updateSoundButtons();
+    playChallengeSound: function() {
+        this.createSound(700, 0.4, 'sine', 0.25);
+        console.log('🎯 Som de desafio');
+    },
     
-    // Iniciar música se habilitada
-    if (audioManager.musicEnabled) {
-        audioManager.playBackgroundMusic();
+    playSelectionSound: function() {
+        this.createSound(500, 0.2, 'sine', 0.15);
+        console.log('🔘 Som de seleção');
+    },
+    
+    // Método base para criar sons
+    createSound: function(frequency, duration, type, volume) {
+        try {
+            // Verificar se o navegador suporta AudioContext
+            if (!window.AudioContext && !window.webkitAudioContext) {
+                console.log('Navegador não suporta AudioContext');
+                return;
+            }
+            
+            const context = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = context.createOscillator();
+            const gainNode = context.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(context.destination);
+            
+            oscillator.type = type || 'sine';
+            oscillator.frequency.value = frequency || 440;
+            gainNode.gain.value = volume || 0.1;
+            
+            oscillator.start();
+            gainNode.gain.exponentialRampToValueAtTime(0.001, context.currentTime + (duration || 0.3));
+            oscillator.stop(context.currentTime + (duration || 0.3));
+            
+        } catch (error) {
+            console.log('Áudio não disponível:', error);
+        }
     }
+};
+
 }
+
+
 function updateSoundButtons() {
     const soundBtn = document.getElementById('btn-sound-toggle');
     const musicBtn = document.getElementById('btn-music-toggle');
@@ -8977,3 +9546,261 @@ function startGameVoiceChat() {
 function stopGameVoiceChat() {
     voiceChat.stopVoiceChat();
 }
+
+// ===== INICIALIZAR VOICE CHAT =====
+async function initializeGameVoiceChat() {
+    if (voiceChatSystem) {
+        console.log('⚠️ Sistema de voz já inicializado');
+        return;
+    }
+    
+    if (!gameState || !gameState.players || gameState.players.length < 2) {
+        console.log('⚠️ Jogo não está pronto para voice chat');
+        return;
+    }
+    
+    console.log('🎮 Inicializando voice chat...');
+    
+    voiceChatSystem = new VoiceChatSystem();
+    const success = await voiceChatSystem.initialize();
+    
+    if (success) {
+        console.log('✅ Voice chat pronto para uso');
+        // Mostrar instruções após um delay
+        setTimeout(() => {
+            voiceChatSystem.showNotification('💬 Clique no ícone de microfone no canto inferior direito para falar', 'info', 5000);
+        }, 2000);
+    }
+}
+
+function cleanupGameVoiceChat() {
+    if (voiceChatSystem.isEnabled) {
+        stopVoiceChat();
+        
+        const voiceToggle = document.getElementById('voice-toggle');
+        if (voiceToggle) {
+            voiceToggle.classList.remove('active');
+            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
+        }
+        
+        voiceChatSystem.isEnabled = false;
+    }
+}
+
+// ===== VERIFICAR SE É MOBILE =====
+function isMobileDevice() {
+    return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// ===== CLASSE VoiceChatSystem (SIMPIFICADA) =====
+class VoiceChatSystem {
+    constructor() {
+        this.localStream = null;
+        this.isAudioActive = false;
+        this.hasAudioPermission = false;
+    }
+
+    async initialize() {
+        console.log('🎤 Inicializando sistema de voz...');
+        
+        try {
+            // Verificar suporte do navegador
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                this.showError('Seu navegador não suporta chat de voz');
+                return false;
+            }
+
+            // Solicitar permissão de microfone
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            });
+
+            this.hasAudioPermission = true;
+            this.createUI();
+            this.setupEventListeners();
+            
+            console.log('✅ Sistema de voz inicializado com sucesso');
+            return true;
+
+        } catch (error) {
+            console.error('❌ Erro ao inicializar voz:', error);
+            this.handlePermissionError(error);
+            return false;
+        }
+    }
+
+    handlePermissionError(error) {
+        let errorMessage = 'Não foi possível acessar o microfone';
+        
+        if (error.name === 'NotAllowedError') {
+            errorMessage = 'Permissão de microfone negada. Clique no ícone de cadeado na barra de URL para permitir.';
+        } else if (error.name === 'NotFoundError') {
+            errorMessage = 'Nenhum microfone encontrado';
+        } else if (error.name === 'NotReadableError') {
+            errorMessage = 'Microfone está sendo usado por outra aplicação';
+        }
+        
+        this.showError(errorMessage);
+    }
+
+    createUI() {
+        // Verificar se a UI já existe
+        if (document.getElementById('voice-chat-container')) {
+            return;
+        }
+
+        const voiceChatHTML = `
+            <div id="voice-chat-container" style="position: fixed; bottom: 20px; right: 20px; z-index: 1000;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 20px;">
+                    <button id="voice-toggle" style="background: #e74c3c; color: white; border: none; padding: 15px; border-radius: 50%; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    
+                    <div id="voice-status" style="color: white; padding: 8px 12px; border-radius: 15px; font-size: 12px; text-align: center;">
+                        <div>Clique para falar</div>
+                        <div id="connection-status" style="font-size: 10px; opacity: 0.7; margin-top: 5px;">Pronto</div>
+                    </div>
+                    
+                    <div id="audio-visualizer" style="width: 100px; height: 20px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;">
+                        <div id="audio-level" style="height: 100%; width: 0%; background: linear-gradient(90deg, #2ecc71, #f1c40f); transition: width 0.1s;"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', voiceChatHTML);
+    }
+
+    setupEventListeners() {
+        const toggleBtn = document.getElementById('voice-toggle');
+        const statusDiv = document.getElementById('voice-status');
+        const connectionStatus = document.getElementById('connection-status');
+
+        if (!toggleBtn) return;
+
+        toggleBtn.addEventListener('click', () => {
+            this.toggleVoiceChat();
+        });
+
+        // Iniciar visualizador de áudio
+        this.setupAudioVisualizer();
+    }
+
+    toggleVoiceChat() {
+        const toggleBtn = document.getElementById('voice-toggle');
+        const statusDiv = document.getElementById('voice-status');
+        const connectionStatus = document.getElementById('connection-status');
+
+        this.isAudioActive = !this.isAudioActive;
+        
+        if (this.isAudioActive) {
+            this.startVoice();
+            toggleBtn.style.background = '#2ecc71';
+            toggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+            statusDiv.innerHTML = '<div>Microfone ativo</div>';
+            connectionStatus.textContent = 'Falando...';
+            connectionStatus.style.color = '#2ecc71';
+        } else {
+            this.stopVoice();
+            toggleBtn.style.background = '#e74c3c';
+            toggleBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+            statusDiv.innerHTML = '<div>Clique para falar</div>';
+            connectionStatus.textContent = 'Pronto';
+            connectionStatus.style.color = '';
+        }
+    }
+
+    startVoice() {
+        console.log('🎤 Microfone ativado');
+        this.showNotification('Microfone ativado - Você está sendo ouvido', 'info');
+        
+        // Aqui você pode adicionar lógica para enviar áudio para o oponente
+        // quando implementar WebRTC completo
+    }
+
+    stopVoice() {
+        console.log('🎤 Microfone desativado');
+        this.showNotification('Microfone desativado', 'info');
+    }
+
+    setupAudioVisualizer() {
+        if (!this.localStream || !this.hasAudioPermission) return;
+
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(this.localStream);
+            
+            source.connect(analyser);
+            analyser.fftSize = 256;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const visualizer = document.getElementById('audio-level');
+
+            const updateVisualizer = () => {
+                analyser.getByteFrequencyData(dataArray);
+                
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                
+                const average = sum / dataArray.length;
+                const width = Math.min(100, average * 0.5);
+                
+                if (visualizer) {
+                    visualizer.style.width = width + '%';
+                }
+                
+                if (this.isAudioActive) {
+                    requestAnimationFrame(updateVisualizer);
+                }
+            };
+
+            updateVisualizer();
+
+        } catch (error) {
+            console.log('Visualizador de áudio não disponível:', error);
+        }
+    }
+
+    showNotification(message, type = 'info') {
+        // Use seu sistema de notificação existente
+        if (typeof showNotification === 'function') {
+            showNotification(message, type);
+        } else {
+            // Fallback simples
+            console.log(`${type.toUpperCase()}: ${message}`);
+        }
+    }
+
+    showError(message) {
+        this.showNotification(message, 'error');
+    }
+
+    // Função para limpar (importante!)
+    cleanup() {
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream = null;
+        }
+        
+        this.isAudioActive = false;
+        this.hasAudioPermission = false;
+        
+        // Remover UI se existir
+        const voiceContainer = document.getElementById('voice-chat-container');
+        if (voiceContainer) {
+            voiceContainer.remove();
+        }
+        
+        console.log('🧹 Sistema de voz limpo');
+    }
+}
+
+

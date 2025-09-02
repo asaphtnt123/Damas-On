@@ -3946,3 +3946,32 @@ input:checked + .slider:before {
         font-size: 14px;
     }
 }
+
+
+.voice-toggle {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.voice-toggle:hover {
+    background: #2980b9;
+    transform: translateY(-2px);
+}
+
+.voice-toggle.active {
+    background: #e74c3c;
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+}
+
+.voice-toggle.active:hover {
+    background: #c0392b;
+}
