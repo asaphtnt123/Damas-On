@@ -614,20 +614,21 @@ async function setupVoiceConnections() {
         console.error('Erro ao configurar conexões de voz:', error);
     }
 }
-
-// ===== CRIAR CONEXÃO PEER =====
+// ===== CRIAR CONEXÃO PEER (CORRIGIDA) =====
 function createPeerConnection(userId) {
     if (voiceChatSystem.peerConnections[userId]) {
-        return; // Conexão já existe
+        return voiceChatSystem.peerConnections[userId];
     }
     
     const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
     voiceChatSystem.peerConnections[userId] = peerConnection;
     
-    // Adicionar stream local
-    voiceChatSystem.localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, voiceChatSystem.localStream);
-    });
+    // Adicionar stream local se disponível
+    if (voiceChatSystem.localStream) {
+        voiceChatSystem.localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, voiceChatSystem.localStream);
+        });
+    }
     
     // Manipular stream remoto
     peerConnection.ontrack = (event) => {
@@ -642,21 +643,65 @@ function createPeerConnection(userId) {
         }
     };
     
-    // Criar oferta
-    createOffer(userId);
+    // Manipular mudanças de estado
+    peerConnection.onconnectionstatechange = () => {
+        console.log(`Conexão com ${userId}: ${peerConnection.connectionState}`);
+    };
+    
+    return peerConnection;
 }
-// ===== CRIAR OFERTA =====
+
+// ===== LIMPAR DOCUMENTOS ANTIGOS DE VOZ =====
+async function cleanupOldVoiceDocuments() {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    // Limpar ofertas antigas
+    const oldOffers = await db.collection('voiceOffers')
+        .where('timestamp', '<', oneHourAgo)
+        .get();
+    
+    oldOffers.forEach(async (doc) => {
+        await doc.ref.delete();
+    });
+    
+    // Limpar respostas antigas
+    const oldAnswers = await db.collection('voiceAnswers')
+        .where('timestamp', '<', oneHourAgo)
+        .get();
+    
+    oldAnswers.forEach(async (doc) => {
+        await doc.ref.delete();
+    });
+    
+    // Limpar candidates antigos
+    const oldCandidates = await db.collection('voiceCandidates')
+        .where('timestamp', '<', oneHourAgo)
+        .get();
+    
+    oldCandidates.forEach(async (doc) => {
+        await doc.ref.delete();
+    });
+}
+
+// Executar limpeza a cada hora
+setInterval(cleanupOldVoiceDocuments, 60 * 60 * 1000);
+
+
+// ===== CRIAR OFERTA (CORRIGIDA) =====
 async function createOffer(userId) {
     try {
         const peerConnection = voiceChatSystem.peerConnections[userId];
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
         
-        // Enviar oferta via Firestore
+        // Enviar oferta via Firestore (convertendo para objeto simples)
         await db.collection('voiceOffers').add({
             from: currentUser.uid,
             to: userId,
-            offer: offer,
+            offer: {
+                type: offer.type,
+                sdp: offer.sdp
+            },
             tableId: currentGameRef.id,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -685,14 +730,21 @@ function setupAudioElement(userId, stream) {
     
     console.log('🔊 Áudio configurado para usuário:', userId);
 }
-
-// ===== ENVIAR ICE CANDIDATE =====
+// ===== ENVIAR ICE CANDIDATE (CORRIGIDA) =====
 async function sendIceCandidate(userId, candidate) {
     try {
+        // Converter o candidato ICE para um objeto simples
+        const candidateData = {
+            candidate: candidate.candidate,
+            sdpMid: candidate.sdpMid,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            usernameFragment: candidate.usernameFragment
+        };
+        
         await db.collection('voiceCandidates').add({
             from: currentUser.uid,
             to: userId,
-            candidate: candidate,
+            candidate: candidateData,
             tableId: currentGameRef.id,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -701,8 +753,13 @@ async function sendIceCandidate(userId, candidate) {
     }
 }
 
-// ===== INICIALIZAR LISTENERS DE VOZ =====
+// ===== INICIALIZAR LISTENERS DE VOZ (COMPLETO) =====
 function initializeVoiceListeners() {
+        if (!db) return;
+
+        console.log('🎧 Inicializando listeners de voz...');
+
+
     // Listener para ofertas de voz
     db.collection('voiceOffers')
         .where('to', '==', currentUser.uid)
@@ -711,6 +768,22 @@ function initializeVoiceListeners() {
                 if (change.type === 'added') {
                     const offerData = change.doc.data();
                     await handleVoiceOffer(offerData);
+                    // Remover a oferta após processar
+                    await change.doc.ref.delete();
+                }
+            });
+        });
+    
+    // Listener para respostas de voz
+    db.collection('voiceAnswers')
+        .where('to', '==', currentUser.uid)
+        .onSnapshot(async (snapshot) => {
+            snapshot.docChanges().forEach(async (change) => {
+                if (change.type === 'added') {
+                    const answerData = change.doc.data();
+                    await handleVoiceAnswer(answerData);
+                    // Remover a resposta após processar
+                    await change.doc.ref.delete();
                 }
             });
         });
@@ -723,26 +796,38 @@ function initializeVoiceListeners() {
                 if (change.type === 'added') {
                     const candidateData = change.doc.data();
                     await handleIceCandidate(candidateData);
+                    // Remover o candidate após processar
+                    await change.doc.ref.delete();
                 }
             });
         });
 }
 
-// ===== MANIPULAR OFERTA DE VOZ =====
+// ===== MANIPULAR OFERTA DE VOZ (CORRIGIDA) =====
 async function handleVoiceOffer(offerData) {
     try {
-        const peerConnection = voiceChatSystem.peerConnections[offerData.from] || 
-                              createPeerConnection(offerData.from);
+        if (!voiceChatSystem.isEnabled) return;
         
-        await peerConnection.setRemoteDescription(offerData.offer);
+        let peerConnection = voiceChatSystem.peerConnections[offerData.from];
+        if (!peerConnection) {
+            peerConnection = createPeerConnection(offerData.from);
+        }
+        
+        // Reconstruir a oferta RTCSessionDescription
+        const offer = new RTCSessionDescription(offerData.offer);
+        await peerConnection.setRemoteDescription(offer);
+        
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         
-        // Enviar resposta
+        // Enviar resposta (convertendo para objeto simples)
         await db.collection('voiceAnswers').add({
             from: currentUser.uid,
             to: offerData.from,
-            answer: answer,
+            answer: {
+                type: answer.type,
+                sdp: answer.sdp
+            },
             tableId: currentGameRef.id,
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -752,12 +837,28 @@ async function handleVoiceOffer(offerData) {
     }
 }
 
-// ===== MANIPULAR ICE CANDIDATE =====
+// ===== MANIPULAR RESPOSTA DE VOZ =====
+async function handleVoiceAnswer(answerData) {
+    try {
+        const peerConnection = voiceChatSystem.peerConnections[answerData.from];
+        if (peerConnection) {
+            // Reconstruir a resposta RTCSessionDescription
+            const answer = new RTCSessionDescription(answerData.answer);
+            await peerConnection.setRemoteDescription(answer);
+        }
+    } catch (error) {
+        console.error('Erro ao manipular resposta de voz:', error);
+    }
+}
+
+// ===== MANIPULAR ICE CANDIDATE (CORRIGIDA) =====
 async function handleIceCandidate(candidateData) {
     try {
         const peerConnection = voiceChatSystem.peerConnections[candidateData.from];
         if (peerConnection) {
-            await peerConnection.addIceCandidate(candidateData.candidate);
+            // Reconstruir o objeto RTCIceCandidate a partir dos dados
+            const iceCandidate = new RTCIceCandidate(candidateData.candidate);
+            await peerConnection.addIceCandidate(iceCandidate);
         }
     } catch (error) {
         console.error('Erro ao manipular ICE candidate:', error);
