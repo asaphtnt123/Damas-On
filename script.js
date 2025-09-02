@@ -473,6 +473,8 @@ function initializeApp() {
     setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
 
     setupAudioTest()
+    setupEchoTest()
+    
     
     // 9. VERIFICAR DESAFIOS PENDENTES AO INICIAR
     if (currentUser) {
@@ -650,31 +652,38 @@ function stopVoiceChat() {
     console.log('🔇 Chat de voz parado');
 }
 
-// ===== CONFIGURAR CONEXÕES DE VOZ =====
+// ===== CONFIGURAR CONEXÕES DE VOZ (CORRIGIDA) =====
 async function setupVoiceConnections() {
-    if (!currentGameRef || !voiceChatSystem.localStream) return;
+    if (!currentGameRef || !voiceChatSystem.localStream) {
+        console.log('Não é possível configurar conexões: sem gameRef ou localStream');
+        return;
+    }
     
     try {
-        // Obter lista de jogadores e espectadores
+        console.log('Configurando conexões de voz para mesa:', currentGameRef.id);
+        
+        // Obter dados atualizados da mesa
         const tableDoc = await currentGameRef.get();
         const tableData = tableDoc.data();
         
-        // Conectar com outros jogadores
-        if (tableData.players) {
-            tableData.players.forEach(player => {
-                if (player.uid !== currentUser.uid) {
-                    createPeerConnection(player.uid);
-                }
-            });
+        if (!tableData || !tableData.players) {
+            console.log('Dados da mesa não disponíveis');
+            return;
         }
         
-        // Conectar com espectadores (opcional)
-        if (currentSpectators.length > 0) {
-            currentSpectators.forEach(spectator => {
-                if (spectator.id !== currentUser.uid) {
-                    createPeerConnection(spectator.id);
-                }
-            });
+        // Conectar apenas com outros jogadores na mesa
+        const otherPlayers = tableData.players.filter(player => 
+            player.uid !== currentUser.uid && player.uid
+        );
+        
+        console.log('Outros jogadores na mesa:', otherPlayers.length);
+        
+        for (const player of otherPlayers) {
+            console.log('Criando conexão com:', player.uid);
+            createPeerConnection(player.uid);
+            
+            // Pequeno delay entre conexões para evitar congestionamento
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
         
     } catch (error) {
@@ -682,64 +691,112 @@ async function setupVoiceConnections() {
     }
 }
 
-// ===== CRIAR CONEXÃO PEER (CORRIGIDA) =====
+// ===== CRIAR CONEXÃO PEER (MELHORADA) =====
 function createPeerConnection(userId) {
     if (voiceChatSystem.peerConnections[userId]) {
+        console.log('Conexão já existe para:', userId);
         return voiceChatSystem.peerConnections[userId];
     }
     
-    console.log('Criando conexão peer para:', userId);
+    console.log('Criando nova conexão peer para:', userId);
     
-    const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
-    voiceChatSystem.peerConnections[userId] = peerConnection;
-    
-    // Adicionar stream local se disponível
-    if (voiceChatSystem.localStream) {
-        console.log('Adicionando tracks locais à conexão');
-        voiceChatSystem.localStream.getTracks().forEach(track => {
-            console.log('Adicionando track:', track.kind);
-            peerConnection.addTrack(track, voiceChatSystem.localStream);
-        });
-    } else {
-        console.warn('Stream local não disponível ao criar peer connection');
-    }
-    
-    // Manipular stream remoto
-    peerConnection.ontrack = (event) => {
-        console.log('Stream remoto recebido de:', userId);
-        const remoteStream = event.streams[0];
-        if (remoteStream) {
-            console.log('Stream remoto tem áudio tracks:', remoteStream.getAudioTracks().length);
-            setupAudioElement(userId, remoteStream);
-        }
-    };
-    
-    // Manipular ICE candidates
-    peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-            console.log('Novo ICE candidate para:', userId);
-            sendIceCandidate(userId, event.candidate);
-        }
-    };
-    
-    // Manipular mudanças de estado
-    peerConnection.onconnectionstatechange = () => {
-        const state = peerConnection.connectionState;
-        console.log(`Conexão com ${userId}: ${state}`);
+    try {
+        const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
+        voiceChatSystem.peerConnections[userId] = peerConnection;
         
-        if (state === 'connected') {
-            showNotification('Conexão de voz estabelecida', 'success');
-        } else if (state === 'disconnected' || state === 'failed') {
-            showNotification('Conexão de voz perdida', 'warning');
+        // Adicionar stream local se disponível
+        if (voiceChatSystem.localStream) {
+            voiceChatSystem.localStream.getTracks().forEach(track => {
+                console.log('Adicionando track local:', track.kind);
+                peerConnection.addTrack(track, voiceChatSystem.localStream);
+            });
         }
-    };
-    
-    peerConnection.oniceconnectionstatechange = () => {
-        console.log(`Estado ICE com ${userId}: ${peerConnection.iceConnectionState}`);
-    };
-    
-    return peerConnection;
+        
+        // Manipular stream remoto
+        peerConnection.ontrack = (event) => {
+            console.log('🎧 Stream remoto recebido de:', userId);
+            console.log('Event tracks:', event.tracks.length);
+            console.log('Event streams:', event.streams.length);
+            
+            if (event.streams && event.streams.length > 0) {
+                const remoteStream = event.streams[0];
+                console.log('Remote stream audio tracks:', remoteStream.getAudioTracks().length);
+                setupAudioElement(userId, remoteStream);
+            }
+        };
+        
+        // Manipular ICE candidates
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('🧊 Novo ICE candidate para:', userId);
+                sendIceCandidate(userId, event.candidate);
+            } else {
+                console.log('✅ Todos ICE candidates coletados para:', userId);
+            }
+        };
+        
+        // Manipular mudanças de estado
+        peerConnection.onconnectionstatechange = () => {
+            const state = peerConnection.connectionState;
+            console.log(`🔗 Conexão ${userId}: ${state}`);
+            
+            if (state === 'connected') {
+                showNotification('Conexão de voz estabelecida', 'success');
+            } else if (state === 'disconnected' || state === 'failed') {
+                console.log(`Conexão perdida com ${userId}`);
+                // Tentar reconectar após 5 segundos
+                setTimeout(() => {
+                    if (voiceChatSystem.isEnabled) {
+                        createPeerConnection(userId);
+                    }
+                }, 5000);
+            }
+        };
+        
+        peerConnection.oniceconnectionstatechange = () => {
+            console.log(`❄️ ICE ${userId}: ${peerConnection.iceConnectionState}`);
+        };
+        
+        peerConnection.onsignalingstatechange = () => {
+            console.log(`📶 Signaling ${userId}: ${peerConnection.signalingState}`);
+        };
+        
+        return peerConnection;
+        
+    } catch (error) {
+        console.error('Erro ao criar peer connection:', error);
+        return null;
+    }
 }
+
+// ===== VERIFICAR E RECONECTAR CONEXÕES =====
+function checkAndReconnectConnections() {
+    if (!voiceChatSystem.isEnabled) return;
+    
+    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
+        if (pc.connectionState === 'disconnected' || 
+            pc.connectionState === 'failed' ||
+            pc.iceConnectionState === 'disconnected' ||
+            pc.iceConnectionState === 'failed') {
+            
+            console.log(`Tentando reconectar com ${userId}`);
+            
+            // Fechar conexão antiga
+            pc.close();
+            delete voiceChatSystem.peerConnections[userId];
+            
+            // Criar nova conexão
+            setTimeout(() => {
+                if (voiceChatSystem.isEnabled) {
+                    createPeerConnection(userId);
+                }
+            }, 2000);
+        }
+    });
+}
+
+// Verificar conexões a cada 10 segundos
+setInterval(checkAndReconnectConnections, 10000);
 
 // ===== LIMPAR DOCUMENTOS ANTIGOS DE VOZ =====
 async function cleanupOldVoiceDocuments() {
@@ -955,21 +1012,33 @@ function initializeVoiceListeners() {
 // ===== MANIPULAR OFERTA DE VOZ (CORRIGIDA) =====
 async function handleVoiceOffer(offerData) {
     try {
-        if (!voiceChatSystem.isEnabled) return;
+        if (!voiceChatSystem.isEnabled) {
+            console.log('Voice chat não está ativado, ignorando oferta');
+            return;
+        }
+        
+        console.log('📨 Recebendo oferta de voz de:', offerData.from);
         
         let peerConnection = voiceChatSystem.peerConnections[offerData.from];
         if (!peerConnection) {
+            console.log('Criando nova conexão para oferta de:', offerData.from);
             peerConnection = createPeerConnection(offerData.from);
         }
         
         // Reconstruir a oferta RTCSessionDescription
         const offer = new RTCSessionDescription(offerData.offer);
+        console.log('Definindo descrição remota...');
+        
         await peerConnection.setRemoteDescription(offer);
+        console.log('Descrição remota definida com sucesso');
         
         const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
+        console.log('Resposta criada:', answer.type);
         
-        // Enviar resposta (convertendo para objeto simples)
+        await peerConnection.setLocalDescription(answer);
+        console.log('Descrição local definida');
+        
+        // Enviar resposta
         await db.collection('voiceAnswers').add({
             from: currentUser.uid,
             to: offerData.from,
@@ -981,10 +1050,44 @@ async function handleVoiceOffer(offerData) {
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         
+        console.log('✅ Resposta enviada para:', offerData.from);
+        
     } catch (error) {
         console.error('Erro ao manipular oferta de voz:', error);
     }
 }
+
+
+// ===== TESTE DE ECO (DEBUG) =====
+function setupEchoTest() {
+    const echoTestBtn = document.createElement('button');
+    echoTestBtn.textContent = 'Testar Eco';
+    echoTestBtn.style.position = 'fixed';
+    echoTestBtn.style.bottom = '10px';
+    echoTestBtn.style.right = '10px';
+    echoTestBtn.style.zIndex = '1000';
+    echoTestBtn.onclick = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const audio = document.createElement('audio');
+            audio.srcObject = stream;
+            audio.volume = 0.3;
+            audio.play();
+            showNotification('Teste de eco iniciado - você deve ouvir sua voz', 'info');
+            
+            setTimeout(() => {
+                audio.pause();
+                stream.getTracks().forEach(track => track.stop());
+                showNotification('Teste de eco finalizado', 'info');
+            }, 5000);
+        } catch (error) {
+            showNotification('Erro no teste de eco', 'error');
+        }
+    };
+    document.body.appendChild(echoTestBtn);
+}
+
+
 
 // ===== MANIPULAR RESPOSTA DE VOZ =====
 async function handleVoiceAnswer(answerData) {
@@ -10059,4 +10162,34 @@ class VoiceChatSystem {
     }
 }
 
+
+
+
+
+// ===== DEBUG DETALHADO DAS CONEXÕES =====
+function debugWebRTC() {
+    console.log('=== DEBUG WEBRTC ===');
+    console.log('Local stream:', voiceChatSystem.localStream ? 'Present' : 'Null');
+    if (voiceChatSystem.localStream) {
+        console.log('Audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
+        voiceChatSystem.localStream.getAudioTracks().forEach(track => {
+            console.log('Track:', track.id, 'enabled:', track.enabled, 'muted:', track.muted);
+        });
+    }
+    
+    console.log('Peer connections:', Object.keys(voiceChatSystem.peerConnections).length);
+    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
+        console.log(`Peer ${userId}:`);
+        console.log('  - connectionState:', pc.connectionState);
+        console.log('  - iceConnectionState:', pc.iceConnectionState);
+        console.log('  - signalingState:', pc.signalingState);
+        console.log('  - local description:', pc.localDescription ? 'Set' : 'Not set');
+        console.log('  - remote description:', pc.remoteDescription ? 'Set' : 'Not set');
+    });
+    
+    console.log('Audio elements:', Object.keys(audioElements).length);
+}
+
+// Adicione ao window para testar
+window.debugWebRTC = debugWebRTC;
 
