@@ -79,6 +79,17 @@ let hasGlobalMandatoryCaptures = false;
 let capturingPieces = [];
 
 
+// ===== VARIÁVEIS DE NOTIFICAÇÕES =====
+let notificationsListener = null;
+let userNotifications = [];
+let unreadCount = 0;
+
+
+// ===== VARIÁVEIS DE SOLICITAÇÕES =====
+let friendRequestsListener = null;
+let pendingRequestsCount = 0;
+
+
 // ===== ATUALIZAR LAST LOGIN E STATUS ONLINE =====
 async function updateUserOnlineStatus() {
     if (!currentUser || !db) return;
@@ -409,8 +420,15 @@ async function testNotification() {
 }
 function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
+
+    setupUsersSearch();
+
         // 9. SISTEMA DE VOZ
     initializeVoiceChat();
+    // 10. SISTEMA DE NOTIFICAÇÕES
+    initializeNotificationsSystem();
+
+        initializeFriendsSystem();
 
     
     // 1. DECLARAR TODAS AS VARIÁVEIS PRIMEIRO
@@ -1754,7 +1772,16 @@ function initializeAuth() {
         
         if (user) {
             currentUser = user;
+
+
+        initializeFriendsSystem();
+
+        setupUsersSearch();
             
+        // Inicializar sistema de notificações
+        initializeNotificationsSystem();
+
+
             // Reiniciar listener de notificações
             if (typeof setupChallengeListener === 'function') {
                 setupChallengeListener();
@@ -5974,11 +6001,762 @@ function visualizeBoardForDebug() {
 // Adicione ao window
 window.showBoard = visualizeBoardForDebug;
 // ===== AMIGOS =====
+
+
+// ===== CARREGAR AMIGOS (COM IDs CORRETOS) =====
 async function loadFriends() {
-  const friendsContainer = document.getElementById('friends-container');
-  if (friendsContainer) {
-    friendsContainer.innerHTML = '<p class="text-center">Funcionalidade de amigos em desenvolvimento</p>';
-  }
+    const friendsContainer = document.getElementById('friends-container');
+    if (!friendsContainer) return;
+    
+    friendsContainer.innerHTML = `
+        <div class="friends-section">
+            <div class="friends-header">
+                <h2>👥 Sistema de Amigos</h2>
+                <p>Conecte-se com outros jogadores e jogue together</p>
+            </div>
+            
+            <div class="friends-stats">
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="total-friends">0</span>
+                    <span class="stat-label">Amigos no Total</span>
+                </div>
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="online-friends">0</span>
+                    <span class="stat-label">Amigos Online</span>
+                </div>
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="pending-requests-count">0</span>
+                    <span class="stat-label">Solicitações Pendentes</span>
+                </div>
+            </div>
+            
+            <div class="friends-search">
+                <div class="search-container">
+                    <input type="text" id="friends-search" placeholder="Buscar jogadores...">
+                    <i class="fas fa-search"></i>
+                    <div class="search-results" id="search-results" style="display: none;"></div>
+                </div>
+            </div>
+            
+            <div class="friends-tabs">
+                <button class="friend-tab active" data-tab="all">
+                    Todos os Amigos
+                </button>
+                <button class="friend-tab" data-tab="online">
+                    Online
+                </button>
+                <button class="friend-tab" data-tab="requests" id="tab-requests-btn">
+                    Solicitações
+                    <span class="tab-badge" id="requests-badge" style="display: none;">0</span>
+                </button>
+                <button class="friend-tab" data-tab="add">
+                    Adicionar
+                </button>
+            </div>
+            
+            <div class="tab-content active" id="tab-all">
+                <div class="friends-grid" id="friends-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-user-friends"></i>
+                        <h3>Nenhum amigo ainda</h3>
+                        <p>Adicione amigos para começar a jogar together</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-online">
+                <div class="friends-grid" id="online-friends-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-wifi"></i>
+                        <h3>Nenhum amigo online</h3>
+                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-requests">
+                <div class="friends-grid" id="requests-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-user-plus"></i>
+                        <h3>Nenhuma solicitação</h3>
+                        <p>Solicitações de amizade aparecerão aqui</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-add">
+                <div class="add-friends-container" id="add-friends-container">
+                    <div class="empty-friends">
+                        <i class="fas fa-search"></i>
+                        <h3>Encontrar Amigos</h3>
+                        <p>Use a busca acima para encontrar outros jogadores</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="friends-footer">
+                <button class="invite-friends-btn" id="btn-invite-friends">
+                    <i class="fas fa-envelope"></i>
+                    Convidar Amigos
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Configurar event listeners
+    setupFriendsListeners();
+    setupUsersSearch();
+    setupFriendRequestsListener();
+}
+
+
+// ===== CARREGAR LISTA DE AMIGOS =====
+async function loadFriendsList() {
+    try {
+        const friendsGrid = document.getElementById('friends-grid');
+        if (!friendsGrid) {
+            console.error('friends-grid não encontrado');
+            return;
+        }
+        
+        // Mostrar loading
+        friendsGrid.innerHTML = `
+            <div class="search-loading">
+                <i class="fas fa-spinner"></i>
+                <p>Carregando amigos...</p>
+            </div>
+        `;
+        
+        // Carregar amigos do Firestore
+        const snapshot = await db.collection('users')
+            .doc(currentUser.uid)
+            .collection('friends')
+            .get();
+        
+        userFriends = [];
+        onlineFriends = 0;
+        
+        if (snapshot.empty) {
+            friendsGrid.innerHTML = `
+                <div class="empty-friends">
+                    <i class="fas fa-user-friends"></i>
+                    <h3>Nenhum amigo ainda</h3>
+                    <p>Adicione amigos para começar a jogar together</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Carregar informações completas de cada amigo
+        const friendsPromises = [];
+        
+        snapshot.forEach(doc => {
+            const friendData = doc.data();
+            const friendId = friendData.friendId || doc.id;
+            
+            friendsPromises.push(
+                db.collection('users').doc(friendId).get().then(userDoc => {
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        return {
+                            id: friendId,
+                            ...userData,
+                            ...friendData,
+                            friendSince: friendData.friendSince?.toDate?.() || new Date()
+                        };
+                    }
+                    return null;
+                })
+            );
+        });
+        
+        const friendsData = await Promise.all(friendsPromises);
+        userFriends = friendsData.filter(friend => friend !== null);
+        
+        // Contar amigos online
+        onlineFriends = userFriends.filter(friend => friend.isOnline).length;
+        
+        // Atualizar estatísticas
+        updateFriendsStats();
+        
+        // Renderizar amigos
+        renderFriendsGrid();
+        
+    } catch (error) {
+        console.error('Erro ao carregar lista de amigos:', error);
+        const friendsGrid = document.getElementById('friends-grid');
+        if (friendsGrid) {
+            friendsGrid.innerHTML = `
+                <div class="empty-friends">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>Erro ao carregar</h3>
+                    <p>Tente novamente</p>
+                </div>
+            `;
+        }
+    }
+}
+
+
+
+// ===== CARREGAR ABA ADICIONAR AMIGOS =====
+function loadAddFriends() {
+    const addContainer = document.getElementById('add-friends-container');
+    if (!addContainer) return;
+    
+    addContainer.innerHTML = `
+        <div class="empty-friends">
+            <i class="fas fa-search"></i>
+            <h3>Encontrar Amigos</h3>
+            <p>Use a busca acima para encontrar outros jogadores</p>
+            <div style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="showAddFriendsTips()">
+                    <i class="fas fa-lightbulb"></i> Dicas para encontrar amigos
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// ===== MOSTRAR DICAS PARA ADICIONAR AMIGOS =====
+function showAddFriendsTips() {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>💡 Dicas para encontrar amigos</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <h4>🔍 Busque por nome</h4>
+                        <p>Digite o nome do jogador na barra de busca</p>
+                    </div>
+                    <div>
+                        <h4>🎮 Partidas públicas</h4>
+                        <p>Jogue partidas públicas e adicione oponentes</p>
+                    </div>
+                    <div>
+                        <h4>👥 Comunidade</h4>
+                        <p>Participe de torneios e eventos da comunidade</p>
+                    </div>
+                    <div>
+                        <h4>📱 Redes sociais</h4>
+                        <p>Compartilhe seu código de amizade</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="this.closest('.modal').remove()">
+                    Entendi!
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Event listeners
+    const closeBtn = modal.querySelector('.modal-close');
+    closeBtn.addEventListener('click', () => modal.remove());
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+    
+    setTimeout(() => modal.classList.add('active'), 100);
+}
+
+
+// ===== CARREGAR AMIGOS ONLINE =====
+async function loadOnlineFriends() {
+    try {
+        const onlineGrid = document.getElementById('online-friends-grid');
+        if (!onlineGrid) return;
+        
+        // Mostrar loading
+        onlineGrid.innerHTML = `
+            <div class="search-loading">
+                <i class="fas fa-spinner"></i>
+                <p>Carregando amigos online...</p>
+            </div>
+        `;
+        
+        // Se já temos os amigos carregados, filtrar os online
+        if (userFriends.length > 0) {
+            const onlineFriends = userFriends.filter(friend => friend.isOnline);
+            
+            if (onlineFriends.length === 0) {
+                onlineGrid.innerHTML = `
+                    <div class="empty-friends">
+                        <i class="fas fa-wifi"></i>
+                        <h3>Nenhum amigo online</h3>
+                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
+                    </div>
+                `;
+            } else {
+                renderFilteredFriends(onlineFriends, 'online-friends-grid');
+            }
+            return;
+        }
+        
+        // Se não temos amigos carregados, buscar do Firestore
+        const snapshot = await db.collection('users')
+            .doc(currentUser.uid)
+            .collection('friends')
+            .get();
+        
+        const onlineFriends = [];
+        const friendsPromises = [];
+        
+        snapshot.forEach(doc => {
+            const friendData = doc.data();
+            const friendId = friendData.friendId || doc.id;
+            
+            friendsPromises.push(
+                db.collection('users').doc(friendId).get().then(userDoc => {
+                    if (userDoc.exists) {
+                        const userData = userDoc.data();
+                        if (userData.isOnline) {
+                            return {
+                                id: friendId,
+                                ...userData,
+                                ...friendData,
+                                friendSince: friendData.friendSince?.toDate?.() || new Date()
+                            };
+                        }
+                    }
+                    return null;
+                })
+            );
+        });
+        
+        const friendsData = await Promise.all(friendsPromises);
+        const filteredFriends = friendsData.filter(friend => friend !== null);
+        
+        if (filteredFriends.length === 0) {
+            onlineGrid.innerHTML = `
+                <div class="empty-friends">
+                    <i class="fas fa-wifi"></i>
+                    <h3>Nenhum amigo online</h3>
+                    <p>Seus amigos aparecerão aqui quando estiverem online</p>
+                </div>
+            `;
+        } else {
+            renderFilteredFriends(filteredFriends, 'online-friends-grid');
+        }
+        
+    } catch (error) {
+        console.error('Erro ao carregar amigos online:', error);
+    }
+}
+// ===== CONFIGURAR LISTENER DE SOLICITAÇÕES (ATUALIZADA) =====
+function setupFriendRequestsListener() {
+    if (!currentUser || !db) {
+        setTimeout(setupFriendRequestsListener, 2000);
+        return;
+    }
+    
+    if (friendRequestsListener) {
+        friendRequestsListener();
+    }
+    
+    friendRequestsListener = db.collection('friendRequests')
+        .where('toUserId', '==', currentUser.uid)
+        .where('status', '==', 'pending')
+        .onSnapshot((snapshot) => {
+            pendingRequestsCount = snapshot.size;
+            updateRequestsBadge();
+            updateFriendsStats(); // Atualizar estatísticas também
+            
+            // Usar render seguro
+            safeRenderFriendRequests(snapshot);
+        });
+}
+
+
+// ===== RENDERIZAR SOLICITAÇÕES DE AMIZADE (SIMPLIFICADA) =====
+async function renderFriendRequests(snapshot) {
+    const requestsGrid = document.getElementById('requests-grid');
+    if (!requestsGrid) return;
+    
+    if (snapshot.empty) {
+        requestsGrid.innerHTML = `
+            <div class="empty-friends">
+                <i class="fas fa-user-plus"></i>
+                <h3>Nenhuma solicitação</h3>
+                <p>Solicitações de amizade aparecerão aqui</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Limpar o grid
+    requestsGrid.innerHTML = '';
+    
+    snapshot.forEach((doc) => {
+        const request = doc.data();
+        const requestId = doc.id;
+        
+        // Usar os dados que já estão na solicitação
+        const requestElement = document.createElement('div');
+        requestElement.className = 'friend-card';
+        requestElement.innerHTML = `
+            <div class="friend-header">
+                <div class="friend-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(request.fromUserName)}&background=0072ff&color=fff" 
+                         alt="${request.fromUserName}">
+                    <div class="online-status offline"></div>
+                </div>
+                <div class="friend-info">
+                    <h3 class="friend-name">${request.fromUserName}</h3>
+                    <p class="friend-status">🟡 Status desconhecido</p>
+                    <p class="friend-time">
+                        <small>${formatTimeAgo(request.timestamp)}</small>
+                    </p>
+                </div>
+            </div>
+            
+            <div class="friend-stats">
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Rating</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Vitórias</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Win Rate</span>
+                </div>
+            </div>
+            
+            <div class="friend-actions">
+                <button class="friend-btn btn-accept" onclick="acceptFriendRequest('${requestId}', '${request.fromUserId}')">
+                    <i class="fas fa-check"></i> Aceitar
+                </button>
+                <button class="friend-btn btn-decline" onclick="declineFriendRequest('${requestId}')">
+                    <i class="fas fa-times"></i> Recusar
+                </button>
+                <button class="friend-btn btn-profile" onclick="viewUserProfile('${request.fromUserId}')">
+                    <i class="fas fa-eye"></i> Ver Perfil
+                </button>
+            </div>
+        `;
+        
+        requestsGrid.appendChild(requestElement);
+        
+        // Carregar informações adicionais em segundo plano
+loadAdditionalUserInfo(request.fromUserId, requestElement, request.fromUserName);
+    });
+}
+// ===== CARREGAR INFORMAÇÕES ADICIONAIS DO USUÁRIO (CORRIGIDA) =====
+async function loadAdditionalUserInfo(userId, requestElement, userName = '') {
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            
+            // Atualizar o card com as informações reais
+            const avatar = requestElement.querySelector('.friend-avatar img');
+            const status = requestElement.querySelector('.friend-status');
+            const rating = requestElement.querySelector('.friend-stat:nth-child(1) .friend-stat-value');
+            const wins = requestElement.querySelector('.friend-stat:nth-child(2) .friend-stat-value');
+            const winRate = requestElement.querySelector('.friend-stat:nth-child(3) .friend-stat-value');
+            const onlineStatus = requestElement.querySelector('.online-status');
+            const nameElement = requestElement.querySelector('.friend-name');
+            
+            if (avatar) {
+                avatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName || userName)}&background=0072ff&color=fff`;
+                avatar.alt = userData.displayName || userName;
+            }
+            
+            if (status) {
+                status.textContent = userData.isOnline ? '🟢 Online' : '⚫ Offline';
+                if (userData.isPlaying) status.textContent = '🎮 Jogando agora';
+            }
+            
+            if (rating) rating.textContent = userData.rating || 1000;
+            if (wins) wins.textContent = userData.wins || 0;
+            
+            if (winRate) {
+                const totalGames = (userData.wins || 0) + (userData.losses || 0);
+                const winRateValue = totalGames > 0 ? Math.floor((userData.wins || 0) / totalGames * 100) : 0;
+                winRate.textContent = `${winRateValue}%`;
+            }
+            
+            if (onlineStatus) {
+                onlineStatus.className = 'online-status ' + (userData.isPlaying ? 'playing' : userData.isOnline ? 'online' : 'offline');
+            }
+            
+            // Atualizar nome se for diferente
+            if (nameElement && userData.displayName && userData.displayName !== userName) {
+                nameElement.textContent = userData.displayName;
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao carregar informações adicionais:', error);
+    }
+}
+
+// ===== DEBUG: VERIFICAR SOLICITAÇÕES =====
+async function debugFriendRequests() {
+    try {
+        console.log('=== DEBUG FRIEND REQUESTS ===');
+        console.log('Current user ID:', currentUser.uid);
+        
+        const snapshot = await db.collection('friendRequests')
+            .where('toUserId', '==', currentUser.uid)
+            .where('status', '==', 'pending')
+            .get();
+        
+        console.log('Found requests:', snapshot.size);
+        
+        snapshot.forEach(doc => {
+            console.log('Request:', doc.id, doc.data());
+        });
+        
+    } catch (error) {
+        console.error('Debug error:', error);
+    }
+}
+
+// Adicione ao window para testar
+window.debugRequests = debugFriendRequests;
+// ===== RENDERIZAR SOLICITAÇÕES DE AMIZADE (COM MELHOR TRATAMENTO DE ERRO) =====
+async function renderFriendRequests(snapshot) {
+    const requestsGrid = document.getElementById('requests-grid');
+    if (!requestsGrid) {
+        console.error('requests-grid não encontrado');
+        return;
+    }
+    
+    if (snapshot.empty) {
+        requestsGrid.innerHTML = `
+            <div class="empty-friends">
+                <i class="fas fa-user-plus"></i>
+                <h3>Nenhuma solicitação</h3>
+                <p>Solicitações de amizade aparecerão aqui</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Limpar o grid
+    requestsGrid.innerHTML = '';
+    
+    snapshot.forEach((doc) => {
+        const request = doc.data();
+        const requestId = doc.id;
+        
+        // Verificar se temos os dados necessários
+        if (!request.fromUserId || !request.fromUserName) {
+            console.error('Solicitação inválida:', request);
+            return;
+        }
+        
+        // Usar os dados que já estão na solicitação
+        const requestElement = document.createElement('div');
+        requestElement.className = 'friend-card';
+        requestElement.innerHTML = `
+            <div class="friend-header">
+                <div class="friend-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(request.fromUserName)}&background=0072ff&color=fff" 
+                         alt="${request.fromUserName}">
+                    <div class="online-status offline"></div>
+                </div>
+                <div class="friend-info">
+                    <h3 class="friend-name">${request.fromUserName}</h3>
+                    <p class="friend-status">🟡 Carregando...</p>
+                    <p class="friend-time">
+                        <small>${formatTimeAgo(request.timestamp)}</small>
+                    </p>
+                </div>
+            </div>
+            
+            <div class="friend-stats">
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Rating</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Vitórias</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">?</span>
+                    <span class="friend-stat-label">Win Rate</span>
+                </div>
+            </div>
+            
+            <div class="friend-actions">
+                <button class="friend-btn btn-accept" onclick="acceptFriendRequest('${requestId}', '${request.fromUserId}')">
+                    <i class="fas fa-check"></i> Aceitar
+                </button>
+                <button class="friend-btn btn-decline" onclick="declineFriendRequest('${requestId}')">
+                    <i class="fas fa-times"></i> Recusar
+                </button>
+                <button class="friend-btn btn-profile" onclick="viewUserProfile('${request.fromUserId}')">
+                    <i class="fas fa-eye"></i> Ver Perfil
+                </button>
+            </div>
+        `;
+        
+        requestsGrid.appendChild(requestElement);
+        
+        // Carregar informações adicionais em segundo plano
+        loadAdditionalUserInfo(request.fromUserId, requestElement, request.fromUserName);
+    });
+}
+
+// ===== VERIFICAÇÃO DE SEGURANÇA PARA REQUEST DATA =====
+function validateRequestData(request) {
+    if (!request) return false;
+    if (!request.fromUserId) return false;
+    if (!request.fromUserName) return false;
+    if (!request.timestamp) return false;
+    return true;
+}
+// ===== DEBUG DETALHADO DAS SOLICITAÇÕES =====
+function debugRequestsDetailed() {
+    console.log('=== DEBUG DETALHADO DE SOLICITAÇÕES ===');
+    
+    db.collection('friendRequests')
+        .where('toUserId', '==', currentUser.uid)
+        .where('status', '==', 'pending')
+        .get()
+        .then(snapshot => {
+            console.log('Solicitações encontradas:', snapshot.size);
+            
+            snapshot.forEach(doc => {
+                const request = doc.data();
+                console.log('Solicitação:', doc.id, {
+                    fromUserId: request.fromUserId,
+                    fromUserName: request.fromUserName,
+                    timestamp: request.timestamp,
+                    isValid: validateRequestData(request)
+                });
+            });
+        })
+        .catch(error => {
+            console.error('Erro no debug detalhado:', error);
+        });
+}
+
+// Adicione ao window
+window.debugDetailed = debugRequestsDetailed;
+
+// ===== ACEITAR SOLICITAÇÃO DE AMIZADE =====
+async function acceptFriendRequest(requestId, friendId) {
+    try {
+        const requestDoc = await db.collection('friendRequests').doc(requestId).get();
+        if (!requestDoc.exists) {
+            showNotification('Solicitação não encontrada', 'error');
+            return;
+        }
+        
+        const request = requestDoc.data();
+        const friendDoc = await db.collection('users').doc(friendId).get();
+        
+        if (!friendDoc.exists) {
+            showNotification('Usuário não encontrado', 'error');
+            return;
+        }
+        
+        const friendData = friendDoc.data();
+        
+        // Adicionar como amigo para o usuário atual
+        await db.collection('users').doc(currentUser.uid).collection('friends').doc(friendId).set({
+            friendId: friendId,
+            displayName: friendData.displayName,
+            friendSince: firebase.firestore.FieldValue.serverTimestamp(),
+            rating: friendData.rating || 1000
+        });
+        
+        // Adicionar como amigo para o outro usuário
+        await db.collection('users').doc(friendId).collection('friends').doc(currentUser.uid).set({
+            friendId: currentUser.uid,
+            displayName: userData.displayName,
+            friendSince: firebase.firestore.FieldValue.serverTimestamp(),
+            rating: userData.rating || 1000
+        });
+        
+        // Atualizar a solicitação para aceita
+        await db.collection('friendRequests').doc(requestId).update({
+            status: 'accepted',
+            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Enviar notificação para o usuário
+        await db.collection('notifications').add({
+            type: 'friend_request_accepted',
+            toUserId: friendId,
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            message: `${userData.displayName} aceitou sua solicitação de amizade!`,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+        
+        showNotification(`Agora você é amigo de ${friendData.displayName}!`, 'success');
+        
+    } catch (error) {
+        console.error('Erro ao aceitar solicitação:', error);
+        showNotification('Erro ao aceitar solicitação', 'error');
+    }
+}
+
+// ===== RECUSAR SOLICITAÇÃO DE AMIZADE =====
+async function declineFriendRequest(requestId) {
+    try {
+        const requestDoc = await db.collection('friendRequests').doc(requestId).get();
+        if (!requestDoc.exists) {
+            showNotification('Solicitação não encontrada', 'error');
+            return;
+        }
+        
+        const request = requestDoc.data();
+        
+        // Atualizar a solicitação para recusada
+        await db.collection('friendRequests').doc(requestId).update({
+            status: 'declined',
+            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        showNotification('Solicitação recusada', 'info');
+        
+    } catch (error) {
+        console.error('Erro ao recusar solicitação:', error);
+        showNotification('Erro ao recusar solicitação', 'error');
+    }
+}
+
+// ===== ATUALIZAR BADGE DE SOLICITAÇÕES =====
+function updateRequestsBadge() {
+    const badge = document.getElementById('requests-badge');
+    const tabBtn = document.getElementById('tab-requests-btn');
+    
+    if (badge && tabBtn) {
+        if (pendingRequestsCount > 0) {
+            badge.textContent = pendingRequestsCount;
+            badge.style.display = 'flex';
+            tabBtn.classList.add('has-requests');
+        } else {
+            badge.style.display = 'none';
+            tabBtn.classList.remove('has-requests');
+        }
+    }
+}
+// ===== ATUALIZAR ESTATÍSTICAS DE SOLICITAÇÕES =====
+// ===== ATUALIZAR ESTATÍSTICAS DE SOLICITAÇÕES =====
+function updateRequestsStats() {
+    const statElement = document.getElementById('pending-requests');
+    if (statElement) {
+        statElement.textContent = pendingRequestsCount;
+    }
 }
 
 // ===== FUNÇÃO CHECK GAME END CORRIGIDA =====
@@ -10192,4 +10970,1430 @@ function debugWebRTC() {
 
 // Adicione ao window para testar
 window.debugWebRTC = debugWebRTC;
+
+
+
+// ===== INICIALIZAR MODAL DE NOTIFICAÇÕES =====
+function initializeNotificationsModal() {
+    if (document.getElementById('notifications-modal')) return;
+    
+    const modalHTML = `
+        <div class="notifications-modal" id="notifications-modal">
+            <div class="notifications-content">
+                <div class="notifications-header">
+                    <h3>🎯 Notificações</h3>
+                    <button class="notifications-close">&times;</button>
+                </div>
+                <div class="notifications-body">
+                    <div class="notifications-list" id="notifications-list">
+                        <div class="empty-notifications">
+                            <i class="fas fa-bell-slash"></i>
+                            <p>Nenhuma notificação</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="notifications-footer">
+                    <button class="btn-clear-all" id="btn-clear-notifications">
+                        <i class="fas fa-trash"></i> Limpar Tudo
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Event listeners
+    const modal = document.getElementById('notifications-modal');
+    const closeBtn = modal.querySelector('.notifications-close');
+    const clearBtn = document.getElementById('btn-clear-notifications');
+    
+    closeBtn.addEventListener('click', closeNotificationsModal);
+    clearBtn.addEventListener('click', clearAllNotifications);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeNotificationsModal();
+        }
+    });
+}
+
+// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES =====
+function initializeNotificationsSystem() {
+    initializeNotificationsModal();
+    setupNotificationsButton();
+    setupNotificationsListener();
+}
+
+// ===== CONFIGURAR BOTÃO DE NOTIFICAÇÕES =====
+function setupNotificationsButton() {
+    const notificationsBtn = document.getElementById('btn-notifications');
+    if (!notificationsBtn) {
+        console.error('Botão de notificações não encontrado');
+        return;
+    }
+    
+    // Adicionar badge inicial
+    const badge = document.createElement('span');
+    badge.className = 'notifications-badge';
+    badge.id = 'notifications-badge';
+    badge.style.display = 'none';
+    notificationsBtn.appendChild(badge);
+    
+    // Event listener
+    notificationsBtn.addEventListener('click', toggleNotificationsModal);
+    
+    console.log('✅ Botão de notificações configurado');
+}
+
+// ===== CONFIGURAR LISTENER DE NOTIFICAÇÕES (ATUALIZADA) =====
+function setupNotificationsListener() {
+    if (!currentUser || !db) {
+        console.log('Usuário não logado, aguardando para configurar listener...');
+        setTimeout(setupNotificationsListener, 2000);
+        return;
+    }
+    
+    // Remover listener anterior se existir
+    if (notificationsListener) {
+        notificationsListener();
+    }
+    
+    notificationsListener = db.collection('notifications')
+        .where('toUserId', '==', currentUser.uid)
+        .orderBy('timestamp', 'desc')
+        .limit(50) // Aumentar limite para melhor filtragem
+        .onSnapshot((snapshot) => {
+            userNotifications = [];
+            unreadCount = 0;
+            
+            snapshot.forEach((doc) => {
+                const notification = {
+                    id: doc.id,
+                    ...doc.data(),
+                    timestamp: doc.data().timestamp?.toDate ? 
+                             doc.data().timestamp.toDate() : 
+                             new Date(doc.data().timestamp)
+                };
+                
+                userNotifications.push(notification);
+            });
+            
+            // Aplicar filtro para remover notificações indesejadas
+            userNotifications = filterNotifications(userNotifications);
+            
+            // Contar não lidas após filtro
+            unreadCount = userNotifications.filter(n => !n.read).length;
+            
+            updateNotificationsBadge();
+            updateNotificationsList();
+            
+        }, (error) => {
+            console.error('Erro no listener de notificações:', error);
+        });
+}
+
+// ===== CRIAR NOTIFICAÇÃO DE TESTE =====
+async function createTestNotification(type = 'message') {
+    if (!currentUser || !db) {
+        showNotification('Você precisa estar logado', 'error');
+        return;
+    }
+    
+    const testMessages = {
+        'message': 'Olá! Vamos jogar uma partida?',
+        'table_available': 'Seu amigo João criou uma mesa nova!',
+        'friend_online': 'Maria está online e procurando parceiros',
+        'system': 'Sistema atualizado com novas funcionalidades',
+        'reward': 'Você ganhou 50 moedas por jogar hoje!'
+    };
+    
+    try {
+        await db.collection('notifications').add({
+            type: type,
+            toUserId: currentUser.uid,
+            fromUserId: 'system',
+            fromUserName: 'Sistema',
+            message: testMessages[type] || 'Notificação de teste',
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+        
+        showNotification('Notificação de teste criada', 'success');
+    } catch (error) {
+        console.error('Erro ao criar notificação teste:', error);
+    }
+}
+
+// Adicione ao window para testar
+window.testNotification = createTestNotification;
+
+// ===== ATUALIZAR BADGE DE NOTIFICAÇÕES =====
+function updateNotificationsBadge() {
+    const badge = document.getElementById('notifications-badge');
+    const btn = document.getElementById('btn-notifications');
+    
+    if (badge && btn) {
+        if (unreadCount > 0) {
+            badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            badge.style.display = 'flex';
+            
+            // Adicionar animação de pulsação
+            badge.style.animation = 'pulse 2s infinite';
+            
+            // Adicionar efeito no botão
+            btn.classList.add('has-notifications');
+        } else {
+            badge.style.display = 'none';
+            btn.classList.remove('has-notifications');
+        }
+    }
+}
+
+// ===== ATUALIZAR LISTA DE NOTIFICAÇÕES =====
+function updateNotificationsList() {
+    const list = document.getElementById('notifications-list');
+    if (!list) return;
+    
+    if (userNotifications.length === 0) {
+        list.innerHTML = `
+            <div class="empty-notifications">
+                <i class="fas fa-bell-slash"></i>
+                <p>Nenhuma notificação</p>
+            </div>
+        `;
+        return;
+    }
+    
+    list.innerHTML = userNotifications.map(notification => `
+        <div class="notification-item ${notification.read ? '' : 'unread'}" data-id="${notification.id}">
+            <div class="notification-header">
+                <h4 class="notification-title">${getNotificationTitle(notification.type)}</h4>
+                <span class="notification-time">${formatTimeAgo(notification.timestamp)}</span>
+            </div>
+            <p class="notification-message">${notification.message}</p>
+            ${getNotificationActions(notification)}
+        </div>
+    `).join('');
+    
+    // Adicionar event listeners para os botões de ação
+    addNotificationActionsListeners();
+}
+
+// ===== OBTER TÍTULO DA NOTIFICAÇÃO =====
+// ===== OBTER TÍTULO DA NOTIFICAÇÃO (ATUALIZADA) =====
+function getNotificationTitle(type) {
+    const titles = {
+        'message': '💬 Mensagem',
+        'table_available': '🎮 Mesa Disponível',
+        'friend_online': '👥 Amigo Online',
+        'game_result': '🏆 Resultado de Jogo',
+        'system': '⚙️ Sistema',
+        'reward': '🎁 Recompensa',
+        'warning': '⚠️ Aviso'
+    };
+    
+    return titles[type] || '🔔 Notificação';
+}
+
+// ===== OBTER AÇÕES DA NOTIFICAÇÃO (ATUALIZADA) =====
+function getNotificationActions(notification) {
+    // Remover ações para desafios
+    if (notification.type === 'message' && notification.tableId) {
+        return `
+            <div class="notification-actions">
+                <button class="notification-btn btn-view" data-action="view-message" data-id="${notification.id}">
+                    <i class="fas fa-comment"></i> Responder
+                </button>
+            </div>
+        `;
+    }
+    
+    if (notification.type === 'table_available') {
+        return `
+            <div class="notification-actions">
+                <button class="notification-btn btn-accept" data-action="join-table" data-id="${notification.id}">
+                    <i class="fas fa-gamepad"></i> Entrar
+                </button>
+                <button class="notification-btn btn-decline" data-action="ignore" data-id="${notification.id}">
+                    <i class="fas fa-times"></i> Ignorar
+                </button>
+            </div>
+        `;
+    }
+    
+    if (notification.type === 'friend_online') {
+        return `
+            <div class="notification-actions">
+                <button class="notification-btn btn-view" data-action="view-profile" data-id="${notification.id}">
+                    <i class="fas fa-user"></i> Ver Perfil
+                </button>
+            </div>
+        `;
+    }
+    
+    return '';
+}
+
+// ===== ADICIONAR LISTENERS DAS AÇÕES =====
+function addNotificationActionsListeners() {
+    document.querySelectorAll('.notification-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const notificationId = btn.dataset.id;
+            const action = btn.dataset.action;
+            
+            await handleNotificationAction(notificationId, action);
+        });
+    });
+}
+// ===== MANIPULAR AÇÃO DE NOTIFICAÇÃO (ATUALIZADA) =====
+async function handleNotificationAction(notificationId, action) {
+    try {
+        const notification = userNotifications.find(n => n.id === notificationId);
+        if (!notification) return;
+        
+        // Marcar como lida
+        await db.collection('notifications').doc(notificationId).update({
+            read: true
+        });
+        
+        // Executar ação específica
+        switch (action) {
+            case 'join-table':
+                if (notification.tableId) {
+                    joinTable(notification.tableId);
+                }
+                break;
+                
+            case 'view-message':
+                // Futura implementação de chat
+                showNotification('Sistema de mensagens em desenvolvimento', 'info');
+                break;
+                
+            case 'view-profile':
+                // Futura implementação de perfil
+                showNotification('Perfil em desenvolvimento', 'info');
+                break;
+                
+            case 'ignore':
+                // Apenas marcar como lida
+                break;
+        }
+        
+        closeNotificationsModal();
+        
+    } catch (error) {
+        console.error('Erro ao manipular ação de notificação:', error);
+        showNotification('Erro ao processar notificação', 'error');
+    }
+}
+
+
+// ===== FILTRAR NOTIFICAÇÕES =====
+function filterNotifications(notifications) {
+    return notifications.filter(notification => {
+        // Remover notificações de desafio
+        if (notification.type === 'challenge') {
+            return false;
+        }
+        
+        // Remover notificações expiradas
+        if (notification.expiresAt) {
+            const expiresDate = notification.expiresAt.toDate ? 
+                              notification.expiresAt.toDate() : 
+                              new Date(notification.expiresAt);
+            if (expiresDate < new Date()) {
+                // Opcional: deletar notificações expiradas
+                db.collection('notifications').doc(notification.id).delete();
+                return false;
+            }
+        }
+        
+        return true;
+    });
+}
+// ===== ABRIR MODAL DE NOTIFICAÇÕES =====
+function openNotificationsModal() {
+    const modal = document.getElementById('notifications-modal');
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    
+    // Atualizar lista ao abrir
+    updateNotificationsList();
+}
+
+// ===== FECHAR MODAL DE NOTIFICAÇÕES =====
+function closeNotificationsModal() {
+    const modal = document.getElementById('notifications-modal');
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+// ===== TOGGLE MODAL =====
+function toggleNotificationsModal() {
+    const modal = document.getElementById('notifications-modal');
+    if (modal.classList.contains('active')) {
+        closeNotificationsModal();
+    } else {
+        openNotificationsModal();
+    }
+}
+
+// ===== LIMPAR TODAS NOTIFICAÇÕES =====
+async function clearAllNotifications() {
+    try {
+        const batch = db.batch();
+        
+        userNotifications.forEach(notification => {
+            const ref = db.collection('notifications').doc(notification.id);
+            batch.delete(ref);
+        });
+        
+        await batch.commit();
+        showNotification('Notificações limpas', 'success');
+        
+    } catch (error) {
+        console.error('Erro ao limpar notificações:', error);
+        showNotification('Erro ao limpar notificações', 'error');
+    }
+}
+
+// ===== FORMATAR TEMPO =====
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Agora';
+    
+    const now = new Date();
+    const diff = now - new Date(timestamp);
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} min`;
+    if (hours < 24) return `Há ${hours} h`;
+    if (days < 7) return `Há ${days} d`;
+    
+    return new Date(timestamp).toLocaleDateString('pt-BR');
+}
+
+
+
+
+// ===== VARIÁVEIS DO SISTEMA DE AMIGOS =====
+let friendsListener = null;
+let userFriends = [];
+let friendRequests = [];
+let onlineFriends = 0;
+
+// ===== INICIALIZAR SISTEMA DE AMIGOS (ATUALIZADA) =====
+// ===== INICIALIZAR SISTEMA DE AMIGOS (COMPATÍVEL) =====
+function initializeFriendsSystem() {
+    // Verificar se já temos a estrutura de tabs
+    const existingTabs = document.querySelectorAll('.friend-tab');
+    
+    if (existingTabs.length === 0) {
+        // Se não existem tabs, carregar a estrutura completa
+        loadFriends();
+    } else {
+        // Se já existem tabs, apenas configurar os listeners
+        setupFriendsTabs();
+        setupUsersSearch();
+        setupFriendRequestsListener();
+        
+        // Carregar dados iniciais
+        loadFriendsList();
+    }
+}
+
+// ===== CONFIGURAR ABAS DE AMIGOS (COMPATÍVEL) =====
+function setupFriendsTabs() {
+    const tabs = document.querySelectorAll('.friend-tab');
+    const contents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            
+            // Remover active de todas as tabs
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            
+            // Adicionar active à tab clicada
+            tab.classList.add('active');
+            document.getElementById(`tab-${tabName}-content`).classList.add('active');
+            
+            // Carregar conteúdo específico
+            switch (tabName) {
+                case 'all':
+                    loadFriendsList();
+                    break;
+                case 'online':
+                    loadOnlineFriends();
+                    break;
+                case 'requests':
+                    loadFriendRequestsList();
+                    break;
+                case 'add':
+                    loadAddFriends();
+                    break;
+            }
+        });
+    });
+}
+// ===== CARREGAR LISTA DE SOLICITAÇÕES (CORRIGIDA) =====
+async function loadFriendRequestsList() {
+    try {
+        const requestsGrid = document.getElementById('requests-grid');
+        if (!requestsGrid) return;
+        
+        // Mostrar loading
+        requestsGrid.innerHTML = `
+            <div class="search-loading">
+                <i class="fas fa-spinner"></i>
+                <p>Carregando solicitações...</p>
+            </div>
+        `;
+        
+        const snapshot = await db.collection('friendRequests')
+            .where('toUserId', '==', currentUser.uid)
+            .where('status', '==', 'pending')
+            .orderBy('timestamp', 'desc')
+            .get();
+        
+        renderFriendRequests(snapshot);
+        
+    } catch (error) {
+        console.error('Erro ao carregar solicitações:', error);
+        const requestsGrid = document.getElementById('requests-grid');
+        if (requestsGrid) {
+            requestsGrid.innerHTML = `
+                <div class="empty-friends">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>Erro ao carregar</h3>
+                    <p>Tente novamente</p>
+                </div>
+            `;
+        }
+    }
+}
+
+// ===== FORMATAR TEMPO RELATIVO =====
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Agora';
+    
+    const now = new Date();
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const diff = now - date;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} min`;
+    if (hours < 24) return `Há ${hours} h`;
+    if (days < 7) return `Há ${days} d`;
+    
+    return date.toLocaleDateString('pt-BR');
+}
+// ===== CARREGAR AMIGOS (COMPATÍVEL COM HTML EXISTENTE) =====
+async function loadFriends() {
+    const friendsContainer = document.getElementById('friends-container');
+    if (!friendsContainer) return;
+    
+    // Manter a estrutura existente do HTML, apenas preencher o conteúdo
+    friendsContainer.innerHTML = `
+        <div class="friends-section">
+            <div class="friends-header">
+                <h2>👥 Sistema de Amigos</h2>
+                <p>Conecte-se com outros jogadores e jogue together</p>
+            </div>
+            
+            <div class="friends-stats">
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="total-friends">0</span>
+                    <span class="stat-label">Amigos no Total</span>
+                </div>
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="online-friends">0</span>
+                    <span class="stat-label">Amigos Online</span>
+                </div>
+                <div class="friend-stat-card">
+                    <span class="stat-number" id="pending-requests-count">0</span>
+                    <span class="stat-label">Solicitações Pendentes</span>
+                </div>
+            </div>
+            
+            <div class="friends-tabs">
+                <button class="friend-tab active" data-tab="all">
+                    Todos os Amigos
+                </button>
+                <button class="friend-tab" data-tab="online">
+                    Online
+                </button>
+                <button class="friend-tab" data-tab="requests" id="tab-requests-btn">
+                    Solicitações
+                    <span class="tab-badge" id="requests-badge" style="display: none;">0</span>
+                </button>
+                <button class="friend-tab" data-tab="add">
+                    Adicionar
+                </button>
+            </div>
+            
+            <div class="tab-content active" id="tab-all-content">
+                <div class="friends-grid" id="friends-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-user-friends"></i>
+                        <h3>Nenhum amigo ainda</h3>
+                        <p>Adicione amigos para começar a jogar together</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-online-content">
+                <div class="friends-grid" id="online-friends-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-wifi"></i>
+                        <h3>Nenhum amigo online</h3>
+                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-requests-content">
+                <div class="friends-grid" id="requests-grid">
+                    <div class="empty-friends">
+                        <i class="fas fa-user-plus"></i>
+                        <h3>Nenhuma solicitação</h3>
+                        <p>Solicitações de amizade aparecerão aqui</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tab-content" id="tab-add-content">
+                <div class="add-friends-container" id="add-friends-container">
+                    <div class="empty-friends">
+                        <i class="fas fa-search"></i>
+                        <h3>Encontrar Amigos</h3>
+                        <p>Use a busca acima para encontrar outros jogadores</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="friends-footer">
+                <button class="invite-friends-btn" id="btn-invite-friends">
+                    <i class="fas fa-envelope"></i>
+                    Convidar Amigos
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Configurar event listeners
+    setupFriendsListeners();
+    setupUsersSearch();
+    setupFriendRequestsListener();
+}
+
+// ===== CONFIGURAR LISTENERS DE AMIGOS (COM VERIFICAÇÃO) =====
+function setupFriendsListeners() {
+    // Listener para amigos
+    if (friendsListener) {
+        friendsListener();
+    }
+    
+    if (!currentUser || !db) return;
+    
+    friendsListener = db.collection('users')
+        .doc(currentUser.uid)
+        .collection('friends')
+        .onSnapshot(async (snapshot) => {
+            // Verificar se ainda estamos na tab de amigos
+            const friendsGrid = document.getElementById('friends-grid');
+            if (!friendsGrid) return;
+            
+            userFriends = [];
+            onlineFriends = 0;
+            let playingFriends = 0;
+            
+            for (const doc of snapshot.docs) {
+                const friendData = doc.data();
+                const friendId = friendData.friendId || doc.id;
+                
+                // Buscar dados completos do amigo
+                const friendDoc = await db.collection('users').doc(friendId).get();
+                if (friendDoc.exists) {
+                    const friend = {
+                        id: friendId,
+                        ...friendDoc.data(),
+                        ...friendData,
+                        friendSince: friendData.friendSince?.toDate?.() || new Date()
+                    };
+                    
+                    userFriends.push(friend);
+                    
+                    if (friend.isOnline) onlineFriends++;
+                    if (friend.isPlaying) playingFriends++;
+                }
+            }
+            
+            updateFriendsStats();
+            
+            // Só renderizar se ainda estivermos na tab de amigos
+            if (document.querySelector('.friend-tab[data-tab="all"]')?.classList.contains('active')) {
+                renderFriendsGrid();
+            }
+        });
+}
+
+// ===== DEBUG: VERIFICAR SE ELEMENTOS EXISTEM =====
+function checkElements() {
+    console.log('friends-grid:', document.getElementById('friends-grid'));
+    console.log('requests-grid:', document.getElementById('requests-grid'));
+    console.log('total-friends:', document.getElementById('total-friends'));
+    console.log('online-friends:', document.getElementById('online-friends'));
+    console.log('playing-friends:', document.getElementById('playing-friends'));
+}
+
+// ===== DEBUG: FORÇAR RENDERIZAÇÃO =====
+function forceRenderRequests() {
+    const snapshot = {
+        empty: false,
+        forEach: (callback) => {
+            // Simular dados de exemplo
+            callback({
+                id: 'test-request',
+                data: () => ({
+                    fromUserId: 'test-user',
+                    fromUserName: 'Usuário Teste',
+                    toUserId: currentUser.uid,
+                    toUserName: userData.displayName,
+                    status: 'pending',
+                    timestamp: new Date()
+                })
+            });
+        }
+    };
+    
+    renderFriendRequests(snapshot);
+}
+
+// Adicione ao window
+window.checkElements = checkElements;
+window.forceRender = forceRenderRequests;
+// ===== ATUALIZAR ESTATÍSTICAS DE AMIGOS =====
+
+// ===== ATUALIZAR ESTATÍSTICAS DE AMIGOS (CORRIGIDA) =====
+function updateFriendsStats() {
+    // Verificar se os elementos ainda existem no DOM
+    const totalFriendsEl = document.getElementById('total-friends');
+    const onlineFriendsEl = document.getElementById('online-friends');
+    const pendingRequestsEl = document.getElementById('pending-requests-count');
+    
+    if (totalFriendsEl) totalFriendsEl.textContent = userFriends.length;
+    if (onlineFriendsEl) onlineFriendsEl.textContent = onlineFriends;
+    if (pendingRequestsEl) pendingRequestsEl.textContent = pendingRequestsCount;
+}
+
+// ===== DEBUG: VERIFICAR ESTRUTURA DO DOM =====
+// ===== DEBUG: VERIFICAR ESTRUTURA DO DOM (ATUALIZADA) =====
+function debugDOM() {
+    console.log('=== DEBUG DOM STRUCTURE ===');
+    
+    // Verificar todos os elementos importantes
+    const elements = {
+        'friends-container': document.getElementById('friends-container'),
+        'friends-grid': document.getElementById('friends-grid'),
+        'online-friends-grid': document.getElementById('online-friends-grid'),
+        'requests-grid': document.getElementById('requests-grid'),
+        'search-results': document.getElementById('search-results'),
+        'friends-search': document.getElementById('friends-search')
+    };
+    
+    console.log('Elementos principais:', elements);
+    
+    // Verificar tabs
+    const tabs = document.querySelectorAll('.friend-tab');
+    console.log('Tabs encontradas:', tabs.length);
+    tabs.forEach(tab => {
+        console.log('Tab:', tab.dataset.tab, 'active:', tab.classList.contains('active'));
+    });
+    
+    // Verificar conteúdos
+    const contents = document.querySelectorAll('.tab-content');
+    console.log('Contents encontrados:', contents.length);
+    contents.forEach(content => {
+        console.log('Content:', content.id, 'active:', content.classList.contains('active'));
+    });
+    
+    // Verificar se o sistema de busca está funcionando
+    const searchContainer = document.querySelector('.search-container');
+    console.log('Search container:', !!searchContainer);
+}
+
+// ===== RECRIAR ESTRUTURA DE AMIGOS =====
+function recreateFriendsStructure() {
+    const friendsContainer = document.getElementById('friends-container');
+    if (friendsContainer) {
+        friendsContainer.innerHTML = '';
+        loadFriends();
+    }
+}
+
+// Adicione ao window para testar
+window.recreateFriends = recreateFriendsStructure;
+// Adicione ao window
+window.debugDOM = debugDOM;
+
+// ===== VERIFICAR E CRIAR ELEMENTOS SE NECESSÁRIO =====
+function ensureGridElements() {
+    let friendsGrid = document.getElementById('friends-grid');
+    let requestsGrid = document.getElementById('requests-grid');
+    
+    if (!friendsGrid) {
+        const tabAll = document.getElementById('tab-all');
+        if (tabAll) {
+            friendsGrid = document.createElement('div');
+            friendsGrid.id = 'friends-grid';
+            friendsGrid.className = 'friends-grid';
+            tabAll.appendChild(friendsGrid);
+        }
+    }
+    
+    if (!requestsGrid) {
+        const tabRequests = document.getElementById('tab-requests');
+        if (tabRequests) {
+            requestsGrid = document.createElement('div');
+            requestsGrid.id = 'requests-grid';
+            requestsGrid.className = 'friends-grid';
+            tabRequests.appendChild(requestsGrid);
+        }
+    }
+    
+    return { friendsGrid, requestsGrid };
+}
+
+// Use esta função antes de tentar renderizar
+function safeRenderFriendRequests(snapshot) {
+    const { requestsGrid } = ensureGridElements();
+    if (requestsGrid) {
+        renderFriendRequests(snapshot);
+    }
+}
+
+// ===== RENDERIZAR GRADE DE AMIGOS =====
+function renderFriendsGrid() {
+    const grid = document.getElementById('friends-grid');
+    if (!grid) return;
+    
+    if (userFriends.length === 0) {
+        grid.innerHTML = `
+            <div class="empty-friends">
+                <i class="fas fa-user-friends"></i>
+                <h3>Nenhum amigo ainda</h3>
+                <p>Adicione amigos para começar a jogar together</p>
+            </div>
+        `;
+        return;
+    }
+    
+    grid.innerHTML = userFriends.map(friend => `
+        <div class="friend-card ${friend.isOnline ? 'online' : 'offline'} ${friend.isPlaying ? 'playing' : ''}">
+            <div class="friend-header">
+                <div class="friend-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(friend.displayName)}&background=0072ff&color=fff" 
+                         alt="${friend.displayName}">
+                    <div class="online-status ${friend.isPlaying ? 'playing' : friend.isOnline ? 'online' : 'offline'}"></div>
+                </div>
+                <div class="friend-info">
+                    <h3 class="friend-name">${friend.displayName}</h3>
+                    <p class="friend-status">
+                        ${friend.isPlaying ? '🎮 Jogando agora' : friend.isOnline ? '🟢 Online' : '⚫ Offline'}
+                    </p>
+                </div>
+            </div>
+            
+            <div class="friend-stats">
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.rating || 1000}</span>
+                    <span class="friend-stat-label">Rating</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.wins || 0}</span>
+                    <span class="friend-stat-label">Vitórias</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.coins || 0}</span>
+                    <span class="friend-stat-label">Moedas</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${Math.floor((friend.wins || 0) / ((friend.wins || 0) + (friend.losses || 0) + 1) * 100)}%</span>
+                    <span class="friend-stat-label">Win Rate</span>
+                </div>
+            </div>
+            
+            <div class="friend-actions">
+                <button class="friend-btn btn-challenge" onclick="challengeFriend('${friend.id}')">
+                    <i class="fas fa-crosshairs"></i> Desafiar
+                </button>
+                <button class="friend-btn btn-send-coins" onclick="sendCoinsToFriend('${friend.id}')">
+                    <i class="fas fa-coins"></i> Moedas
+                </button>
+                <button class="friend-btn btn-message" onclick="messageFriend('${friend.id}')">
+                    <i class="fas fa-comment"></i> Mensagem
+                </button>
+                <button class="friend-btn btn-profile" onclick="viewFriendProfile('${friend.id}')">
+                    <i class="fas fa-user"></i> Perfil
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ===== CONFIGURAR BUSCA DE AMIGOS =====
+function setupFriendsSearch() {
+    const searchInput = document.getElementById('friends-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            filterFriends(searchTerm);
+        });
+    }
+}
+
+// ===== FILTRAR AMIGOS =====
+function filterFriends(searchTerm) {
+    const filteredFriends = userFriends.filter(friend =>
+        friend.displayName.toLowerCase().includes(searchTerm) ||
+        (friend.city && friend.city.toLowerCase().includes(searchTerm))
+    );
+    
+    renderFilteredFriends(filteredFriends);
+}
+// ===== RENDERIZAR AMIGOS FILTRADOS (ATUALIZADA) =====
+function renderFilteredFriends(friends, targetGridId = 'friends-grid') {
+    const grid = document.getElementById(targetGridId);
+    if (!grid) {
+        console.error('Grid não encontrado:', targetGridId);
+        return;
+    }
+    
+    if (friends.length === 0) {
+        grid.innerHTML = `
+            <div class="empty-friends">
+                <i class="fas fa-search"></i>
+                <h3>Nenhum amigo encontrado</h3>
+                <p>Tente buscar por outro nome</p>
+            </div>
+        `;
+        return;
+    }
+    
+    grid.innerHTML = friends.map(friend => `
+        <div class="friend-card ${friend.isOnline ? 'online' : 'offline'} ${friend.isPlaying ? 'playing' : ''}">
+            <div class="friend-header">
+                <div class="friend-avatar">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(friend.displayName)}&background=0072ff&color=fff" 
+                         alt="${friend.displayName}">
+                    <div class="online-status ${friend.isPlaying ? 'playing' : friend.isOnline ? 'online' : 'offline'}"></div>
+                </div>
+                <div class="friend-info">
+                    <h3 class="friend-name">${friend.displayName}</h3>
+                    <p class="friend-status">
+                        ${friend.isPlaying ? '🎮 Jogando agora' : friend.isOnline ? '🟢 Online' : '⚫ Offline'}
+                    </p>
+                </div>
+            </div>
+            
+            <div class="friend-stats">
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.rating || 1000}</span>
+                    <span class="friend-stat-label">Rating</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.wins || 0}</span>
+                    <span class="friend-stat-label">Vitórias</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${friend.coins || 0}</span>
+                    <span class="friend-stat-label">Moedas</span>
+                </div>
+                <div class="friend-stat">
+                    <span class="friend-stat-value">${Math.floor((friend.wins || 0) / ((friend.wins || 0) + (friend.losses || 0) + 1) * 100)}%</span>
+                    <span class="friend-stat-label">Win Rate</span>
+                </div>
+            </div>
+            
+            <div class="friend-actions">
+                <button class="friend-btn btn-challenge" onclick="challengeFriend('${friend.id}')">
+                    <i class="fas fa-crosshairs"></i> Desafiar
+                </button>
+                <button class="friend-btn btn-send-coins" onclick="sendCoinsToFriend('${friend.id}')">
+                    <i class="fas fa-coins"></i> Moedas
+                </button>
+                <button class="friend-btn btn-message" onclick="messageFriend('${friend.id}')">
+                    <i class="fas fa-comment"></i> Mensagem
+                </button>
+                <button class="friend-btn btn-profile" onclick="viewFriendProfile('${friend.id}')">
+                    <i class="fas fa-user"></i> Perfil
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+// ===== FUNÇÕES DE AÇÃO PARA AMIGOS =====
+async function challengeFriend(friendId) {
+    const friend = userFriends.find(f => f.id === friendId);
+    if (!friend) return;
+    
+    if (!friend.isOnline) {
+        showNotification(`${friend.displayName} está offline`, 'warning');
+        return;
+    }
+    
+    if (friend.isPlaying) {
+        showNotification(`${friend.displayName} está jogando no momento`, 'info');
+        return;
+    }
+    
+    showChallengeModal(friendId, friend.displayName);
+}
+
+async function sendCoinsToFriend(friendId) {
+    const friend = userFriends.find(f => f.id === friendId);
+    if (!friend) return;
+    
+    const coins = prompt(`Quantas moedas deseja enviar para ${friend.displayName}?`);
+    const coinsAmount = parseInt(coins);
+    
+    if (!coinsAmount || coinsAmount <= 0) {
+        showNotification('Quantidade inválida', 'error');
+        return;
+    }
+    
+    if (coinsAmount > (userData.coins || 0)) {
+        showNotification('Moedas insuficientes', 'error');
+        return;
+    }
+    
+    try {
+        // Debitar do usuário atual
+        await db.collection('users').doc(currentUser.uid).update({
+            coins: firebase.firestore.FieldValue.increment(-coinsAmount)
+        });
+        
+        // Creditar para o amigo
+        await db.collection('users').doc(friendId).update({
+            coins: firebase.firestore.FieldValue.increment(coinsAmount)
+        });
+        
+        // Registrar transação
+        await db.collection('transactions').add({
+            from: currentUser.uid,
+            to: friendId,
+            amount: coinsAmount,
+            type: 'friend_gift',
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        showNotification(`${coinsAmount} moedas enviadas para ${friend.displayName}`, 'success');
+        
+    } catch (error) {
+        console.error('Erro ao enviar moedas:', error);
+        showNotification('Erro ao enviar moedas', 'error');
+    }
+}
+
+function messageFriend(friendId) {
+    const friend = userFriends.find(f => f.id === friendId);
+    showNotification(`Sistema de mensagens com ${friend.displayName} em desenvolvimento`, 'info');
+}
+
+function viewFriendProfile(friendId) {
+    const friend = userFriends.find(f => f.id === friendId);
+    showNotification(`Perfil de ${friend.displayName} em desenvolvimento`, 'info');
+}
+
+// ===== CONVIDAR AMIGOS =====
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'btn-invite-friends') {
+        inviteFriends();
+    }
+});
+
+function inviteFriends() {
+    const inviteText = `🎮 Venha jogar Damas Online comigo! ${window.location.href}`;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: 'Jogue Damas Online',
+            text: inviteText,
+            url: window.location.href
+        }).catch(() => {
+            copyToClipboard(inviteText);
+        });
+    } else {
+        copyToClipboard(inviteText);
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Link de convite copiado!', 'success');
+    }).catch(() => {
+        showNotification('Não foi possível copiar o link', 'error');
+    });
+}
+
+
+
+
+
+// ===== VARIÁVEIS DA BUSCA =====
+let searchTimeout = null;
+let currentSearchTerm = '';
+
+// ===== CONFIGURAR BUSCA DE USUÁRIOS =====
+function setupUsersSearch() {
+    const searchInput = document.getElementById('friends-search');
+    const searchResults = document.getElementById('search-results');
+    
+    if (!searchInput) return;
+    
+    // Event listener para input
+    searchInput.addEventListener('input', (e) => {
+        currentSearchTerm = e.target.value.trim();
+        
+        // Limpar timeout anterior
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+        
+        // Esconder resultados se campo estiver vazio
+        if (!currentSearchTerm) {
+            hideSearchResults();
+            return;
+        }
+        
+        // Mostrar loading
+        showSearchLoading();
+        
+        // Debounce - esperar 300ms após a última tecla
+        searchTimeout = setTimeout(() => {
+            searchUsers(currentSearchTerm);
+        }, 300);
+    });
+    
+    // Fechar resultados ao clicar fora
+    document.addEventListener('click', (e) => {
+        if (!searchResults.contains(e.target) && e.target !== searchInput) {
+            hideSearchResults();
+        }
+    });
+    
+    // Manter resultados visíveis ao clicar neles
+    searchResults.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
+    // Tecla ESC para fechar resultados
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            hideSearchResults();
+            searchInput.blur();
+        }
+    });
+}
+
+// ===== BUSCAR USUÁRIOS =====
+async function searchUsers(searchTerm) {
+    if (!searchTerm || searchTerm.length < 2) {
+        hideSearchResults();
+        return;
+    }
+    
+    try {
+        const searchResults = document.getElementById('search-results');
+        
+        // Buscar usuários no Firestore
+        const snapshot = await db.collection('users')
+            .where('displayName', '>=', searchTerm)
+            .where('displayName', '<=', searchTerm + '\uf8ff')
+            .limit(10)
+            .get();
+        
+        const users = [];
+        snapshot.forEach(doc => {
+            // Não incluir o usuário atual
+            if (doc.id !== currentUser.uid) {
+                users.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            }
+        });
+        
+        displaySearchResults(users);
+        
+    } catch (error) {
+        console.error('Erro na busca:', error);
+        showSearchError();
+    }
+}
+
+// ===== EXIBIR RESULTADOS DA BUSCA =====
+function displaySearchResults(users) {
+    const searchResults = document.getElementById('search-results');
+    const searchInput = document.getElementById('friends-search');
+    
+    if (!searchResults || !searchInput) return;
+    
+    if (users.length === 0) {
+        searchResults.innerHTML = `
+            <div class="search-empty">
+                <i class="fas fa-user-slash"></i>
+                <p>Nenhum jogador encontrado</p>
+                <small>Tente buscar por outro nome</small>
+            </div>
+        `;
+        showSearchResults();
+        return;
+    }
+    
+    searchResults.innerHTML = users.map(user => `
+        <div class="search-result-item" data-user-id="${user.id}">
+            <div class="search-result-avatar">
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=0072ff&color=fff" 
+                     alt="${user.displayName}">
+            </div>
+            <div class="search-result-info">
+                <h4 class="search-result-name">${user.displayName}</h4>
+                <p class="search-result-details">
+                    ${user.rating ? `⭐ ${user.rating} • ` : ''}
+                    ${user.city || ''}
+                    ${user.isOnline ? ' • 🟢 Online' : ' • ⚫ Offline'}
+                </p>
+            </div>
+            <div class="search-result-actions">
+                <button class="search-result-btn btn-add-friend" onclick="sendFriendRequest('${user.id}')">
+                    <i class="fas fa-user-plus"></i>
+                </button>
+                <button class="search-result-btn btn-view-profile" onclick="viewUserProfile('${user.id}')">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+    
+    showSearchResults();
+}
+
+// ===== MOSTRAR RESULTADOS =====
+function showSearchResults() {
+    const searchResults = document.getElementById('search-results');
+    const searchInput = document.getElementById('friends-search');
+    
+    if (searchResults && searchInput) {
+        searchResults.style.display = 'block';
+        
+        // Ajustar posição se necessário
+        const inputRect = searchInput.getBoundingClientRect();
+        searchResults.style.width = inputRect.width + 'px';
+    }
+}
+
+// ===== ESCONDER RESULTADOS =====
+function hideSearchResults() {
+    const searchResults = document.getElementById('search-results');
+    if (searchResults) {
+        searchResults.style.display = 'none';
+    }
+}
+
+// ===== MOSTRAR LOADING =====
+function showSearchLoading() {
+    const searchResults = document.getElementById('search-results');
+    if (searchResults) {
+        searchResults.innerHTML = `
+            <div class="search-loading">
+                <i class="fas fa-spinner"></i>
+                <p>Buscando jogadores...</p>
+            </div>
+        `;
+        showSearchResults();
+    }
+}
+
+// ===== MOSTRAR ERRO =====
+function showSearchError() {
+    const searchResults = document.getElementById('search-results');
+    if (searchResults) {
+        searchResults.innerHTML = `
+            <div class="search-empty">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>Erro na busca</p>
+                <small>Tente novamente</small>
+            </div>
+        `;
+        showSearchResults();
+    }
+}
+
+// ===== ENVIAR SOLICITAÇÃO DE AMIZADE =====
+async function sendFriendRequest(userId) {
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            showNotification('Usuário não encontrado', 'error');
+            return;
+        }
+        
+        const userData = userDoc.data();
+        
+        // Verificar se já são amigos
+        const existingFriend = await db.collection('users')
+            .doc(currentUser.uid)
+            .collection('friends')
+            .doc(userId)
+            .get();
+            
+        if (existingFriend.exists) {
+            showNotification(`Você já é amigo de ${userData.displayName}`, 'info');
+            hideSearchResults();
+            return;
+        }
+        
+        // Verificar se já existe solicitação
+        const existingRequest = await db.collection('friendRequests')
+            .where('fromUserId', '==', currentUser.uid)
+            .where('toUserId', '==', userId)
+            .where('status', '==', 'pending')
+            .get();
+            
+        if (!existingRequest.empty) {
+            showNotification('Solicitação já enviada', 'info');
+            hideSearchResults();
+            return;
+        }
+        
+        // Criar solicitação de amizade
+        await db.collection('friendRequests').add({
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: userId,
+            toUserName: userData.displayName,
+            status: 'pending',
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Notificação para o usuário
+        await db.collection('notifications').add({
+            type: 'friend_request',
+            toUserId: userId,
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            message: `${userData.displayName} enviou uma solicitação de amizade`,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+        
+        showNotification(`Solicitação enviada para ${userData.displayName}`, 'success');
+        hideSearchResults();
+        
+    } catch (error) {
+        console.error('Erro ao enviar solicitação:', error);
+        showNotification('Erro ao enviar solicitação', 'error');
+    }
+}
+
+// ===== VER PERFIL DO USUÁRIO =====
+async function viewUserProfile(userId) {
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (!userDoc.exists) {
+            showNotification('Usuário não encontrado', 'error');
+            return;
+        }
+        
+        const userData = userDoc.data();
+        
+        // Criar modal de perfil
+        const profileModal = document.createElement('div');
+        profileModal.className = 'modal';
+        profileModal.innerHTML = `
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>👤 Perfil de ${userData.displayName}</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName)}&background=0072ff&color=fff&size=100" 
+                             alt="${userData.displayName}" style="width: 100px; height: 100px; border-radius: 50%; border: 3px solid #00c6ff;">
+                        <h3>${userData.displayName}</h3>
+                        <p>${userData.isOnline ? '🟢 Online' : '⚫ Offline'} ${userData.isPlaying ? '• 🎮 Jogando' : ''}</p>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px;">
+                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.rating || 1000}</div>
+                            <div style="color: #bdc3c7; font-size: 0.9em;">Rating</div>
+                        </div>
+                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.wins || 0}</div>
+                            <div style="color: #bdc3c7; font-size: 0.9em;">Vitórias</div>
+                        </div>
+                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.coins || 0}</div>
+                            <div style="color: #bdc3c7; font-size: 0.9em;">Moedas</div>
+                        </div>
+                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
+                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${Math.floor((userData.wins || 0) / ((userData.wins || 0) + (userData.losses || 0) + 1) * 100)}%</div>
+                            <div style="color: #bdc3c7; font-size: 0.9em;">Win Rate</div>
+                        </div>
+                    </div>
+                    
+                    ${userData.city ? `
+                        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 10px; margin-bottom: 15px;">
+                            <i class="fas fa-map-marker-alt"></i> ${userData.city}
+                        </div>
+                    ` : ''}
+                    
+                    <div style="display: flex; gap: 10px; justify-content: center;">
+                        <button class="btn btn-primary" onclick="sendFriendRequest('${userId}')">
+                            <i class="fas fa-user-plus"></i> Adicionar
+                        </button>
+                        <button class="btn btn-secondary" onclick="challengePlayer('${userId}', '${userData.displayName}')">
+                            <i class="fas fa-crosshairs"></i> Desafiar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(profileModal);
+        
+        // Event listeners
+        const closeBtn = profileModal.querySelector('.modal-close');
+        closeBtn.addEventListener('click', () => {
+            profileModal.remove();
+        });
+        
+        profileModal.addEventListener('click', (e) => {
+            if (e.target === profileModal) {
+                profileModal.remove();
+            }
+        });
+        
+        // Mostrar modal
+        setTimeout(() => {
+            profileModal.classList.add('active');
+        }, 100);
+        
+        hideSearchResults();
+        
+    } catch (error) {
+        console.error('Erro ao carregar perfil:', error);
+        showNotification('Erro ao carregar perfil', 'error');
+    }
+}
 
