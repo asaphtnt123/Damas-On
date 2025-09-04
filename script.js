@@ -369,6 +369,12 @@ document.addEventListener('DOMContentLoaded', function() {
     window.acceptChallenge = acceptChallenge;
     window.declineChallenge = declineChallenge;
 
+      // Iniciar listener para desafios aceitos
+    if (currentUser) {
+        setupChallengeAcceptedListener();
+    }
+    
+
 });
 
 // ===== FUNÇÃO PARA VERIFICAR ELEMENTOS =====
@@ -2974,56 +2980,39 @@ function showLoading(show) {
     }
   }
 }
-// ===== SHOW NOTIFICATION (CORRIGIDA) =====
-function showNotification(message, type = 'info', duration = 5000) {
-    console.log(`📢 Notificação [${type}]: ${message}`);
-    
-    // ✅ VERIFICAÇÃO SEGURA do audioManager
-    if (audioManager && typeof audioManager.playNotificationSound === 'function') {
-        try {
-            audioManager.playNotificationSound();
-        } catch (error) {
-            console.warn('Erro ao reproduzir som de notificação:', error);
-        }
-    } else {
-        console.warn('audioManager não disponível para tocar som de notificação');
-    }
-    
-    // Remover notificações anteriores
-    removeExistingNotifications();
-    
-    // Criar elemento de notificação
+
+function showNotification(message, type = 'info', onClick = null) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
-    
-    // Ícone baseado no tipo
-    let icon = 'info-circle';
-    if (type === 'error') icon = 'exclamation-triangle';
-    if (type === 'success') icon = 'check-circle';
-    if (type === 'warning') icon = 'exclamation-circle';
-    
     notification.innerHTML = `
-        <i class="fas fa-${icon}"></i>
-        <span>${message}</span>
+        <div class="notification-content">
+            <div class="notification-icon">${getNotificationIcon(type)}</div>
+            <div class="notification-text">${message}</div>
+        </div>
     `;
     
-    // Adicionar ao documento
-    document.body.appendChild(notification);
+    // Adicionar evento de clique se fornecido
+    if (onClick) {
+        notification.style.cursor = 'pointer';
+        notification.addEventListener('click', onClick);
+    }
     
-    // Animação de entrada
-    setTimeout(() => {
-        notification.classList.add('show');
-    }, 100);
+    document.getElementById('notifications-container').appendChild(notification);
     
-    // Remover após o tempo especificado
+    // Remover após alguns segundos
     setTimeout(() => {
-        notification.classList.add('fade-out');
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 500);
-    }, duration);
+        notification.remove();
+    }, 5000);
+}
+
+function getNotificationIcon(type) {
+    const icons = {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: '💡'
+    };
+    return icons[type] || '💡';
 }
 // ===== REMOVER NOTIFICAÇÕES EXISTENTES (CORRIGIDA) =====
 function removeExistingNotifications() {
@@ -9802,7 +9791,6 @@ function removeNotification(id) {
         activeNotifications.delete(id);
     }
 }
-
 async function handleChallengeClick(notification) {
     console.log('Desafio clicado:', notification);
     
@@ -9915,8 +9903,6 @@ function updateNotificationTimer(notificationId) {
         removeChallengeNotification(notificationId, 'expired');
     }
 }
-
-
 async function acceptChallenge(notificationId) {
     console.log('Aceitando desafio:', notificationId);
     
@@ -9961,7 +9947,6 @@ async function acceptChallenge(notificationId) {
         showNotification('Erro ao aceitar desafio: ' + error.message, 'error');
     }
 }
-
 function validateChallengeData(challenge) {
     if (!challenge) {
         throw new Error('Dados do desafio são nulos');
@@ -9976,6 +9961,7 @@ function validateChallengeData(challenge) {
         message: challenge.message || ''
     };
 }
+
 
 // ===== RECUSAR DESAFIO =====
 async function declineChallenge(notificationId) {
@@ -10070,17 +10056,17 @@ async function createChallengeTable(notification) {
         
         console.log('✅ Mesa de desafio criada com ID:', tableRef.id);
         
-        // Atualizar a notificação com o ID da mesa
+        // Atualizar a notificação original com o ID da mesa
         await db.collection('notifications').doc(notification.id).update({
             tableId: tableRef.id,
-            status: 'table_created'
+            status: 'accepted'
         });
         
-        // Entrar na mesa
-        await joinTable(tableRef.id);
+        // NOTIFICAR O DESAFIANTE PARA ENTRAR NA MESA
+        await notifyChallengerToJoinTable(validatedChallenge.fromUserId, tableRef.id, validatedChallenge);
         
-        // Notificar o desafiante
-        await notifyChallengerAboutTable(validatedChallenge.fromUserId, tableRef.id, validatedChallenge);
+        // Entrar na mesa (quem aceitou)
+        await joinTable(tableRef.id);
         
         showNotification('Mesa criada! Aguardando o desafiante...', 'success');
         
@@ -10089,6 +10075,33 @@ async function createChallengeTable(notification) {
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
+
+async function notifyChallengerToJoinTable(challengerUserId, tableId, challenge) {
+    try {
+        console.log('Notificando desafiante para entrar na mesa:', challengerUserId);
+        
+        // Criar notificação para o desafiante
+        await db.collection('notifications').add({
+            type: 'challenge_accepted',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: challengerUserId,
+            message: `${userData.displayName} aceitou seu desafio! Clique para entrar na mesa.`,
+            tableId: tableId,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            status: 'pending',
+            challengeData: challenge
+        });
+        
+        console.log('✅ Desafiante notificado para entrar na mesa');
+        
+    } catch (error) {
+        console.error('❌ Erro ao notificar desafiante:', error);
+    }
+}
+
+
+
 async function notifyChallengerAboutTable(challengerUserId, tableId, challenge) {
     try {
         console.log('Notificando desafiante:', challengerUserId);
@@ -10112,24 +10125,17 @@ async function notifyChallengerAboutTable(challengerUserId, tableId, challenge) 
     }
 }
 
-// ===== CONFIGURAR LISTENER PARA DESAFIOS ACEITOS =====
+// Adicione esta função no código do desafiante (em algum lugar de inicialização)
 function setupChallengeAcceptedListener() {
-    if (!currentUser || !db) {
-        console.log('Não é possível configurar listener de desafios aceitos');
-        return null;
-    }
-    
-    console.log('Configurando listener de desafios aceitos para:', currentUser.uid);
+    if (!currentUser) return;
     
     return db.collection('notifications')
         .where('toUserId', '==', currentUser.uid)
         .where('type', '==', 'challenge_accepted')
         .where('status', '==', 'pending')
         .orderBy('timestamp', 'desc')
-        .onSnapshot(async (snapshot) => {
-            console.log('Mudança em notificações de desafio aceito');
-            
-            snapshot.docChanges().forEach(async (change) => {
+        .onSnapshot((snapshot) => {
+            snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const notification = {
                         id: change.doc.id,
@@ -10137,18 +10143,36 @@ function setupChallengeAcceptedListener() {
                     };
                     
                     console.log('🎯 Desafio aceito recebido:', notification);
-                    
-                    // Mostrar notificação e entrar na mesa
-                    await handleChallengeAccepted(notification);
-                    
-                    // Marcar como vista
-                    await markNotificationAsSeen(notification.id);
+                    handleChallengeAcceptedNotification(notification);
                 }
             });
-        }, (error) => {
-            console.error('Erro no listener de desafios aceitos:', error);
         });
 }
+
+
+async function handleChallengeAcceptedNotification(notification) {
+    try {
+        console.log('Processando desafio aceito:', notification);
+        
+        // Mostrar notificação para o desafiante
+        showNotification(
+            `🎯 ${notification.fromUserName} aceitou seu desafio! Clique para entrar na mesa.`,
+            'success',
+            () => {
+                joinTable(notification.tableId);
+            }
+        );
+        
+        // Marcar notificação como vista
+        await db.collection('notifications').doc(notification.id).update({
+            status: 'seen'
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao processar desafio aceito:', error);
+    }
+}
+
 
 // ===== LIDAR COM DESAFIO ACEITO =====
 // ===== LIDAR COM DESAFIO ACEITO =====
