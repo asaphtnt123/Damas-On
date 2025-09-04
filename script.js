@@ -363,6 +363,12 @@ setInterval(cleanupAbandonedTables, 10 * 60 * 1000); // A cada 10 minutos
 document.addEventListener('DOMContentLoaded', function() {
   console.log('DOM carregado, inicializando aplicação...');
   initializeApp();
+    // Garantir que as funções estejam disponíveis globalmente
+    window.addChallengeModalStyles = addChallengeModalStyles;
+    window.closeChallengeModal = closeChallengeModal;
+    window.acceptChallenge = acceptChallenge;
+    window.declineChallenge = declineChallenge;
+
 });
 
 // ===== FUNÇÃO PARA VERIFICAR ELEMENTOS =====
@@ -616,33 +622,6 @@ async function startVoiceChat() {
         throw error;
     }
 }
-
-// ===== TESTAR ÁUDIO =====
-function setupAudioTest() {
-    const testButton = document.getElementById('test-audio');
-    if (testButton) {
-        testButton.style.display = 'block';
-        testButton.addEventListener('click', async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audio = document.createElement('audio');
-                audio.srcObject = stream;
-                audio.volume = 0.5;
-                audio.play();
-                showNotification('Teste de áudio iniciado', 'success');
-                
-                setTimeout(() => {
-                    audio.pause();
-                    stream.getTracks().forEach(track => track.stop());
-                    showNotification('Teste de áudio finalizado', 'info');
-                }, 3000);
-            } catch (error) {
-                showNotification('Erro no teste de áudio: ' + error.message, 'error');
-            }
-        });
-    }
-}
-
 
 
 // ===== PARAR CHAT DE VOZ =====
@@ -1588,74 +1567,128 @@ async function challengePlayer(userId, userName) {
     }
 }
 
-// ===== MODAL DE DESAFIO =====
-function showChallengeModal(userId, userName) {
-    const modalHTML = `
-        <div class="modal challenge-modal" id="challenge-modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>🎯 Desafiar ${userName}</h3>
-                    <button class="modal-close">&times;</button>
+
+async function showChallengeModal(notification) {
+    try {
+        // Criar modal
+        const modal = document.createElement('div');
+        modal.className = 'challenge-modal';
+        modal.innerHTML = `
+            <div class="challenge-modal-content">
+                <div class="challenge-modal-header">
+                    <h3 style="margin: 0; color: #333;">🎯 Desafio Recebido</h3>
+                    <span class="close-modal" onclick="closeChallengeModal()">&times;</span>
                 </div>
-                <div class="modal-body">
+                <div class="challenge-modal-body">
                     <div class="challenge-info">
-                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=e74c3c&color=fff" 
-                             alt="${userName}" class="challenge-avatar">
-                        <p>Configure o desafio para ${userName}</p>
+                        <p><strong>Desafiante:</strong> ${notification.fromUserName || 'Jogador'}</p>
+                        <p><strong>Tempo:</strong> ${notification.timeLimit || 60} minutos</p>
+                        ${notification.betAmount ? `<p><strong>Aposta:</strong> ${notification.betAmount} pontos</p>` : ''}
+                        ${notification.message ? `<p><strong>Mensagem:</strong> "${notification.message}"</p>` : ''}
                     </div>
-                    
-                    <div class="form-group">
-                        <label>Tempo por jogada:</label>
-                        <select id="challenge-time">
-                            <option value="30">30 segundos</option>
-                            <option value="60" selected>1 minuto</option>
-                            <option value="120">2 minutos</option>
-                            <option value="300">5 minutos</option>
-                        </select>
+                    <div class="challenge-actions">
+                        <button class="btn-accept" onclick="acceptChallenge('${notification.id}')">
+                            ✅ Aceitar Desafio
+                        </button>
+                        <button class="btn-reject" onclick="declineChallenge('${notification.id}')">
+                            ❌ Recusar
+                        </button>
                     </div>
-                    
-                    <div class="form-group">
-                        <label>Aposta (opcional):</label>
-                        <input type="number" id="challenge-bet" min="0" max="${userData?.coins || 0}" 
-                               placeholder="0" value="0">
-                        <small>Saldo disponível: ${userData?.coins || 0} moedas</small>
-                    </div>
-                    
-                    <div class="challenge-message">
-                        <label>Mensagem (opcional):</label>
-                        <textarea id="challenge-message" placeholder="Ex: Vamos jogar! Boa sorte!"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-secondary modal-cancel">Cancelar</button>
-                    <button id="btn-send-challenge" class="btn btn-primary">Enviar Desafio</button>
                 </div>
             </div>
+        `;
+
+        document.body.appendChild(modal);
+        
+        // Adicionar estilos
+        addChallengeModalStyles();
+        
+        // Adicionar event listener para fechar ao clicar fora
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeChallengeModal();
+            }
+        });
+
+    } catch (error) {
+        console.error('Erro ao mostrar modal de desafio:', error);
+        showNotification('Erro ao abrir desafio', 'error');
+    }
+}
+
+function closeChallengeModal() {
+    const modal = document.querySelector('.challenge-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+async function joinChallengeTable(tableId, notificationId) {
+    try {
+        console.log('Entrando na mesa de desafio:', tableId);
+        
+        // Verificar se a mesa existe
+        const tableDoc = await db.collection('tables').doc(tableId).get();
+        if (!tableDoc.exists) {
+            showNotification('Mesa não encontrada', 'error');
+            return;
+        }
+        
+        const tableData = tableDoc.data();
+        
+        // Verificar se o usuário é um dos jogadores
+        const isPlayer = tableData.players.some(player => player.uid === currentUser.uid);
+        if (!isPlayer) {
+            showNotification('Você não é um jogador desta mesa', 'error');
+            return;
+        }
+        
+        // Marcar notificação como vista
+        if (notificationId) {
+            await markNotificationAsSeen(notificationId);
+        }
+        
+        // Entrar na mesa
+        userActiveTable = tableId;
+        setupGameListener(tableId);
+        showScreen('game-screen');
+        
+        showNotification('Entrando na mesa de desafio...', 'success');
+        
+    } catch (error) {
+        console.error('Erro ao entrar na mesa:', error);
+        showNotification('Erro ao entrar na mesa', 'error');
+    }
+}
+
+function showChallengeAcceptedNotification(notification) {
+    // Criar notificação na UI
+    const notificationElement = document.createElement('div');
+    notificationElement.className = 'notification challenge-accepted';
+    notificationElement.innerHTML = `
+        <div class="notification-content">
+            <div class="notification-icon">🎯</div>
+            <div class="notification-text">
+                <strong>${notification.fromUserName}</strong> aceitou seu desafio!
+            </div>
+            <button class="notification-action" onclick="joinChallengeTable('${notification.tableId}', '${notification.id}')">
+                Entrar na Mesa
+            </button>
         </div>
     `;
     
-    // Remover modal anterior se existir
-    const existingModal = document.getElementById('challenge-modal');
-    if (existingModal) {
-        existingModal.remove();
+    // Adicionar à área de notificações
+    const notificationsContainer = document.getElementById('notifications-container');
+    if (notificationsContainer) {
+        notificationsContainer.appendChild(notificationElement);
     }
     
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-    const modal = document.getElementById('challenge-modal');
-    
-    // Event listeners
-    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-    modal.querySelector('.modal-cancel').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
-    
-    document.getElementById('btn-send-challenge').addEventListener('click', async () => {
-        await sendChallenge(userId, userName);
-        modal.remove();
-    });
-    
-    modal.classList.add('active');
+    // Remover após alguns segundos
+    setTimeout(() => {
+        if (notificationElement.parentNode) {
+            notificationElement.remove();
+        }
+    }, 10000);
 }
 // ===== ENVIAR DESAFIO (COM MAIS LOGS) =====
 async function sendChallenge(targetUserId, targetUserName) {
@@ -9335,49 +9368,135 @@ function initializeChallengeNotifications() {
     }
 }
 
+function addChallengeModalStyles() {
+    // Verificar se os estilos já foram adicionados
+    if (document.getElementById('challenge-modal-styles')) return;
 
-// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO ACEITO =====
-function showChallengeAcceptedNotification(notification) {
-    const notificationEl = document.createElement('div');
-    notificationEl.className = 'game-notification challenge-accepted';
-    notificationEl.innerHTML = `
-        <div class="notification-glowing-border" style="background: linear-gradient(90deg, #00ff88, #ffd700, #00ff88);"></div>
-        <div class="notification-header">
-            <div class="notification-icon">🎯</div>
-            <h3 class="notification-title">DESAFIO ACEITO!</h3>
-        </div>
-        
-        <div class="notification-content">
-            <p><strong>${notification.fromUserName}</strong> aceitou seu desafio!</p>
-            <p>Pronto para jogar?</p>
-        </div>
-        
-        <div class="notification-actions">
-            <button class="notification-btn accept" onclick="joinChallengeTable('${notification.tableId}', '${notification.id}')">
-                <i class="fas fa-play"></i> ENTRAR NA MESA
-            </button>
-        </div>
-        
-        <div class="notification-timer">
-            Mesa aguardando sua entrada...
-        </div>
-    `;
-    
-    const notificationSystem = getNotificationContainer();
-    notificationSystem.appendChild(notificationEl);
-    
-    // Animação de entrada
-    setTimeout(() => {
-        notificationEl.classList.add('show');
-    }, 100);
-    
-    // Auto-remover após 30 segundos
-    setTimeout(() => {
-        if (notificationEl.parentNode) {
-            notificationEl.classList.remove('show');
-            setTimeout(() => notificationEl.remove(), 500);
+    const styles = `
+        .challenge-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
         }
-    }, 30000);
+
+        .challenge-modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .challenge-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 10px;
+        }
+
+        .close-modal {
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .close-modal:hover {
+            color: #000;
+        }
+
+        .challenge-info p {
+            margin: 10px 0;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .challenge-info strong {
+            color: #333;
+        }
+
+        .challenge-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn-accept, .btn-reject {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-accept {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-accept:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+
+        .btn-reject {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-reject:hover {
+            background: #da190b;
+            transform: translateY(-2px);
+        }
+
+        /* Animações */
+        .challenge-modal {
+            animation: modalFadeIn 0.3s ease;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Responsivo */
+        @media (max-width: 480px) {
+            .challenge-modal-content {
+                padding: 15px;
+                width: 95%;
+            }
+            
+            .challenge-actions {
+                flex-direction: column;
+            }
+            
+            .btn-accept, .btn-reject {
+                width: 100%;
+            }
+        }
+    `;
+
+    const styleElement = document.createElement('style');
+    styleElement.id = 'challenge-modal-styles';
+    styleElement.textContent = styles;
+    document.head.appendChild(styleElement);
 }
 
 // ===== ENTRAR NA MESA DE DESAFIO =====
@@ -9684,11 +9803,54 @@ function removeNotification(id) {
     }
 }
 
-function handleChallengeClick(notification) {
+async function handleChallengeClick(notification) {
     console.log('Desafio clicado:', notification);
-    // Aqui você implementaria a lógica para aceitar o desafio
-    showNotification('Funcionalidade de aceitar desafio em desenvolvimento', 'info');
+    
+    try {
+        // Se já tem tableId, entrar diretamente na mesa
+        if (notification.tableId) {
+            await joinTable(notification.tableId);
+            showNotification('Entrando na mesa de desafio...', 'success');
+            return;
+        }
+        
+        // Se não tem tableId, mostrar modal para aceitar/recusar
+        if (notification.type === 'challenge') {
+            await showChallengeModal(notification);
+        } 
+        else if (notification.type === 'challenge_accepted') {
+            await joinTable(notification.tableId);
+        }
+        
+    } catch (error) {
+        console.error('Erro ao processar notificação:', error);
+        showNotification('Erro ao processar notificação: ' + error.message, 'error');
+    }
 }
+
+
+
+// Adicione este event listener no seu código de inicialização
+document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeChallengeModal();
+        }
+    });
+});
+
+// Se não existir, adicione esta função:
+async function markNotificationAsSeen(notificationId) {
+    try {
+        await db.collection('notifications').doc(notificationId).update({
+            status: 'seen',
+            seenAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error('Erro ao marcar notificação como vista:', error);
+    }
+}
+
 
 // ===== VERIFICAÇÃO DE SEGURANÇA PARA DOM =====
 function isDOMReady() {
@@ -9754,32 +9916,36 @@ function updateNotificationTimer(notificationId) {
     }
 }
 
-// ===== ACEITAR DESAFIO =====
+
 async function acceptChallenge(notificationId) {
     console.log('Aceitando desafio:', notificationId);
     
     try {
-        const notification = activeNotifications.get(notificationId);
-        if (!notification) {
-            console.log('Notificação não encontrada nas notificações ativas');
-            return;
-        }
+        // Buscar a notificação diretamente do Firestore
+        const notificationDoc = await db.collection('notifications').doc(notificationId).get();
         
-        // Buscar dados completos do desafio do Firestore
-        const challengeDoc = await db.collection('notifications').doc(notificationId).get();
-        
-        if (!challengeDoc.exists) {
-            console.error('Desafio não encontrado no Firestore');
+        if (!notificationDoc.exists) {
+            console.error('Notificação não encontrada no Firestore');
             showNotification('Desafio não encontrado', 'error');
             return;
         }
         
-        const challenge = {
-            id: challengeDoc.id,
-            ...challengeDoc.data()
+        const notification = {
+            id: notificationDoc.id,
+            ...notificationDoc.data()
         };
         
-        console.log('Dados completos do desafio:', challenge);
+        console.log('Dados completos da notificação:', notification);
+        
+        // Verificar se é um desafio com mesa existente
+        if (notification.tableId) {
+            // Se já tem mesa, apenas entrar nela
+            await joinTable(notification.tableId);
+            showNotification('Entrando na mesa de desafio...', 'success');
+        } else {
+            // Se não tem mesa, criar uma nova
+            await createChallengeTable(notification);
+        }
         
         // Atualizar status da notificação
         await db.collection('notifications').doc(notificationId).update({
@@ -9787,13 +9953,8 @@ async function acceptChallenge(notificationId) {
             respondedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        // Criar mesa para o desafio
-        await createChallengeTable(challenge);
-        
-        // Remover notificação
-        removeChallengeNotification(notificationId, 'accepted');
-        
-        showNotification('Desafio aceito! Criando mesa...', 'success');
+        // Fechar o modal
+        closeChallengeModal();
         
     } catch (error) {
         console.error('Erro ao aceitar desafio:', error);
@@ -9801,31 +9962,20 @@ async function acceptChallenge(notificationId) {
     }
 }
 
-// ===== VALIDAR DADOS DO DESAFIO =====
 function validateChallengeData(challenge) {
     if (!challenge) {
         throw new Error('Dados do desafio são nulos');
     }
     
-    if (!challenge.fromUserId) {
-        throw new Error('ID do remetente não definido');
-    }
-    
-    if (!challenge.fromUserName) {
-        throw new Error('Nome do remetente não definido');
-    }
-    
-    // Garantir valores padrão
     return {
         id: challenge.id || null,
-        fromUserId: challenge.fromUserId,
-        fromUserName: challenge.fromUserName || 'Desafiante',
+        fromUserId: challenge.fromUserId || challenge.senderId,
+        fromUserName: challenge.fromUserName || challenge.senderName || 'Desafiante',
         timeLimit: challenge.timeLimit || 60,
-        betAmount: challenge.betAmount || 0,
+        betAmount: challenge.betAmount || challenge.bet || 0,
         message: challenge.message || ''
     };
 }
-
 
 // ===== RECUSAR DESAFIO =====
 async function declineChallenge(notificationId) {
@@ -9871,15 +10021,12 @@ function removeChallengeNotification(notificationId, reason = 'dismissed') {
     
     console.log(`Notificação ${notificationId} removida: ${reason}`);
 }
-
-
-// ===== CRIAR MESA PARA DESAFIO =====
-async function createChallengeTable(challenge) {
+async function createChallengeTable(notification) {
     try {
-        console.log('Criando mesa para desafio:', challenge);
+        console.log('Criando mesa para desafio:', notification);
         
         // Validar dados do desafio
-        const validatedChallenge = validateChallengeData(challenge);
+        const validatedChallenge = validateChallengeData(notification);
         
         const tableName = `Desafio: ${validatedChallenge.fromUserName} vs ${userData.displayName}`;
         
@@ -9887,62 +10034,65 @@ async function createChallengeTable(challenge) {
         
         const tableData = {
             name: tableName,
-            timeLimit: validatedChallenge.timeLimit,
-            bet: validatedChallenge.betAmount,
-            status: 'waiting', // 🔥 MUDAR para 'waiting' inicialmente
+            timeLimit: validatedChallenge.timeLimit || 60,
+            bet: validatedChallenge.betAmount || 0,
+            status: 'waiting',
             players: [
                 {
                     uid: validatedChallenge.fromUserId,
                     displayName: validatedChallenge.fromUserName,
                     rating: 1000,
-                    color: 'black'
+                    color: 'black',
+                    ready: false
                 },
                 {
                     uid: currentUser.uid,
                     displayName: userData.displayName,
-                    rating: userData.rating,
-                    color: 'red'
+                    rating: userData.rating || 1000,
+                    color: 'red',
+                    ready: false
                 }
             ],
             createdBy: validatedChallenge.fromUserId,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             currentTurn: 'black',
             board: boardData,
-            waitingForOpponent: true, // 🔥 Esperando o desafiante entrar
-            platformFee: calculatePlatformFee(validatedChallenge.betAmount),
+            waitingForOpponent: true,
+            platformFee: calculatePlatformFee(validatedChallenge.betAmount || 0),
             isChallenge: true,
             challengeId: validatedChallenge.id || null
         };
         
         console.log('Dados da mesa validados:', tableData);
         
+        // Criar a mesa
         const tableRef = await db.collection('tables').add(tableData);
         
         console.log('✅ Mesa de desafio criada com ID:', tableRef.id);
         
-        // 🔥 NOTIFICAR O DESAFIANTE SOBRE A MESA CRIADA
+        // Atualizar a notificação com o ID da mesa
+        await db.collection('notifications').doc(notification.id).update({
+            tableId: tableRef.id,
+            status: 'table_created'
+        });
+        
+        // Entrar na mesa
+        await joinTable(tableRef.id);
+        
+        // Notificar o desafiante
         await notifyChallengerAboutTable(validatedChallenge.fromUserId, tableRef.id, validatedChallenge);
         
-        // Entrar na mesa (quem aceitou)
-        userActiveTable = tableRef.id;
-        setupGameListener(tableRef.id);
-        showScreen('game-screen');
-        
-        showNotification('Mesa criada! Aguardando o desafiante entrar...', 'success');
+        showNotification('Mesa criada! Aguardando o desafiante...', 'success');
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa de desafio:', error);
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
-
-
-// ===== NOTIFICAR DESAFIANTE SOBRE MESA CRIADA =====
 async function notifyChallengerAboutTable(challengerUserId, tableId, challenge) {
     try {
         console.log('Notificando desafiante:', challengerUserId);
         
-        // Criar notificação para o desafiante
         await db.collection('notifications').add({
             type: 'challenge_accepted',
             fromUserId: currentUser.uid,
