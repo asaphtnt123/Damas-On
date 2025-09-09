@@ -427,6 +427,8 @@ async function testNotification() {
 function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
 let challengesListener = null;
+let gameRedirectListener = null;
+
     setupUsersSearch();
 
         // 9. SISTEMA DE VOZ
@@ -1628,13 +1630,21 @@ function showChallengeModal(targetUserId, targetUserName) {
     });
 }
 
+// ===== FECHAR MODAL DE DESAFIO =====
 function closeChallengeModal() {
-    const modal = document.querySelector('.challenge-modal');
+    const modal = document.getElementById('challenge-modal');
     if (modal) {
         modal.remove();
     }
+    
+    // Também remover qualquer overlay de modal existente
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        if (modal.id !== 'online-users-modal' && modal.id !== 'modal-confirm') {
+            modal.remove();
+        }
+    });
 }
-
 
 
 
@@ -1662,7 +1672,8 @@ function listenForChallenges() {
 
 function initApp() {
     // ... seu código de login existente
-    
+      // Iniciar listener de redirecionamento de jogo
+    gameRedirectListener = setupGameRedirectListener();
     // Iniciar listener de desafios
     challengesListener = listenForChallenges();
 }
@@ -1890,7 +1901,6 @@ function showChallengeAcceptedNotification(notification) {
         }
     }, 10000);
 }
-
 // ===== ENVIAR DESAFIO =====
 async function sendChallenge(targetUserId, targetUserName) {
     try {
@@ -1928,9 +1938,9 @@ async function sendChallenge(targetUserId, targetUserName) {
             timePerMove: timePerMove,
             betAmount: betAmount,
             isDoubleGame: isDoubleGame,
-            status: 'pending', // pending, accepted, rejected, expired
+            status: 'pending',
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            expiresAt: new Date(Date.now() + 5 * 60000) // Expira em 5 minutos
+            expiresAt: new Date(Date.now() + 5 * 60000)
         };
         
         // Salvar o desafio no Firestore
@@ -1939,7 +1949,7 @@ async function sendChallenge(targetUserId, targetUserName) {
         // Criar notificação para o jogador desafiado
         const notificationData = {
             id: generateId(),
-            userId: targetUserId, // IMPORTANTE: Enviar para o jogador alvo
+            userId: targetUserId,
             type: 'challenge',
             title: 'Novo Desafio!',
             message: `${currentUser.displayName || currentUser.email} te desafiou para uma partida de damas!`,
@@ -1956,13 +1966,20 @@ async function sendChallenge(targetUserId, targetUserName) {
         await db.collection('notifications').doc(notificationData.id).set(notificationData);
         
         showNotification(`Desafio enviado para ${targetUserName}! Aguarde a resposta.`, 'success');
+        
+        // FECHAR O MODAL - CORREÇÃO ADICIONADA
         closeChallengeModal();
         
     } catch (error) {
         console.error('Erro ao enviar desafio:', error);
         showNotification('Erro ao enviar desafio', 'error');
+        
+        // Fechar modal mesmo em caso de erro
+        closeChallengeModal();
     }
 }
+
+
 function initChallengesListener() {
     if (challengesListener) {
         challengesListener(); // Remove listener anterior se existir
@@ -2098,6 +2115,11 @@ challengesListener = listenForChallenges();
                 window.challengeListener = null;
                 console.log('🔌 Listener de notificações parado (logout)');
             }
+
+            if (gameRedirectListener) {
+    gameRedirectListener();
+    gameRedirectListener = null;
+}
 
             // Marcar como offline ao fazer logout
             if (currentUser) {
@@ -3202,12 +3224,44 @@ function showModal(modalId) {
   }
 }
 
-function closeAllModals() {
-  document.querySelectorAll('.modal').forEach(modal => {
-    modal.classList.remove('active');
-  });
+// ===== ESCUTAR REDIRECIONAMENTOS DE JOGO =====
+function setupGameRedirectListener() {
+    if (!currentUser) return;
+    
+    return db.collection('notifications')
+        .where('userId', '==', currentUser.uid)
+        .where('type', '==', 'game_redirect')
+        .where('isRead', '==', false)
+        .onSnapshot(snapshot => {
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'added') {
+                    const notification = change.doc.data();
+                    handleGameRedirect(notification);
+                    
+                    // Marcar como lida
+                    db.collection('notifications').doc(notification.id).update({
+                        isRead: true
+                    });
+                }
+            });
+        });
 }
 
+// ===== MANIPULAR REDIRECIONAMENTO DE JOGO =====
+async function handleGameRedirect(notification) {
+    const tableId = notification.data.tableId;
+    
+    console.log('🎮 Recebendo redirecionamento para jogo:', tableId);
+    
+    // Fechar todos os modais
+    closeAllModals();
+    closeChallengeModal();
+    
+    // Entrar na mesa
+    await joinTable(tableId);
+    
+    showNotification('Desafio aceito! Partida iniciada.', 'success');
+}
 function showLoading(show) {
   const loadingEl = document.getElementById('loading');
   if (loadingEl) {
@@ -12826,6 +12880,8 @@ async function createGameTable(challengerId, targetId, timePerMove, betAmount, i
         
         // Redirecionar ambos os jogadores para o jogo
         redirectPlayersToGame(tableId, challengerId, targetId);
+        await notifyChallengerOfGameStart(tableId, challengerId, targetId, targetData.displayName);
+
         
         return tableId;
         
@@ -12846,31 +12902,91 @@ async function createGameTable(challengerId, targetId, timePerMove, betAmount, i
     }
 }
 
-// ===== REDIRECIONAR JOGADORES PARA O JOGO =====
-async function redirectPlayersToGame(tableId, player1Id, player2Id) {
-    console.log('🔄 Redirecionando jogadores para o jogo:', tableId);
+// ===== NOTIFICAR DESAFIANTE SOBRE INÍCIO DO JOGO =====
+async function notifyChallengerOfGameStart(tableId, challengerId, targetId, targetName) {
+    // Verificar se o desafiante está online
+    const challengerDoc = await db.collection('users').doc(challengerId).get();
     
-    // Se o usuário atual é um dos jogadores, redirecionar
-    if (currentUser && (currentUser.uid === player1Id || currentUser.uid === player2Id)) {
-        // Verificar se já estamos na tela de jogo para evitar loop
-        const currentScreen = document.querySelector('.screen.active');
-        if (currentScreen && currentScreen.id === 'game-screen') {
-            console.log('✅ Já está na tela de jogo, apenas atualizando listener');
-            setupGameListener(tableId);
-        } else {
-            console.log('🔄 Indo para tela de jogo');
-            setupGameListener(tableId);
-            showScreen('game-screen');
-            showNotification('Partida iniciada! Boa sorte!', 'success');
-        }
-    }
-    
-    // Atualizar listeners ativos para outros jogadores online
-    if (typeof refreshOnlineUsersList === 'function') {
-        setTimeout(refreshOnlineUsersList, 1000);
+    if (challengerDoc.exists && challengerDoc.data().isOnline) {
+        // Enviar notificação de redirecionamento
+        await db.collection('notifications').doc(generateId()).set({
+            userId: challengerId,
+            type: 'game_redirect',
+            title: 'Desafio Aceito!',
+            message: `${targetName} aceitou seu desafio! Clique para entrar no jogo.`,
+            data: { tableId: tableId },
+            isRead: false,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
     }
 }
 
+
+
+// ===== REDIRECIONAR JOGADORES PARA O JOGO =====
+async function redirectPlayersToGame(tableId, challengerId, targetId) {
+    console.log('🔄 Redirecionando jogadores para o jogo:', tableId, challengerId, targetId);
+    
+    // Se o usuário atual é um dos jogadores, redirecionar
+    if (currentUser && (currentUser.uid === challengerId || currentUser.uid === targetId)) {
+        console.log('✅ Usuário atual é um dos jogadores, redirecionando...');
+        
+        // Fechar qualquer modal aberto (incluindo o de desafio)
+        closeAllModals();
+        closeChallengeModal();
+        
+        // Configurar o listener do jogo
+        setupGameListener(tableId);
+        
+        // Mostrar a tela de jogo
+        showScreen('game-screen');
+        
+        // Mostrar notificação
+        showNotification('Partida iniciada! Boa sorte!', 'success');
+        
+        // Atualizar a tabela ativa do usuário
+        userActiveTable = tableId;
+        
+        // Atualizar status de jogo do usuário
+        await db.collection('users').doc(currentUser.uid).update({
+            isPlaying: true,
+            activeTable: tableId,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+    
+    // Se o desafiante está online mas não é o usuário atual, notificá-lo
+    if (currentUser && currentUser.uid === targetId) {
+        // Enviar notificação para o desafiante
+        const challengerDoc = await db.collection('users').doc(challengerId).get();
+        if (challengerDoc.exists && challengerDoc.data().isOnline) {
+            await db.collection('notifications').doc(generateId()).set({
+                userId: challengerId,
+                type: 'game_redirect',
+                title: 'Desafio Aceito!',
+                message: `${targetUserName} aceitou seu desafio! Redirecionando para o jogo...`,
+                data: { tableId: tableId },
+                isRead: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+    }
+    
+    // Atualizar lista de usuários online
+    setTimeout(() => {
+        if (typeof refreshOnlineUsersList === 'function') {
+            refreshOnlineUsersList();
+        }
+    }, 1000);
+}
+
+// ===== FECHAR TODOS OS MODAIS =====
+function closeAllModals() {
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        modal.remove();
+    });
+}
 // ===== CALCULAR TAXA DA PLATAFORMA =====
 function calculatePlatformFee(betAmount) {
     if (betAmount <= 0) return 0;
