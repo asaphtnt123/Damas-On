@@ -5523,3 +5523,62 @@ input:checked + .slider:before {
     background: rgba(231, 76, 60, 0.2);
 }
 
+
+
+/* ===== ESTILOS PARA NOTIFICAÇÕES DE DESAFIO ===== */
+.notification-item.challenge-notification {
+    border-left: 4px solid var(--primary);
+    background: linear-gradient(135deg, rgba(30, 30, 30, 0.9) 0%, rgba(20, 20, 20, 0.9) 100%);
+}
+
+.notification-item.challenge-notification .notification-icon {
+    color: var(--primary);
+    font-size: 1.5rem;
+}
+
+.notification-content h4 {
+    color: var(--primary);
+    margin-bottom: 8px;
+    font-family: var(--font-heading);
+}
+
+.notification-content p {
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+    color: var(--light);
+    opacity: 0.8;
+}
+
+.notification-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.notification-actions .btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    border-radius: 5px;
+}
+
+.notification-actions .btn-success {
+    background: linear-gradient(135deg, var(--success) 0%, #27ae60 100%);
+}
+
+.notification-actions .btn-danger {
+    background: linear-gradient(135deg, var(--danger) 0%, #c0392b 100%);
+}
+
+.notification-close {
+    background: none;
+    border: none;
+    color: var(--gray-light);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 5px;
+    align-self: flex-start;
+}
+
+.notification-close:hover {
+    color: var(--danger);
+}

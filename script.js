@@ -1659,6 +1659,15 @@ function listenForChallenges() {
         });
 }
 
+
+function initApp() {
+    // ... seu código de login existente
+    
+    // Iniciar listener de desafios
+    challengesListener = listenForChallenges();
+}
+
+
 // ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
 function showChallengeNotification(challenge) {
     // Criar notificação na UI
@@ -1670,6 +1679,7 @@ function showChallengeNotification(challenge) {
             <div class="notification-content">
                 <h4>${challenge.challengerName} te desafiou!</h4>
                 <p>Partida ${challenge.betAmount > 0 ? 'com aposta de ' + challenge.betAmount + ' moedas' : 'amistosa'}</p>
+                <p>Tempo: ${formatTime(challenge.timePerMove)}</p>
                 <div class="notification-actions">
                     <button class="btn btn-success btn-small accept-challenge">Aceitar</button>
                     <button class="btn btn-danger btn-small reject-challenge">Recusar</button>
@@ -1686,6 +1696,7 @@ function showChallengeNotification(challenge) {
         
         // Configurar eventos dos botões
         const notificationElement = document.querySelector(`[data-challenge-id="${challenge.id}"]`);
+        
         notificationElement.querySelector('.accept-challenge').addEventListener('click', () => {
             acceptChallenge(challenge.id);
         });
@@ -1698,11 +1709,92 @@ function showChallengeNotification(challenge) {
             rejectChallenge(challenge.id);
         });
     }
-    
-    // Mostrar também como toast notification
-    showNotification(`${challenge.challengerName} te desafiou para uma partida!`, 'info', 5000);
 }
 
+// ===== FORMATAR TEMPO =====
+function formatTime(seconds) {
+    if (seconds === 0) return 'Sem limite';
+    
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+}
+
+// ===== ACEITAR DESAFIO =====
+async function acceptChallenge(challengeId) {
+    try {
+        const challengeDoc = await db.collection('challenges').doc(challengeId).get();
+        if (!challengeDoc.exists) {
+            showNotification('Desafio não encontrado', 'error');
+            return;
+        }
+        
+        const challenge = challengeDoc.data();
+        
+        // Verificar se o desafio ainda está pendente
+        if (challenge.status !== 'pending') {
+            showNotification('Este desafio já foi respondido', 'error');
+            return;
+        }
+        
+        // Verificar se o desafio não expirou
+        if (challenge.expiresAt && challenge.expiresAt.toDate() < new Date()) {
+            showNotification('Este desafio expirou', 'error');
+            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
+            return;
+        }
+        
+        // Verificar se ambos os jogadores ainda estão online
+        const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
+        const targetDoc = await db.collection('users').doc(challenge.targetId).get();
+        
+        if (!challengerDoc.exists || !challengerDoc.data().isOnline || 
+            !targetDoc.exists || !targetDoc.data().isOnline) {
+            showNotification('Um dos jogadores não está mais online', 'error');
+            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
+            return;
+        }
+        
+        // Verificar saldos se houver aposta
+        if (challenge.betAmount > 0) {
+            const challengerCoins = challengerDoc.data().coins || 0;
+            const targetCoins = targetDoc.data().coins || 0;
+            
+            if (challengerCoins < challenge.betAmount || targetCoins < challenge.betAmount) {
+                showNotification('Saldo insuficiente para a aposta', 'error');
+                await db.collection('challenges').doc(challengeId).update({ status: 'rejected' });
+                return;
+            }
+        }
+        
+        // Atualizar status do desafio para aceito
+        await db.collection('challenges').doc(challengeId).update({
+            status: 'accepted',
+            acceptedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Criar a mesa de jogo
+        await createGameTable(
+            challenge.challengerId, 
+            challenge.targetId, 
+            challenge.timePerMove, 
+            challenge.betAmount, 
+            challenge.isDoubleGame,
+            challengeId
+        );
+        
+        // Remover a notificação
+        const notificationElement = document.querySelector(`[data-challenge-id="${challengeId}"]`);
+        if (notificationElement) {
+            notificationElement.remove();
+        }
+        
+        showNotification('Desafio aceito! Iniciando partida...', 'success');
+        
+    } catch (error) {
+        console.error('Erro ao aceitar desafio:', error);
+        showNotification('Erro ao aceitar desafio', 'error');
+    }
+}
 
 // ===== RECUSAR DESAFIO =====
 async function rejectChallenge(challengeId) {
@@ -1725,8 +1817,6 @@ async function rejectChallenge(challengeId) {
         showNotification('Erro ao recusar desafio', 'error');
     }
 }
-
-
 
 // ===== VERIFICAR DESAFIOS EXPIRADOS =====
 async function checkExpiredChallenges() {
@@ -2271,7 +2361,10 @@ async function signOut() {
         if (currentUser) {
             await setUserOffline();
         }
-        
+         if (challengesListener) {
+        challengesListener(); // Parar de escutar desafios
+        challengesListener = null;
+    }
         await auth.signOut();
         showNotification('Logout realizado com sucesso', 'info');
     } catch (error) {
@@ -10059,71 +10152,6 @@ function updateNotificationTimer(notificationId) {
 }
 
 
-
-// ===== ACEITAR DESAFIO =====
-async function acceptChallenge(challengeId) {
-    try {
-        const challengeDoc = await db.collection('challenges').doc(challengeId).get();
-        if (!challengeDoc.exists) {
-            showNotification('Desafio não encontrado', 'error');
-            return;
-        }
-        
-        const challenge = challengeDoc.data();
-        
-        // Verificar se o desafio ainda está pendente
-        if (challenge.status !== 'pending') {
-            showNotification('Este desafio já foi respondido', 'error');
-            return;
-        }
-        
-        // Verificar se o desafio não expirou
-        if (challenge.expiresAt && challenge.expiresAt.toDate() < new Date()) {
-            showNotification('Este desafio expirou', 'error');
-            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
-            return;
-        }
-        
-        // Verificar se ambos os jogadores ainda estão online
-        const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
-        const targetDoc = await db.collection('users').doc(challenge.targetId).get();
-        
-        if (!challengerDoc.exists || !challengerDoc.data().isOnline || 
-            !targetDoc.exists || !targetDoc.data().isOnline) {
-            showNotification('Um dos jogadores não está mais online', 'error');
-            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
-            return;
-        }
-        
-        // Atualizar status do desafio para aceito
-        await db.collection('challenges').doc(challengeId).update({
-            status: 'accepted',
-            acceptedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Criar a mesa de jogo
-        await createGameTable(
-            challenge.challengerId, 
-            challenge.targetId, 
-            challenge.timePerMove, 
-            challenge.betAmount, 
-            challenge.isDoubleGame,
-            challengeId
-        );
-        
-        // Remover a notificação
-        const notificationElement = document.querySelector(`[data-challenge-id="${challengeId}"]`);
-        if (notificationElement) {
-            notificationElement.remove();
-        }
-        
-        showNotification('Desafio aceito! Iniciando partida...', 'success');
-        
-    } catch (error) {
-        console.error('Erro ao aceitar desafio:', error);
-        showNotification('Erro ao aceitar desafio', 'error');
-    }
-}
 function validateChallengeData(challenge) {
     if (!challenge) {
         throw new Error('Dados do desafio são nulos');
