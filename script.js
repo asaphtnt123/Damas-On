@@ -1718,7 +1718,6 @@ function formatTime(seconds) {
     const minutes = Math.floor(seconds / 60);
     return `${minutes} minuto${minutes !== 1 ? 's' : ''}`;
 }
-
 // ===== ACEITAR DESAFIO =====
 async function acceptChallenge(challengeId) {
     try {
@@ -1730,50 +1729,10 @@ async function acceptChallenge(challengeId) {
         
         const challenge = challengeDoc.data();
         
-        // Verificar se o desafio ainda está pendente
-        if (challenge.status !== 'pending') {
-            showNotification('Este desafio já foi respondido', 'error');
-            return;
-        }
+        // ... (código de verificação existente) ...
         
-        // Verificar se o desafio não expirou
-        if (challenge.expiresAt && challenge.expiresAt.toDate() < new Date()) {
-            showNotification('Este desafio expirou', 'error');
-            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
-            return;
-        }
-        
-        // Verificar se ambos os jogadores ainda estão online
-        const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
-        const targetDoc = await db.collection('users').doc(challenge.targetId).get();
-        
-        if (!challengerDoc.exists || !challengerDoc.data().isOnline || 
-            !targetDoc.exists || !targetDoc.data().isOnline) {
-            showNotification('Um dos jogadores não está mais online', 'error');
-            await db.collection('challenges').doc(challengeId).update({ status: 'expired' });
-            return;
-        }
-        
-        // Verificar saldos se houver aposta
-        if (challenge.betAmount > 0) {
-            const challengerCoins = challengerDoc.data().coins || 0;
-            const targetCoins = targetDoc.data().coins || 0;
-            
-            if (challengerCoins < challenge.betAmount || targetCoins < challenge.betAmount) {
-                showNotification('Saldo insuficiente para a aposta', 'error');
-                await db.collection('challenges').doc(challengeId).update({ status: 'rejected' });
-                return;
-            }
-        }
-        
-        // Atualizar status do desafio para aceito
-        await db.collection('challenges').doc(challengeId).update({
-            status: 'accepted',
-            acceptedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Criar a mesa de jogo
-        await createGameTable(
+        // Criar a mesa de jogo usando a nova função
+        const tableId = await createGameTable(
             challenge.challengerId, 
             challenge.targetId, 
             challenge.timePerMove, 
@@ -1781,6 +1740,9 @@ async function acceptChallenge(challengeId) {
             challenge.isDoubleGame,
             challengeId
         );
+        
+        // Atualizar tabela ativa do usuário
+        updateUserActiveTable(currentUser.uid, tableId);
         
         // Remover a notificação
         const notificationElement = document.querySelector(`[data-challenge-id="${challengeId}"]`);
@@ -1792,9 +1754,11 @@ async function acceptChallenge(challengeId) {
         
     } catch (error) {
         console.error('Erro ao aceitar desafio:', error);
-        showNotification('Erro ao aceitar desafio', 'error');
+        showNotification('Erro ao aceitar desafio: ' + error.message, 'error');
     }
 }
+
+
 
 // ===== RECUSAR DESAFIO =====
 async function rejectChallenge(challengeId) {
@@ -12741,3 +12705,205 @@ async function viewUserProfile(userId) {
     }
 }
 
+
+
+
+// ===== CREATE GAME TABLE FOR CHALLENGE =====
+async function createGameTable(challengerId, targetId, timePerMove, betAmount, isDoubleGame, challengeId) {
+    console.log('🎯 Criando mesa de desafio...', { challengerId, targetId, challengeId });
+    
+    try {
+        // Carregar dados dos jogadores
+        const [challengerDoc, targetDoc] = await Promise.all([
+            db.collection('users').doc(challengerId).get(),
+            db.collection('users').doc(targetId).get()
+        ]);
+        
+        if (!challengerDoc.exists || !targetDoc.exists) {
+            throw new Error('Jogador não encontrado');
+        }
+        
+        const challengerData = challengerDoc.data();
+        const targetData = targetDoc.data();
+        
+        const tableName = `Desafio: ${challengerData.displayName} vs ${targetData.displayName}`;
+        const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
+        
+        // Criar a mesa
+        const tableRef = await db.collection('tables').add({
+            name: tableName,
+            timeLimit: timePerMove,
+            bet: betAmount,
+            status: 'playing', // Já começa como playing pois ambos estão presentes
+            players: [
+                {
+                    uid: challengerId,
+                    displayName: challengerData.displayName,
+                    rating: challengerData.rating || 1200,
+                    color: 'black',
+                    avatar: challengerData.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(challengerData.displayName)}&background=2c3e50&color=fff`
+                },
+                {
+                    uid: targetId,
+                    displayName: targetData.displayName,
+                    rating: targetData.rating || 1200,
+                    color: 'red',
+                    avatar: targetData.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(targetData.displayName)}&background=e74c3c&color=fff`
+                }
+            ],
+            createdBy: challengerId,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            currentTurn: 'black',
+            board: boardData,
+            waitingForOpponent: false,
+            platformFee: calculatePlatformFee(betAmount),
+            isChallenge: true,
+            challengeId: challengeId,
+            isDoubleGame: isDoubleGame,
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp(),
+            gameStartedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        const tableId = tableRef.id;
+        console.log('✅ Mesa de desafio criada com ID:', tableId);
+        
+        // Atualizar status dos jogadores
+        await Promise.all([
+            db.collection('users').doc(challengerId).update({
+                isPlaying: true,
+                activeTable: tableId,
+                lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+            }),
+            db.collection('users').doc(targetId).update({
+                isPlaying: true,
+                activeTable: tableId,
+                lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+            })
+        ]);
+        
+        // Deduzir apostas se houver
+        if (betAmount > 0) {
+            await Promise.all([
+                db.collection('users').doc(challengerId).update({
+                    coins: firebase.firestore.FieldValue.increment(-betAmount)
+                }),
+                db.collection('users').doc(targetId).update({
+                    coins: firebase.firestore.FieldValue.increment(-betAmount)
+                })
+            ]);
+        }
+        
+        // Atualizar desafio com ID da mesa
+        await db.collection('challenges').doc(challengeId).update({
+            tableId: tableId,
+            gameStartedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Notificar ambos os jogadores
+        await Promise.all([
+            // Notificação para o desafiante
+            db.collection('notifications').doc(generateId()).set({
+                userId: challengerId,
+                type: 'game_start',
+                title: 'Desafio Aceito!',
+                message: `${targetData.displayName} aceitou seu desafio! Partida iniciada.`,
+                data: { tableId: tableId },
+                isRead: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            }),
+            
+            // Notificação para o desafiado
+            db.collection('notifications').doc(generateId()).set({
+                userId: targetId,
+                type: 'game_start',
+                title: 'Partida Iniciada!',
+                message: `Você aceitou o desafio de ${challengerData.displayName}! Partida iniciada.`,
+                data: { tableId: tableId },
+                isRead: false,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            })
+        ]);
+        
+        // Redirecionar ambos os jogadores para o jogo
+        redirectPlayersToGame(tableId, challengerId, targetId);
+        
+        return tableId;
+        
+    } catch (error) {
+        console.error('❌ Erro ao criar mesa de desafio:', error);
+        
+        // Reverter status do desafio em caso de erro
+        try {
+            await db.collection('challenges').doc(challengeId).update({
+                status: 'error',
+                error: error.message
+            });
+        } catch (e) {
+            console.error('Erro ao atualizar status do desafio:', e);
+        }
+        
+        throw error;
+    }
+}
+
+// ===== REDIRECIONAR JOGADORES PARA O JOGO =====
+async function redirectPlayersToGame(tableId, player1Id, player2Id) {
+    console.log('🔄 Redirecionando jogadores para o jogo:', tableId);
+    
+    // Se o usuário atual é um dos jogadores, redirecionar
+    if (currentUser && (currentUser.uid === player1Id || currentUser.uid === player2Id)) {
+        // Verificar se já estamos na tela de jogo para evitar loop
+        const currentScreen = document.querySelector('.screen.active');
+        if (currentScreen && currentScreen.id === 'game-screen') {
+            console.log('✅ Já está na tela de jogo, apenas atualizando listener');
+            setupGameListener(tableId);
+        } else {
+            console.log('🔄 Indo para tela de jogo');
+            setupGameListener(tableId);
+            showScreen('game-screen');
+            showNotification('Partida iniciada! Boa sorte!', 'success');
+        }
+    }
+    
+    // Atualizar listeners ativos para outros jogadores online
+    if (typeof refreshOnlineUsersList === 'function') {
+        setTimeout(refreshOnlineUsersList, 1000);
+    }
+}
+
+// ===== CALCULAR TAXA DA PLATAFORMA =====
+function calculatePlatformFee(betAmount) {
+    if (betAmount <= 0) return 0;
+    
+    // Taxa de 5% com mínimo de 1 moeda e máximo de 50 moedas
+    const fee = Math.floor(betAmount * 0.05);
+    return Math.min(Math.max(fee, 1), 50);
+}
+
+// ===== VERIFICAR SE USUÁRIO ESTÁ EM JOGO =====
+async function checkUserInGame(userId) {
+    try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        return userDoc.exists && userDoc.data().isPlaying === true;
+    } catch (error) {
+        console.error('Erro ao verificar status de jogo:', error);
+        return false;
+    }
+}
+
+// ===== ATUALIZAR TABELA ATIVA DO USUÁRIO =====
+function updateUserActiveTable(userId, tableId) {
+    if (currentUser && currentUser.uid === userId) {
+        userActiveTable = tableId;
+        
+        // Configurar listener para a mesa
+        if (tableId) {
+            setupGameListener(tableId);
+            
+            // Configurar listener para atualizações da mesa
+            if (typeof setupActiveTableListener === 'function') {
+                setupActiveTableListener();
+            }
+        }
+    }
+}

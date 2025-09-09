@@ -5582,3 +5582,66 @@ input:checked + .slider:before {
 .notification-close:hover {
     color: var(--danger);
 }
+
+/* ===== MELHORIAS PARA NOTIFICAÇÕES DE DESAFIO ===== */
+.challenge-notification {
+    border-left: 4px solid #ffd700 !important;
+    background: linear-gradient(135deg, rgba(40, 40, 40, 0.95) 0%, rgba(30, 30, 30, 0.95) 100%) !important;
+    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2) !important;
+}
+
+.challenge-notification .notification-icon {
+    background: rgba(255, 215, 0, 0.1);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.challenge-notification h4 {
+    color: #ffd700 !important;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.challenge-notification p {
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+}
+
+.notification-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.notification-actions .btn {
+    flex: 1;
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.notification-actions .btn-success {
+    background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+    border: none;
+}
+
+.notification-actions .btn-success:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(46, 204, 113, 0.4);
+}
+
+.notification-actions .btn-danger {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    border: none;
+}
+
+.notification-actions .btn-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.4);
+}
