@@ -368,8 +368,97 @@ document.addEventListener('DOMContentLoaded', function() {
     window.closeChallengeModal = closeChallengeModal;
     window.acceptChallenge = acceptChallenge;
     window.declineChallenge = declineChallenge;
+     // Configurar listeners para detectar saída
+    setupConnectionListeners();
+    
+    // Configurar heartbeat para manter conexão ativa
+    startHeartbeat();
 
 });
+
+
+
+// Listeners para detectar quando o usuário sai
+function setupConnectionListeners() {
+    // Quando a página é fechada
+    window.addEventListener('beforeunload', handleUserExit);
+    
+    // Quando a conexão é perdida
+    window.addEventListener('offline', handleDisconnect);
+    window.addEventListener('online', handleReconnect);
+    
+    // Quando a aba fica inativa
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+}
+
+// Heartbeat para manter status ativo
+function startHeartbeat() {
+    setInterval(async () => {
+        if (currentUser && userActiveTable) {
+            await updateUserStatus('online', userActiveTable);
+        }
+    }, 30000); // A cada 30 segundos
+}
+
+// Função para atualizar status do usuário
+async function updateUserStatus(status, tableId = null) {
+    try {
+        if (!currentUser) return;
+        
+        const userRef = db.collection('users').doc(currentUser.uid);
+        
+        await userRef.update({
+            status: status,
+            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+            activeTable: status === 'playing' ? tableId : null
+        });
+        
+        console.log(`✅ Status atualizado para: ${status}`);
+        
+    } catch (error) {
+        console.error('❌ Erro ao atualizar status:', error);
+    }
+}
+
+// Quando o usuário sai da mesa
+async function handleUserExit() {
+    if (currentUser && userActiveTable) {
+        await leaveTable(userActiveTable);
+    }
+    await updateUserStatus('offline');
+}
+
+// Quando a conexão é perdida
+async function handleDisconnect() {
+    console.log('🔌 Conexão perdida');
+    if (currentUser && userActiveTable) {
+        await updateUserStatus('offline');
+    }
+}
+
+// Quando a conexão é restaurada
+async function handleReconnect() {
+    console.log('🔌 Conexão restaurada');
+    if (currentUser && userActiveTable) {
+        await updateUserStatus('playing', userActiveTable);
+    }
+}
+
+// Quando a aba fica inativa/ativa
+async function handleVisibilityChange() {
+    if (document.hidden) {
+        // Aba ficou inativa
+        if (currentUser && userActiveTable) {
+            await updateUserStatus('away', userActiveTable);
+        }
+    } else {
+        // Aba ficou ativa
+        if (currentUser && userActiveTable) {
+            await updateUserStatus('playing', userActiveTable);
+        }
+    }
+}
+
 
 // ===== FUNÇÃO PARA VERIFICAR ELEMENTOS =====
 function checkRequiredElements() {
@@ -1676,6 +1765,8 @@ function initApp() {
     gameRedirectListener = setupGameRedirectListener();
     // Iniciar listener de desafios
     challengesListener = listenForChallenges();
+
+    
 }
 
 
@@ -2181,6 +2272,73 @@ challengesListener = listenForChallenges();
         });
     }
 }
+
+
+
+// ===== VERIFICAR E CORRIGIR ESTADO DE JOGO =====
+async function checkAndFixGameState() {
+    if (!currentUser) return;
+    
+    try {
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        const userData = userDoc.data();
+        
+        // Se o usuário está marcado como jogando mas não tem mesa ativa
+        if (userData.isPlaying && !userData.activeTable) {
+            console.log('🔄 Corrigindo estado inconsistente: isPlaying sem activeTable');
+            await db.collection('users').doc(currentUser.uid).update({
+                isPlaying: false,
+                activeTable: null
+            });
+            return;
+        }
+        
+        // Se tem mesa ativa, verificar se a mesa ainda existe
+        if (userData.activeTable) {
+            const tableDoc = await db.collection('tables').doc(userData.activeTable).get();
+            
+            if (!tableDoc.exists) {
+                console.log('🔄 Corrigindo estado: Mesa não existe mais');
+                await db.collection('users').doc(currentUser.uid).update({
+                    isPlaying: false,
+                    activeTable: null
+                });
+                return;
+            }
+            
+            const tableData = tableDoc.data();
+            
+            // Verificar se o usuário ainda está na mesa
+            const isUserInTable = tableData.players && tableData.players.some(player => player.uid === currentUser.uid);
+            
+            if (!isUserInTable) {
+                console.log('🔄 Corrigindo estado: Usuário não está mais na mesa');
+                await db.collection('users').doc(currentUser.uid).update({
+                    isPlaying: false,
+                    activeTable: null
+                });
+                return;
+            }
+            
+            // Se tudo estiver correto, restaurar o listener do jogo
+            if (userData.isPlaying && isUserInTable) {
+                console.log('🎮 Restaurando jogo ativo:', userData.activeTable);
+                userActiveTable = userData.activeTable;
+                setupGameListener(userData.activeTable);
+                
+                // Se não estiver na tela de jogo, redirecionar
+                const currentScreen = document.querySelector('.screen.active');
+                if (!currentScreen || currentScreen.id !== 'game-screen') {
+                    showScreen('game-screen');
+                    showNotification('Jogo restaurado!', 'info');
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao verificar estado de jogo:', error);
+    }
+}
+
 
 
 // ===== HANDLERS PARA FECHAMENTO DA PÁGINA =====
@@ -3337,6 +3495,53 @@ function removeExistingNotifications() {
     }
 }
 
+
+// ===== LOGOUT =====
+async function logout() {
+    try {
+        // Limpar estado de jogo antes de fazer logout
+        if (userActiveTable) {
+            await leaveGame(true); // true = silent mode (não mostra notificações)
+        }
+        
+        // Atualizar estado do usuário
+        await db.collection('users').doc(currentUser.uid).update({
+            isOnline: false,
+            isPlaying: false,
+            activeTable: null,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Limpar listeners
+        if (challengesListener) {
+            challengesListener();
+            challengesListener = null;
+        }
+        
+        if (gameRedirectListener) {
+            gameRedirectListener();
+            gameRedirectListener = null;
+        }
+        
+        if (activeTableListener) {
+            activeTableListener();
+            activeTableListener = null;
+        }
+        
+        // Limpar dados locais
+        currentUser = null;
+        userData = null;
+        userActiveTable = null;
+        
+        // Mostrar tela de login
+        showScreen('auth-screen');
+        showNotification('Logout realizado com sucesso', 'success');
+        
+    } catch (error) {
+        console.error('Erro no logout:', error);
+        showNotification('Erro ao fazer logout', 'error');
+    }
+}
 // ===== GERENCIAMENTO DE USUÁRIO =====
 async function loadUserData(uid) {
     try {
@@ -3708,14 +3913,18 @@ async function createNewTable() {
 }
 // ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
-const originalJoinTable = joinTable;
-joinTable = async function(tableId) {
-    audioManager.playGameStartSound();
-    return originalJoinTable.call(this, tableId);
-};
+
+    const originalJoinTable = joinTable;
+    joinTable = async function(tableId) {
+        audioManager.playGameStartSound();
+        return originalJoinTable.call(this, tableId);
+    };
 
     console.log('🎯 Entrando na mesa:', tableId);
     
+      // ATUALIZAR STATUS PARA JOGANDO
+        await updateUserStatus('playing', tableId);
+
     // ✅ VERIFICAÇÃO CRÍTICA: garantir que tableId não está vazio
     if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
         console.error('❌ TableId inválido:', tableId);
@@ -4261,6 +4470,13 @@ function renderTable(table, container) {
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
     
+       // Parar listener anterior se existir
+    if (tableListeners[tableId]) {
+        tableListeners[tableId]();
+    }
+
+    
+      
     // ✅ VERIFICAÇÃO EXTRA: Garantir que tableId existe
     if (typeof tableId === 'undefined') {
         console.error('❌ tableId não definido em setupGameListener');
@@ -4925,6 +5141,32 @@ function setupSpectatorUI() {
         gameContainer.insertAdjacentHTML('beforeend', spectatorsPanel);
     }
 }
+
+// ===== DETECTAR SAÍDA DA PÁGINA =====
+function setupPageUnloadListener() {
+    window.addEventListener('beforeunload', async (e) => {
+        if (userActiveTable) {
+            // Não impedir a saída, apenas limpar o estado em segundo plano
+            try {
+                await leaveGame(true); // silent mode
+            } catch (error) {
+                console.error('Erro ao limpar estado na saída:', error);
+            }
+        }
+    });
+    
+    // Também detectar mudanças de página (SPA)
+    window.addEventListener('unload', async () => {
+        if (userActiveTable) {
+            try {
+                await leaveGame(true);
+            } catch (error) {
+                console.error('Erro ao limpar estado no unload:', error);
+            }
+        }
+    });
+}
+
 
 
 // ===== FUNÇÃO LEAVE GAME CORRIGIDA =====
