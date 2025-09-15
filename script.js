@@ -1691,27 +1691,36 @@ function closeChallengeModal() {
 
 
 
-
-// ===== ESCUTAR DESAFIOS EM TEMPO REAL =====
+// ===== ESCUTAR DESAFIOS EM TEMPO REAL (COM LOGS) =====
 function listenForChallenges() {
-    if (!currentUser) return;
+    if (!currentUser) {
+        console.log('❌ Não há usuário atual para escutar desafios');
+        return;
+    }
+    
+    console.log('✅ Iniciando listener de desafios para usuário:', currentUser.uid);
     
     // Escutar desafios onde o usuário atual é o alvo
     return db.collection('challenges')
         .where('targetId', '==', currentUser.uid)
         .where('status', '==', 'pending')
         .onSnapshot(snapshot => {
+            console.log('📨 Mudança detectada em notificações de desafio');
+            console.log('Mudanças:', snapshot.docChanges().length);
+            
             snapshot.docChanges().forEach(change => {
+                console.log('Mudança tipo:', change.type, 'ID:', change.doc.id);
+                
                 if (change.type === 'added') {
                     const challenge = change.doc.data();
+                    console.log('Novo desafio recebido:', challenge);
                     showChallengeNotification(challenge);
                 }
             });
         }, error => {
-            console.error('Erro ao escutar desafios:', error);
+            console.error('❌ Erro ao escutar desafios:', error);
         });
 }
-
 
 function initApp() {
     // ... seu código de login existente
@@ -1943,22 +1952,26 @@ async function sendChallenge(targetUserId, targetUserName) {
         showNotification('Erro ao enviar desafio', 'error');
     }
 }
-
-// ===== ACEITAR DESAFIO =====
+// ===== ACEITAR DESAFIO (CORRIGIDA) =====
 async function acceptChallenge(challengeId) {
     try {
+        console.log('Tentando aceitar desafio com ID:', challengeId);
+        
         const challengeDoc = await db.collection('challenges').doc(challengeId).get();
         
         if (!challengeDoc.exists) {
+            console.error('Desafio não encontrado no Firebase:', challengeId);
             showNotification('Desafio não encontrado ou já expirado', 'error');
             removeChallengeNotification(challengeId);
             return;
         }
         
         const challenge = challengeDoc.data();
+        console.log('Dados do desafio:', challenge);
         
         // Verificar se o desafio é para o usuário atual
         if (challenge.targetId !== currentUser.uid) {
+            console.error('Desafio não é para o usuário atual:', challenge.targetId, currentUser.uid);
             showNotification('Este desafio não é para você', 'error');
             removeChallengeNotification(challengeId);
             return;
@@ -1966,6 +1979,7 @@ async function acceptChallenge(challengeId) {
         
         // Verificar se o desafio ainda está pendente
         if (challenge.status !== 'pending') {
+            console.error('Desafio já processado com status:', challenge.status);
             showNotification('Este desafio já foi processado', 'error');
             removeChallengeNotification(challengeId);
             return;
@@ -1973,7 +1987,17 @@ async function acceptChallenge(challengeId) {
         
         // Verificar se o desafiante ainda está online
         const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
-        if (!challengerDoc.exists || !challengerDoc.data().isOnline) {
+        if (!challengerDoc.exists) {
+            console.error('Desafiante não encontrado:', challenge.challengerId);
+            showNotification('O desafiante não existe mais', 'error');
+            await updateChallengeStatus(challengeId, 'expired');
+            removeChallengeNotification(challengeId);
+            return;
+        }
+        
+        const challengerData = challengerDoc.data();
+        if (!challengerData.isOnline) {
+            console.error('Desafiante offline:', challenge.challengerId);
             showNotification('O desafiante não está mais online', 'error');
             await updateChallengeStatus(challengeId, 'expired');
             removeChallengeNotification(challengeId);
@@ -1983,20 +2007,23 @@ async function acceptChallenge(challengeId) {
         // Verificar se ambos os jogadores têm moedas suficientes para a aposta
         if (challenge.betAmount > 0) {
             if (currentUser.coins < challenge.betAmount) {
+                console.error('Usuário atual não tem moedas suficientes:', currentUser.coins, challenge.betAmount);
                 showNotification('Você não tem moedas suficientes para aceitar esta aposta', 'error');
                 await updateChallengeStatus(challengeId, 'rejected');
                 removeChallengeNotification(challengeId);
                 return;
             }
             
-            const challengerData = challengerDoc.data();
             if (challengerData.coins < challenge.betAmount) {
+                console.error('Desafiante não tem moedas suficientes:', challengerData.coins, challenge.betAmount);
                 showNotification('O desafiante não tem moedas suficientes para esta aposta', 'error');
                 await updateChallengeStatus(challengeId, 'expired');
                 removeChallengeNotification(challengeId);
                 return;
             }
         }
+        
+        console.log('Todas as validações passaram. Criando jogo...');
         
         // Atualizar status do desafio para aceito
         await updateChallengeStatus(challengeId, 'accepted');
@@ -2010,6 +2037,8 @@ async function acceptChallenge(challengeId) {
             challenge.isDouble
         );
         
+        console.log('Jogo criado com ID:', gameId);
+        
         // Redirecionar ambos os jogadores para a partida
         window.location.href = `game.html?gameId=${gameId}`;
         
@@ -2018,7 +2047,6 @@ async function acceptChallenge(challengeId) {
         showNotification('Erro ao aceitar desafio', 'error');
     }
 }
-
 
 // ===== INICIALIZAR TABULEIRO PARA FIREBASE =====
 function initializeBoardForFirebase() {
@@ -11872,37 +11900,94 @@ function updateNotificationsBadge() {
         }
     }
 }
-
-// ===== ATUALIZAR LISTA DE NOTIFICAÇÕES =====
-function updateNotificationsList() {
-    const list = document.getElementById('notifications-list');
-    if (!list) return;
+// ===== ATUALIZAR LISTA DE NOTIFICAÇÕES (CORRIGIDA) =====
+function updateNotificationsList(notifications) {
+    const container = document.getElementById('notifications-container');
+    if (!container) return;
     
-    if (userNotifications.length === 0) {
-        list.innerHTML = `
-            <div class="empty-notifications">
-                <i class="fas fa-bell-slash"></i>
-                <p>Nenhuma notificação</p>
+    // Ordenar notificações: mais recentes primeiro
+    notifications.sort((a, b) => b.createdAt - a.createdAt);
+    
+    container.innerHTML = notifications.map(notification => {
+        let icon = 'info-circle';
+        let text = '';
+        
+        switch (notification.type) {
+            case 'challenge':
+                icon = 'trophy';
+                text = `${notification.data.challengerName} te desafiou!`;
+                break;
+            case 'game_invite':
+                icon = 'chess-board';
+                text = `Convite para partida de ${notification.data.inviterName}`;
+                break;
+            case 'game_over':
+                icon = 'flag-checkered';
+                text = `Partida contra ${notification.data.opponentName} finalizada`;
+                break;
+            case 'message':
+                icon = 'envelope';
+                text = `Mensagem de ${notification.data.senderName}`;
+                break;
+            default:
+                text = notification.message || 'Nova notificação';
+        }
+        
+        return `
+            <div class="notification-item ${notification.isRead ? 'read' : 'unread'}" 
+                 data-notification-id="${notification.id}">
+                <div class="notification-icon">
+                    <i class="fas fa-${icon}"></i>
+                </div>
+                <div class="notification-content">
+                    <p>${text}</p>
+                    <small>${formatTimeAgo(notification.createdAt)}</small>
+                </div>
+                <button class="notification-close" onclick="markNotificationAsRead('${notification.id}')">
+                    &times;
+                </button>
             </div>
         `;
-        return;
-    }
-    
-    list.innerHTML = userNotifications.map(notification => `
-        <div class="notification-item ${notification.read ? '' : 'unread'}" data-id="${notification.id}">
-            <div class="notification-header">
-                <h4 class="notification-title">${getNotificationTitle(notification.type)}</h4>
-                <span class="notification-time">${formatTimeAgo(notification.timestamp)}</span>
-            </div>
-            <p class="notification-message">${notification.message}</p>
-            ${getNotificationActions(notification)}
-        </div>
-    `).join('');
-    
-    // Adicionar event listeners para os botões de ação
-    addNotificationActionsListeners();
+    }).join('');
 }
 
+
+// ===== FORMATAR TEMPO DECORRIDO (formatTimeAgo) =====
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Agora mesmo';
+    
+    // Converter para objeto Date se for Timestamp do Firebase
+    const date = timestamp instanceof Date ? timestamp : timestamp.toDate();
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    if (seconds < 60) {
+        return 'Agora mesmo';
+    }
+    
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+        return `há ${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `há ${hours} hora${hours !== 1 ? 's' : ''}`;
+    }
+    
+    const days = Math.floor(hours / 24);
+    if (days < 30) {
+        return `há ${days} dia${days !== 1 ? 's' : ''}`;
+    }
+    
+    const months = Math.floor(days / 30);
+    if (months < 12) {
+        return `há ${months} mês${months !== 1 ? 'es' : ''}`;
+    }
+    
+    const years = Math.floor(months / 12);
+    return `há ${years} ano${years !== 1 ? 's' : ''}`;
+}
 // ===== OBTER TÍTULO DA NOTIFICAÇÃO =====
 // ===== OBTER TÍTULO DA NOTIFICAÇÃO (ATUALIZADA) =====
 function getNotificationTitle(type) {
