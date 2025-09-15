@@ -28,9 +28,45 @@
             <button id="btn-profile" class="nav-btn">
                 <i class="fas fa-user"></i>
             </button>
+                <button class="voice-toggle" id="voice-toggle">🎙️</button>
+
 
         </div>
     </nav>
+      <!-- Container do chat de voz (inicialmente oculto) -->
+    <div class="voice-chat-container" id="voice-chat-container" style="display: none;">
+        <div class="voice-header">
+            <div class="voice-title">Chat de Voz</div>
+            <button class="voice-close" id="voice-close">×</button>
+        </div>
+        
+        <div class="voice-controls">
+            <button class="voice-btn" id="voice-talk">
+                <i>🎤</i> Falar
+            </button>
+            
+            <button class="voice-btn" id="voice-mute">
+                <i>🔇</i> Silenciar
+            </button>
+            
+            <button class="voice-btn" id="voice-deafen">
+                <i>🔇</i> Silenciar Todos
+            </button>
+        </div>
+        
+        <div class="voice-status" id="voice-status">
+            Pronto para conversar
+        </div>
+        
+        <div class="voice-audio-indicator">
+            <div class="voice-audio-level" id="voice-audio-level"></div>
+        </div>
+    </div>
+
+
+
+
+    
 <div id="notifications-container"></div>
 
     <!-- Conteúdo Principal -->

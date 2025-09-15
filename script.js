@@ -3481,6 +3481,8 @@ function updateGameInterface() {
         console.error('Erro em updateGameInterface:', error);
     }
 }
+
+
 // ===== FUNÇÃO UPDATE GAME STATUS INFO =====
 function updateGameStatusInfo() {
     if (!gameState) return;
@@ -8880,3 +8882,191 @@ function initializeGameWithSound() {
         gameState = new Proxy(gameState, gameStateHandler);
     }
 }
+
+  // Sistema de Voz para Jogo de Damas
+        document.addEventListener('DOMContentLoaded', function() {
+            // Elementos da UI
+            const voiceToggle = document.getElementById('voice-toggle');
+            const voiceContainer = document.getElementById('voice-chat-container');
+            const voiceClose = document.getElementById('voice-close');
+            const voiceTalk = document.getElementById('voice-talk');
+            const voiceMute = document.getElementById('voice-mute');
+            const voiceDeafen = document.getElementById('voice-deafen');
+            const voiceStatus = document.getElementById('voice-status');
+            const audioLevel = document.getElementById('voice-audio-level');
+            
+            // Estados do sistema de voz
+            let isRecording = false;
+            let isMuted = false;
+            let isDeafened = false;
+            let mediaRecorder = null;
+            let audioContext = null;
+            let analyser = null;
+            let microphone = null;
+            let javascriptNode = null;
+            
+            // Alternar visibilidade do chat de voz
+            voiceToggle.addEventListener('click', function() {
+                if (voiceContainer.style.display === 'none') {
+                    voiceContainer.style.display = 'block';
+                    voiceToggle.textContent = '🎙️';
+                } else {
+                    voiceContainer.style.display = 'none';
+                    voiceToggle.textContent = '🎙️';
+                }
+            });
+            
+            // Fechar o chat de voz
+            voiceClose.addEventListener('click', function() {
+                voiceContainer.style.display = 'none';
+            });
+            
+            // Configurar áudio
+            async function setupAudio() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    // Configurar AudioContext para análise de áudio
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    analyser = audioContext.createAnalyser();
+                    
+                    microphone.connect(analyser);
+                    
+                    // Configurar MediaRecorder para gravação
+                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    const audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = function(event) {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = function() {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        // Aqui você enviaria o áudio para o servidor/oponente
+                        sendAudioToOpponent(audioBlob);
+                    };
+                    
+                    // Iniciar análise de áudio para visualização
+                    startAudioAnalysis();
+                    
+                    voiceStatus.textContent = 'Microfone conectado';
+                    voiceTalk.disabled = false;
+                    
+                } catch (error) {
+                    console.error('Erro ao acessar microfone:', error);
+                    voiceStatus.textContent = 'Erro ao acessar microfone';
+                    voiceTalk.disabled = true;
+                }
+            }
+            
+            // Iniciar análise de áudio para visualização
+            function startAudioAnalysis() {
+                if (!analyser) return;
+                
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                function updateAudioLevel() {
+                    if (!analyser || isMuted) {
+                        audioLevel.style.width = '0%';
+                        return;
+                    }
+                    
+                    analyser.getByteFrequencyData(dataArray);
+                    
+                    let sum = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        sum += dataArray[i];
+                    }
+                    
+                    const average = sum / bufferLength;
+                    const level = Math.min(100, average * 100 / 256);
+                    
+                    audioLevel.style.width = level + '%';
+                    
+                    requestAnimationFrame(updateAudioLevel);
+                }
+                
+                updateAudioLevel();
+            }
+            
+            // Enviar áudio para o oponente (simulação)
+            function sendAudioToOpponent(audioBlob) {
+                // Aqui você implementaria o envio do áudio para o oponente
+                // via WebSockets, WebRTC ou seu backend
+                console.log('Áudio gravado, tamanho:', audioBlob.size, 'bytes');
+                
+                // Simulação de envio
+                voiceStatus.textContent = 'Enviando áudio...';
+                
+                setTimeout(() => {
+                    voiceStatus.textContent = 'Áudio enviado';
+                    setTimeout(() => {
+                        voiceStatus.textContent = 'Pronto para conversar';
+                    }, 2000);
+                }, 1000);
+            }
+            
+            // Botão para falar (push-to-talk)
+            voiceTalk.addEventListener('mousedown', startRecording);
+            voiceTalk.addEventListener('mouseup', stopRecording);
+            voiceTalk.addEventListener('touchstart', startRecording);
+            voiceTalk.addEventListener('touchend', stopRecording);
+            
+            function startRecording(e) {
+                if (e) e.preventDefault();
+                if (isMuted || isDeafened || !mediaRecorder) return;
+                
+                isRecording = true;
+                voiceTalk.classList.add('recording');
+                voiceStatus.textContent = 'Gravando...';
+                
+                mediaRecorder.start();
+            }
+            
+            function stopRecording(e) {
+                if (e) e.preventDefault();
+                if (!isRecording) return;
+                
+                isRecording = false;
+                voiceTalk.classList.remove('recording');
+                voiceStatus.textContent = 'Enviando áudio...';
+                
+                mediaRecorder.stop();
+            }
+            
+            // Botão de mutar
+            voiceMute.addEventListener('click', function() {
+                isMuted = !isMuted;
+                
+                if (isMuted) {
+                    voiceMute.innerHTML = '<i>🔈</i> Ativar Som';
+                    voiceStatus.textContent = 'Microfone desativado';
+                } else {
+                    voiceMute.innerHTML = '<i>🔇</i> Silenciar';
+                    voiceStatus.textContent = 'Microfone ativado';
+                }
+            });
+            
+            // Botão de silenciar todos
+            voiceDeafen.addEventListener('click', function() {
+                isDeafened = !isDeafened;
+                
+                if (isDeafened) {
+                    voiceDeafen.innerHTML = '<i>🔈</i> Ativar Áudio';
+                    voiceStatus.textContent = 'Áudio desativado';
+                } else {
+                    voiceDeafen.innerHTML = '<i>🔇</i> Silenciar Todos';
+                    voiceStatus.textContent = 'Áudio ativado';
+                }
+            });
+            
+            // Inicializar o sistema de voz quando a página carregar
+            setupAudio();
+            
+            // Adicionar este sistema ao seu jogo existente
+            console.log('Sistema de voz carregado com sucesso!');
+        });
