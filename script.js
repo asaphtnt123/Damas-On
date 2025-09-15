@@ -2019,6 +2019,76 @@ async function acceptChallenge(challengeId) {
     }
 }
 
+
+// ===== INICIALIZAR TABULEIRO PARA FIREBASE =====
+function initializeBoardForFirebase() {
+    // Criar um objeto plano em vez de array multidimensional
+    const board = {};
+    
+    // Posicionar peças pretas (jogador 1)
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) {
+                board[`${row}_${col}`] = { 
+                    player: 1, 
+                    isKing: false,
+                    row: row,
+                    col: col
+                };
+            }
+        }
+    }
+    
+    // Posicionar peças vermelhas (jogador 2)
+    for (let row = 5; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) {
+                board[`${row}_${col}`] = { 
+                    player: 2, 
+                    isKing: false,
+                    row: row,
+                    col: col
+                };
+            }
+        }
+    }
+    
+    return board;
+}
+
+// Função auxiliar para converter o formato do tabuleiro
+function convertBoardToArrayFormat(boardData) {
+    const board = Array(8).fill().map(() => Array(8).fill(null));
+    
+    for (const key in boardData) {
+        if (boardData.hasOwnProperty(key)) {
+            const piece = boardData[key];
+            board[piece.row][piece.col] = piece;
+        }
+    }
+    
+    return board;
+}
+
+// Função auxiliar para converter array para formato Firebase
+function convertArrayToFirebaseFormat(boardArray) {
+    const boardData = {};
+    
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            if (boardArray[row][col] !== null) {
+                boardData[`${row}_${col}`] = {
+                    ...boardArray[row][col],
+                    row: row,
+                    col: col
+                };
+            }
+        }
+    }
+    
+    return boardData;
+}
+
 // ===== RECUSAR DESAFIO =====
 async function rejectChallenge(challengeId) {
     try {
@@ -2051,10 +2121,12 @@ function removeChallengeNotification(challengeId) {
         notification.remove();
     }
 }
-
 // ===== CRIAR NOVO JOGO =====
 async function createNewGame(player1Id, player2Id, timePerMove, betAmount, isDouble) {
     try {
+        // Inicializar o tabuleiro em formato compatível com Firebase
+        const boardData = initializeBoardForFirebase();
+        
         // Criar documento do jogo
         const gameRef = await db.collection('games').add({
             player1: player1Id,
@@ -2063,10 +2135,11 @@ async function createNewGame(player1Id, player2Id, timePerMove, betAmount, isDou
             timePerMove: timePerMove,
             betAmount: betAmount,
             isDouble: isDouble,
-            board: initializeBoard(), // Função que cria o tabuleiro inicial
+            board: boardData,
             status: 'active',
             createdAt: new Date(),
-            lastMoveAt: new Date()
+            lastMoveAt: new Date(),
+            moves: [] // Array para armazenar histórico de movimentos
         });
         
         const gameId = gameRef.id;
@@ -2094,6 +2167,7 @@ async function createNewGame(player1Id, player2Id, timePerMove, betAmount, isDou
         throw error;
     }
 }
+
 
 // ===== INICIALIZAR TABULEIRO =====
 function initializeBoard() {
