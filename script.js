@@ -13,51 +13,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
-// ===== VARIÁVEIS GLOBAIS COMPLETAS =====
-// Sistema de áudio
-let audioManager = {
-    playNotificationSound: function() { console.log('🔊 Som de notificação (fallback)'); },
-    playChallengeSound: function() { console.log('🎯 Som de desafio (fallback)'); },
-    playGameStartSound: function() { console.log('🎮 Som de início de jogo (fallback)'); },
-    playClickSound: function() { console.log('🖱️ Som de clique (fallback)'); },
-    playVictorySound: function() { console.log('🎉 Som de vitória (fallback)'); },
-    playDefeatSound: function() { console.log('😞 Som de derrota (fallback)'); },
-    playSelectionSound: function() { console.log('🔘 Som de seleção (fallback)'); },
-    createSound: function() { console.log('🎵 Criando som (fallback)'); }
-};
 
-let notificationSound = null;
-
-// Sistema de renderização
-let lastRenderTime = 0;
-let lastRenderedBoardHash = '';
-
-// Sistema de notificações
-let activeNotifications = new Map();
-
-// Sistema de espectadores
-let spectatorsModal = null;
-
-// Sistema de mesas
-let activeTableListener = null;
-
-// Sistema de voz
-// Sistema de voz
-let voiceChatSystem = {
-    isEnabled: false,
-    localStream: null,
-    peerConnections: {},
-    configuration: {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-    }
-};
-let audioElements = {};
-
-
-// Variáveis principais do jogo
+// ===== VARIÁVEIS GLOBAIS =====
 let currentUser = null;
 let userData = null;
 let gameState = null;
@@ -67,27 +24,9 @@ let gameListener = null;
 let tablesListener = null;
 let userActiveTable = null;
 
-// Sistema de timer
 let moveTimer = null;
 let timeLeft = 0;
 let currentTimeLimit = 0;
-
-// Sistema de capturas (ADICIONE ESTAS VARIÁVEIS)
-let lastCaptureCheckTime = 0;
-let lastBoardStateHash = '';
-let hasGlobalMandatoryCaptures = false;
-let capturingPieces = [];
-
-
-// ===== VARIÁVEIS DE NOTIFICAÇÕES =====
-let notificationsListener = null;
-let userNotifications = [];
-let unreadCount = 0;
-
-
-// ===== VARIÁVEIS DE SOLICITAÇÕES =====
-let friendRequestsListener = null;
-let pendingRequestsCount = 0;
 
 
 // ===== ATUALIZAR LAST LOGIN E STATUS ONLINE =====
@@ -218,6 +157,52 @@ async function setUserAway() {
         console.error('Erro ao marcar usuário como ausente:', error);
     }
 }
+// ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
+async function checkUserActiveTable(userId = null) {
+    const targetUserId = userId || currentUser?.uid;
+    
+    if (!targetUserId || !db) {
+        console.log('❌ checkUserActiveTable: userId ou db não disponível');
+        return { hasActiveTable: false };
+    }
+    
+    try {
+        console.log('🔍 Verificando mesa ativa para usuário:', targetUserId);
+        
+        const snapshot = await db.collection('tables')
+            .where('players', 'array-contains', { uid: targetUserId })
+            .where('status', 'in', ['waiting', 'playing'])
+            .limit(1)
+            .get();
+        
+        console.log('📊 Mesas encontradas:', snapshot.size);
+        
+        if (!snapshot.empty) {
+            const tableDoc = snapshot.docs[0];
+            const table = tableDoc.data();
+            
+            console.log('✅ Mesa ativa encontrada:', tableDoc.id, table.status);
+            
+            return {
+                hasActiveTable: true,
+                tableId: tableDoc.id, // ← GARANTIR que tableId está sendo retornado
+                tableName: table.name,
+                tableBet: table.bet || 0,
+                tableStatus: table.status,
+                tableTimeLimit: table.timeLimit,
+                players: table.players || []
+            };
+        }
+        
+        console.log('✅ Nenhuma mesa ativa encontrada');
+        return { hasActiveTable: false };
+        
+    } catch (error) {
+        console.error('❌ Erro ao verificar mesa ativa:', error);
+        return { hasActiveTable: false };
+    }
+}
+
 // ===== DADOS TEMPORÁRIOS PARA DEMONSTRAÇÃO =====
 function showTemporaryData() {
     const usersList = document.getElementById('online-users-list');
@@ -317,102 +302,7 @@ setInterval(cleanupAbandonedTables, 10 * 60 * 1000); // A cada 10 minutos
 document.addEventListener('DOMContentLoaded', function() {
   console.log('DOM carregado, inicializando aplicação...');
   initializeApp();
-    // Garantir que as funções estejam disponíveis globalmente
-    window.addChallengeModalStyles = addChallengeModalStyles;
-    window.closeChallengeModal = closeChallengeModal;
-    window.acceptChallenge = acceptChallenge;
-    window.declineChallenge = declineChallenge;
-     // Configurar listeners para detectar saída
-    setupConnectionListeners();
-    
-    // Configurar heartbeat para manter conexão ativa
-    startHeartbeat();
-
 });
-
-
-
-// Listeners para detectar quando o usuário sai
-function setupConnectionListeners() {
-    // Quando a página é fechada
-    window.addEventListener('beforeunload', handleUserExit);
-    
-    // Quando a conexão é perdida
-    window.addEventListener('offline', handleDisconnect);
-    window.addEventListener('online', handleReconnect);
-    
-    // Quando a aba fica inativa
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-}
-
-// Heartbeat para manter status ativo
-function startHeartbeat() {
-    setInterval(async () => {
-        if (currentUser && userActiveTable) {
-            await updateUserStatus('online', userActiveTable);
-        }
-    }, 30000); // A cada 30 segundos
-}
-
-// Função para atualizar status do usuário
-async function updateUserStatus(status, tableId = null) {
-    try {
-        if (!currentUser) return;
-        
-        const userRef = db.collection('users').doc(currentUser.uid);
-        
-        await userRef.update({
-            status: status,
-            lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
-            activeTable: status === 'playing' ? tableId : null
-        });
-        
-        console.log(`✅ Status atualizado para: ${status}`);
-        
-    } catch (error) {
-        console.error('❌ Erro ao atualizar status:', error);
-    }
-}
-
-// Quando o usuário sai da mesa
-async function handleUserExit() {
-    if (currentUser && userActiveTable) {
-        await leaveTable(userActiveTable);
-    }
-    await updateUserStatus('offline');
-}
-
-// Quando a conexão é perdida
-async function handleDisconnect() {
-    console.log('🔌 Conexão perdida');
-    if (currentUser && userActiveTable) {
-        await updateUserStatus('offline');
-    }
-}
-
-// Quando a conexão é restaurada
-async function handleReconnect() {
-    console.log('🔌 Conexão restaurada');
-    if (currentUser && userActiveTable) {
-        await updateUserStatus('playing', userActiveTable);
-    }
-}
-
-// Quando a aba fica inativa/ativa
-async function handleVisibilityChange() {
-    if (document.hidden) {
-        // Aba ficou inativa
-        if (currentUser && userActiveTable) {
-            await updateUserStatus('away', userActiveTable);
-        }
-    } else {
-        // Aba ficou ativa
-        if (currentUser && userActiveTable) {
-            await updateUserStatus('playing', userActiveTable);
-        }
-    }
-}
-
 
 // ===== FUNÇÃO PARA VERIFICAR ELEMENTOS =====
 function checkRequiredElements() {
@@ -433,6 +323,54 @@ function checkRequiredElements() {
     }
   });
 }
+
+
+function initializeApp() {
+    console.log('🚀 Inicializando aplicação Damas Online...');
+     // 1. Inicializar sistema de som
+    createSoundControls();
+    initializeGameWithSound();
+
+    
+    // 1. Sistemas de autenticação e UI
+    initializeAuth();
+    initializeUI();
+    initializeRegisterForm();
+    
+    // 2. Sistemas de jogo
+    initializeGame();
+    initializeNotifications();
+    initializeChallengeNotifications(); // ← ADICIONAR ESTA LINHA
+    setupConnectionMonitoring();
+    setupTimerPause();
+    initializeTableCheck();
+    
+    // 3. Sistemas de usuário e online
+    setupWindowCloseHandler();
+    initializeOnlineUsersModal();
+    
+    // 4. Outros sistemas
+    initializeChat();
+    initializeSpectatorsModal();
+    initializeProfileModal();
+    initializeCoinsModal();
+    
+    // 5. Configurações de manutenção
+    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
+    setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
+    
+    // 6. Verificar desafios pendentes ao iniciar
+    if (currentUser) {
+        setTimeout(checkPendingChallenges, 3000);
+    }
+    
+    // 7. Debug e verificação
+    checkRequiredElements();
+    
+    console.log('✅ Aplicação inicializada com sucesso!');
+}
+
+
 // ===== TESTAR NOTIFICAÇÃO =====
 async function testNotification() {
     if (!currentUser || !db) {
@@ -466,731 +404,6 @@ async function testNotification() {
     } catch (error) {
         console.error('Erro no teste:', error);
     }
-}
-function initializeApp() {
-    console.log('🚀 Inicializando aplicação Damas Online...');
-let challengesListener = null;
-let gameRedirectListener = null;
-
-    setupUsersSearch();
-
-        // 9. SISTEMA DE VOZ
-    initializeVoiceChat();
-    // 10. SISTEMA DE NOTIFICAÇÕES
-    initializeNotificationsSystem();
-
-        initializeFriendsSystem();
-
-    
-    // 1. DECLARAR TODAS AS VARIÁVEIS PRIMEIRO
-    if (typeof notificationSound === 'undefined') {
-        var notificationSound = null;
-        console.log('🔊 notificationSound declarado');
-    }
-    
-    if (typeof audioManager === 'undefined') {
-        var audioManager = {
-            playChallengeSound: function() { console.log('🎯 Som de desafio (fallback)'); },
-            playNotificationSound: function() { console.log('🔊 Som de notificação (fallback)'); },
-            playGameStartSound: function() { console.log('🎮 Som de início de jogo (fallback)'); },
-            playClickSound: function() { console.log('🖱️ Som de clique (fallback)'); },
-            playVictorySound: function() { console.log('🎉 Som de vitória (fallback)'); },
-            playDefeatSound: function() { console.log('😞 Som de derrota (fallback)'); },
-            playSelectionSound: function() { console.log('🔘 Som de seleção (fallback)'); },
-            createSound: function() { console.log('🎵 Criando som (fallback)'); }
-        };
-        console.log('🔊 audioManager declarado');
-    }
-    
-    if (typeof activeNotifications === 'undefined') {
-        var activeNotifications = new Map();
-        console.log('📋 activeNotifications declarado');
-    }
-    
-    // 2. INICIALIZAR VARIÁVEIS GLOBAIS
-    initializeGlobalVariables();
-    
-    // 3. SISTEMAS BÁSICOS
-    createSoundControls();
-    initializeGameWithSound();
-    
-    // 4. SISTEMAS PRINCIPAIS
-    initializeAuth();
-    initializeUI();
-    initializeRegisterForm();
-    
-    // 5. SISTEMAS DE JOGO
-    initializeGame();
-    initializeNotifications();
-    initializeChallengeNotifications();
-    setupConnectionMonitoring();
-    setupTimerPause();
-    initializeTableCheck();
-    
-    // 6. SISTEMAS SECUNDÁRIOS
-    setupWindowCloseHandler();
-    initializeOnlineUsersModal();
-    
-    // 7. OUTROS SISTEMAS
-    initializeChat();
-    initializeSpectatorsModal();
-    initializeProfileModal();
-    initializeCoinsModal();
-    
-    // 8. CONFIGURAÇÕES DE MANUTENÇÃO
-    setInterval(cleanupOrphanedOnlineUsers, 10 * 60 * 1000);
-    setInterval(cleanupAbandonedTables, 10 * 60 * 1000);
-
-    setupAudioTest()
-    setupEchoTest()
-    
-    
-    // 9. VERIFICAR DESAFIOS PENDENTES AO INICIAR
-    if (currentUser) {
-        setTimeout(checkPendingChallenges, 3000);
-    }
-    
-    console.log('✅ Aplicação inicializada com sucesso!');
-}
-
-// ===== INICIALIZAR SISTEMA DE VOZ =====
-function initializeVoiceChat() {
-    console.log('🎤 Inicializando sistema de voz...');
-    
-    const voiceToggle = document.getElementById('voice-toggle');
-    if (!voiceToggle) {
-        console.error('Botão de voz não encontrado');
-        return;
-    }
-    
-    voiceToggle.addEventListener('click', toggleVoiceChat);
-    
-    // Verificar suporte a WebRTC
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        console.warn('WebRTC não suportado neste navegador');
-        voiceToggle.style.display = 'none';
-        return;
-    }
-    
-    console.log('✅ Sistema de voz inicializado');
-}
-// ===== TOGGLE VOICE CHAT (COM VERIFICAÇÃO DE SEGURANÇA) =====
-async function toggleVoiceChat() {
-    if (!currentUser || !currentUser.uid) {
-        showNotification('Você precisa estar logado para usar o chat de voz', 'error');
-        return;
-    }
-    
-    const voiceToggle = document.getElementById('voice-toggle');
-    
-    try {
-        if (!voiceChatSystem.isEnabled) {
-            // Ativar voz
-            await startVoiceChat();
-            voiceToggle.classList.add('active');
-            voiceToggle.innerHTML = '<i class="fas fa-microphone"></i> Voz Ativa';
-            voiceChatSystem.isEnabled = true;
-            showNotification('Chat de voz ativado', 'success');
-        } else {
-            // Desativar voz
-            stopVoiceChat();
-            voiceToggle.classList.remove('active');
-            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
-            voiceChatSystem.isEnabled = false;
-            showNotification('Chat de voz desativado', 'info');
-        }
-    } catch (error) {
-        console.error('Erro ao alternar voz:', error);
-        showNotification('Erro ao ativar voz: ' + error.message, 'error');
-    }
-}
-// ===== INICIAR CHAT DE VOZ (CORRIGIDA) =====
-async function startVoiceChat() {
-    try {
-        console.log('Solicitando acesso ao microfone...');
-        
-        // Obter permissão de microfone
-        voiceChatSystem.localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                channelCount: 1
-            },
-            video: false
-        });
-        
-        console.log('🎤 Microfone acessado com sucesso');
-        console.log('Audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
-        
-        // Verificar se há áudio
-        const audioTracks = voiceChatSystem.localStream.getAudioTracks();
-        if (audioTracks.length === 0) {
-            throw new Error('Nenhum microfone detectado');
-        }
-        
-        // Testar o microfone localmente
-        const localAudio = document.createElement('audio');
-        localAudio.srcObject = voiceChatSystem.localStream;
-        localAudio.volume = 0.1; // Volume baixo para feedback
-        document.body.appendChild(localAudio);
-        
-        setTimeout(() => {
-            localAudio.remove();
-        }, 2000);
-        
-        // Iniciar conexões com outros jogadores/espectadores
-        if (currentGameRef) {
-            await setupVoiceConnections();
-        }
-        
-        showNotification('Microfone ativado', 'success');
-        
-    } catch (error) {
-        console.error('Erro ao acessar microfone:', error);
-        if (error.name === 'NotAllowedError') {
-            showNotification('Permissão de microfone negada', 'error');
-        } else if (error.name === 'NotFoundError') {
-            showNotification('Nenhum microfone encontrado', 'error');
-        } else {
-            showNotification('Erro ao acessar microfone: ' + error.message, 'error');
-        }
-        
-        // Resetar estado
-        voiceChatSystem.isEnabled = false;
-        const voiceToggle = document.getElementById('voice-toggle');
-        if (voiceToggle) {
-            voiceToggle.classList.remove('active');
-            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
-        }
-        
-        throw error;
-    }
-}
-
-
-// ===== PARAR CHAT DE VOZ =====
-function stopVoiceChat() {
-    // Parar stream local
-    if (voiceChatSystem.localStream) {
-        voiceChatSystem.localStream.getTracks().forEach(track => track.stop());
-        voiceChatSystem.localStream = null;
-    }
-    
-    // Fechar todas as conexões
-    Object.values(voiceChatSystem.peerConnections).forEach(pc => {
-        pc.close();
-    });
-    voiceChatSystem.peerConnections = {};
-    
-    // Remover todos os elementos de áudio
-    Object.values(audioElements).forEach(audio => {
-        if (audio.parentNode) {
-            audio.parentNode.removeChild(audio);
-        }
-    });
-    audioElements = {};
-    
-    console.log('🔇 Chat de voz parado');
-}
-
-// ===== CONFIGURAR CONEXÕES DE VOZ (CORRIGIDA) =====
-async function setupVoiceConnections() {
-    if (!currentGameRef || !voiceChatSystem.localStream) {
-        console.log('Não é possível configurar conexões: sem gameRef ou localStream');
-        return;
-    }
-    
-    try {
-        console.log('Configurando conexões de voz para mesa:', currentGameRef.id);
-        
-        // Obter dados atualizados da mesa
-        const tableDoc = await currentGameRef.get();
-        const tableData = tableDoc.data();
-        
-        if (!tableData || !tableData.players) {
-            console.log('Dados da mesa não disponíveis');
-            return;
-        }
-        
-        // Conectar apenas com outros jogadores na mesa
-        const otherPlayers = tableData.players.filter(player => 
-            player.uid !== currentUser.uid && player.uid
-        );
-        
-        console.log('Outros jogadores na mesa:', otherPlayers.length);
-        
-        for (const player of otherPlayers) {
-            console.log('Criando conexão com:', player.uid);
-            createPeerConnection(player.uid);
-            
-            // Pequeno delay entre conexões para evitar congestionamento
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-    } catch (error) {
-        console.error('Erro ao configurar conexões de voz:', error);
-    }
-}
-
-// ===== CRIAR CONEXÃO PEER (MELHORADA) =====
-function createPeerConnection(userId) {
-    if (voiceChatSystem.peerConnections[userId]) {
-        console.log('Conexão já existe para:', userId);
-        return voiceChatSystem.peerConnections[userId];
-    }
-    
-    console.log('Criando nova conexão peer para:', userId);
-    
-    try {
-        const peerConnection = new RTCPeerConnection(voiceChatSystem.configuration);
-        voiceChatSystem.peerConnections[userId] = peerConnection;
-        
-        // Adicionar stream local se disponível
-        if (voiceChatSystem.localStream) {
-            voiceChatSystem.localStream.getTracks().forEach(track => {
-                console.log('Adicionando track local:', track.kind);
-                peerConnection.addTrack(track, voiceChatSystem.localStream);
-            });
-        }
-        
-        // Manipular stream remoto
-        peerConnection.ontrack = (event) => {
-            console.log('🎧 Stream remoto recebido de:', userId);
-            console.log('Event tracks:', event.tracks.length);
-            console.log('Event streams:', event.streams.length);
-            
-            if (event.streams && event.streams.length > 0) {
-                const remoteStream = event.streams[0];
-                console.log('Remote stream audio tracks:', remoteStream.getAudioTracks().length);
-                setupAudioElement(userId, remoteStream);
-            }
-        };
-        
-        // Manipular ICE candidates
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                console.log('🧊 Novo ICE candidate para:', userId);
-                sendIceCandidate(userId, event.candidate);
-            } else {
-                console.log('✅ Todos ICE candidates coletados para:', userId);
-            }
-        };
-        
-        // Manipular mudanças de estado
-        peerConnection.onconnectionstatechange = () => {
-            const state = peerConnection.connectionState;
-            console.log(`🔗 Conexão ${userId}: ${state}`);
-            
-            if (state === 'connected') {
-                showNotification('Conexão de voz estabelecida', 'success');
-            } else if (state === 'disconnected' || state === 'failed') {
-                console.log(`Conexão perdida com ${userId}`);
-                // Tentar reconectar após 5 segundos
-                setTimeout(() => {
-                    if (voiceChatSystem.isEnabled) {
-                        createPeerConnection(userId);
-                    }
-                }, 5000);
-            }
-        };
-        
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log(`❄️ ICE ${userId}: ${peerConnection.iceConnectionState}`);
-        };
-        
-        peerConnection.onsignalingstatechange = () => {
-            console.log(`📶 Signaling ${userId}: ${peerConnection.signalingState}`);
-        };
-        
-        return peerConnection;
-        
-    } catch (error) {
-        console.error('Erro ao criar peer connection:', error);
-        return null;
-    }
-}
-
-// ===== VERIFICAR E RECONECTAR CONEXÕES =====
-function checkAndReconnectConnections() {
-    if (!voiceChatSystem.isEnabled) return;
-    
-    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
-        if (pc.connectionState === 'disconnected' || 
-            pc.connectionState === 'failed' ||
-            pc.iceConnectionState === 'disconnected' ||
-            pc.iceConnectionState === 'failed') {
-            
-            console.log(`Tentando reconectar com ${userId}`);
-            
-            // Fechar conexão antiga
-            pc.close();
-            delete voiceChatSystem.peerConnections[userId];
-            
-            // Criar nova conexão
-            setTimeout(() => {
-                if (voiceChatSystem.isEnabled) {
-                    createPeerConnection(userId);
-                }
-            }, 2000);
-        }
-    });
-}
-
-// Verificar conexões a cada 10 segundos
-setInterval(checkAndReconnectConnections, 10000);
-
-// ===== LIMPAR DOCUMENTOS ANTIGOS DE VOZ =====
-async function cleanupOldVoiceDocuments() {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    
-    // Limpar ofertas antigas
-    const oldOffers = await db.collection('voiceOffers')
-        .where('timestamp', '<', oneHourAgo)
-        .get();
-    
-    oldOffers.forEach(async (doc) => {
-        await doc.ref.delete();
-    });
-    
-    // Limpar respostas antigas
-    const oldAnswers = await db.collection('voiceAnswers')
-        .where('timestamp', '<', oneHourAgo)
-        .get();
-    
-    oldAnswers.forEach(async (doc) => {
-        await doc.ref.delete();
-    });
-    
-    // Limpar candidates antigos
-    const oldCandidates = await db.collection('voiceCandidates')
-        .where('timestamp', '<', oneHourAgo)
-        .get();
-    
-    oldCandidates.forEach(async (doc) => {
-        await doc.ref.delete();
-    });
-}
-
-// Executar limpeza a cada hora
-setInterval(cleanupOldVoiceDocuments, 60 * 60 * 1000);
-
-
-// ===== CRIAR OFERTA (CORRIGIDA) =====
-async function createOffer(userId) {
-    try {
-        const peerConnection = voiceChatSystem.peerConnections[userId];
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        
-        // Enviar oferta via Firestore (convertendo para objeto simples)
-        await db.collection('voiceOffers').add({
-            from: currentUser.uid,
-            to: userId,
-            offer: {
-                type: offer.type,
-                sdp: offer.sdp
-            },
-            tableId: currentGameRef.id,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-    } catch (error) {
-        console.error('Erro ao criar oferta:', error);
-    }
-}
-// ===== CONFIGURAR ELEMENTO DE ÁUDIO (COM DEBUG) =====
-function setupAudioElement(userId, stream) {
-    console.log('Configurando áudio para usuário:', userId);
-    console.log('Stream recebido:', stream);
-    console.log('Áudio tracks:', stream.getAudioTracks().length);
-    
-    if (stream.getAudioTracks().length === 0) {
-        console.error('Nenhuma audio track no stream remoto');
-        return;
-    }
-    
-    // Remover elemento existente
-    if (audioElements[userId]) {
-        audioElements[userId].remove();
-        delete audioElements[userId];
-    }
-    
-    // Criar novo elemento de áudio
-    const audio = document.createElement('audio');
-    audio.autoplay = true;
-    audio.controls = false;
-    audio.style.display = 'none';
-    audio.srcObject = stream;
-    
-    // Event listeners para debug
-    audio.addEventListener('loadedmetadata', () => {
-        console.log('Áudio carregado para usuário:', userId);
-    });
-    
-    audio.addEventListener('canplay', () => {
-        console.log('Áudio pode ser reproduzido para usuário:', userId);
-        audio.play().catch(error => {
-            console.error('Erro ao reproduzir áudio:', error);
-        });
-    });
-    
-    audio.addEventListener('error', (error) => {
-        console.error('Erro no elemento de áudio:', error);
-    });
-    
-    document.body.appendChild(audio);
-    audioElements[userId] = audio;
-    
-    console.log('🔊 Áudio configurado para usuário:', userId);
-    
-    // Tentar reproduzir manualmente
-    setTimeout(() => {
-        audio.play().catch(error => {
-            console.error('Erro ao reproduzir áudio (timeout):', error);
-        });
-    }, 1000);
-}
-
-// ===== VERIFICAR CONEXÕES DE VOZ =====
-function checkVoiceConnections() {
-    console.log('=== VERIFICAÇÃO DE CONEXÕES DE VOZ ===');
-    console.log('Voice chat enabled:', voiceChatSystem.isEnabled);
-    console.log('Local stream:', voiceChatSystem.localStream ? 'Disponível' : 'Não disponível');
-    
-    if (voiceChatSystem.localStream) {
-        console.log('Local audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
-        voiceChatSystem.localStream.getAudioTracks().forEach((track, index) => {
-            console.log(`Track ${index}:`, track.enabled ? 'Ativa' : 'Inativa', track.muted ? 'Muted' : 'Not muted');
-        });
-    }
-    
-    console.log('Peer connections:', Object.keys(voiceChatSystem.peerConnections).length);
-    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
-        console.log(`Conexão ${userId}:`, pc.connectionState, pc.iceConnectionState);
-    });
-    
-    console.log('Audio elements:', Object.keys(audioElements).length);
-}
-
-// Adicione ao window para testar no console
-window.checkVoice = checkVoiceConnections;
-
-
-// ===== ENVIAR ICE CANDIDATE (CORRIGIDA) =====
-async function sendIceCandidate(userId, candidate) {
-    try {
-        // Converter o candidato ICE para um objeto simples
-        const candidateData = {
-            candidate: candidate.candidate,
-            sdpMid: candidate.sdpMid,
-            sdpMLineIndex: candidate.sdpMLineIndex,
-            usernameFragment: candidate.usernameFragment
-        };
-        
-        await db.collection('voiceCandidates').add({
-            from: currentUser.uid,
-            to: userId,
-            candidate: candidateData,
-            tableId: currentGameRef.id,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (error) {
-        console.error('Erro ao enviar ICE candidate:', error);
-    }
-}
-// ===== INICIALIZAR LISTENERS DE VOZ (CORRIGIDA) =====
-function initializeVoiceListeners() {
-    if (!db || !currentUser || !currentUser.uid) {
-        console.log('🎧 Listeners de voz não inicializados - usuário não logado');
-        return;
-    }
-
-    console.log('🎧 Inicializando listeners de voz para usuário:', currentUser.uid);
-    
-    // Listener para ofertas de voz
-    db.collection('voiceOffers')
-        .where('to', '==', currentUser.uid)
-        .onSnapshot(async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === 'added') {
-                    const offerData = change.doc.data();
-                    await handleVoiceOffer(offerData);
-                    // Remover a oferta após processar
-                    await change.doc.ref.delete();
-                }
-            });
-        });
-    
-    // Listener para respostas de voz
-    db.collection('voiceAnswers')
-        .where('to', '==', currentUser.uid)
-        .onSnapshot(async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === 'added') {
-                    const answerData = change.doc.data();
-                    await handleVoiceAnswer(answerData);
-                    // Remover a resposta após processar
-                    await change.doc.ref.delete();
-                }
-            });
-        });
-    
-    // Listener para ICE candidates
-    db.collection('voiceCandidates')
-        .where('to', '==', currentUser.uid)
-        .onSnapshot(async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                if (change.type === 'added') {
-                    const candidateData = change.doc.data();
-                    await handleIceCandidate(candidateData);
-                    // Remover o candidate após processar
-                    await change.doc.ref.delete();
-                }
-            });
-        });
-}
-
-// ===== MANIPULAR OFERTA DE VOZ (CORRIGIDA) =====
-async function handleVoiceOffer(offerData) {
-    try {
-        if (!voiceChatSystem.isEnabled) {
-            console.log('Voice chat não está ativado, ignorando oferta');
-            return;
-        }
-        
-        console.log('📨 Recebendo oferta de voz de:', offerData.from);
-        
-        let peerConnection = voiceChatSystem.peerConnections[offerData.from];
-        if (!peerConnection) {
-            console.log('Criando nova conexão para oferta de:', offerData.from);
-            peerConnection = createPeerConnection(offerData.from);
-        }
-        
-        // Reconstruir a oferta RTCSessionDescription
-        const offer = new RTCSessionDescription(offerData.offer);
-        console.log('Definindo descrição remota...');
-        
-        await peerConnection.setRemoteDescription(offer);
-        console.log('Descrição remota definida com sucesso');
-        
-        const answer = await peerConnection.createAnswer();
-        console.log('Resposta criada:', answer.type);
-        
-        await peerConnection.setLocalDescription(answer);
-        console.log('Descrição local definida');
-        
-        // Enviar resposta
-        await db.collection('voiceAnswers').add({
-            from: currentUser.uid,
-            to: offerData.from,
-            answer: {
-                type: answer.type,
-                sdp: answer.sdp
-            },
-            tableId: currentGameRef.id,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        console.log('✅ Resposta enviada para:', offerData.from);
-        
-    } catch (error) {
-        console.error('Erro ao manipular oferta de voz:', error);
-    }
-}
-
-
-// ===== TESTE DE ECO (DEBUG) =====
-function setupEchoTest() {
-    const echoTestBtn = document.createElement('button');
-    echoTestBtn.textContent = 'Testar Eco';
-    echoTestBtn.style.position = 'fixed';
-    echoTestBtn.style.bottom = '10px';
-    echoTestBtn.style.right = '10px';
-    echoTestBtn.style.zIndex = '1000';
-    echoTestBtn.onclick = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const audio = document.createElement('audio');
-            audio.srcObject = stream;
-            audio.volume = 0.3;
-            audio.play();
-            showNotification('Teste de eco iniciado - você deve ouvir sua voz', 'info');
-            
-            setTimeout(() => {
-                audio.pause();
-                stream.getTracks().forEach(track => track.stop());
-                showNotification('Teste de eco finalizado', 'info');
-            }, 5000);
-        } catch (error) {
-            showNotification('Erro no teste de eco', 'error');
-        }
-    };
-    document.body.appendChild(echoTestBtn);
-}
-
-
-
-// ===== MANIPULAR RESPOSTA DE VOZ =====
-async function handleVoiceAnswer(answerData) {
-    try {
-        const peerConnection = voiceChatSystem.peerConnections[answerData.from];
-        if (peerConnection) {
-            // Reconstruir a resposta RTCSessionDescription
-            const answer = new RTCSessionDescription(answerData.answer);
-            await peerConnection.setRemoteDescription(answer);
-        }
-    } catch (error) {
-        console.error('Erro ao manipular resposta de voz:', error);
-    }
-}
-
-// ===== MANIPULAR ICE CANDIDATE (CORRIGIDA) =====
-async function handleIceCandidate(candidateData) {
-    try {
-        const peerConnection = voiceChatSystem.peerConnections[candidateData.from];
-        if (peerConnection) {
-            // Reconstruir o objeto RTCIceCandidate a partir dos dados
-            const iceCandidate = new RTCIceCandidate(candidateData.candidate);
-            await peerConnection.addIceCandidate(iceCandidate);
-        }
-    } catch (error) {
-        console.error('Erro ao manipular ICE candidate:', error);
-    }
-}
-// ===== INICIALIZAR VARIÁVEIS GLOBAIS =====
-function initializeGlobalVariables() {
-    console.log('📦 Inicializando variáveis globais...');
-    
-    // Garantir que todas as variáveis globais existam
-    if (typeof spectatorsModal === 'undefined') spectatorsModal = null;
-    if (typeof activeTableListener === 'undefined') activeTableListener = null;
-    if (typeof voiceChatSystem === 'undefined') voiceChatSystem = null;
-    if (typeof currentSpectators === 'undefined') currentSpectators = [];
-    
-    // Variáveis do sistema de notificações - CORRIGIDO
-    if (typeof activeNotifications === 'undefined') activeNotifications = new Map();
-    if (typeof notificationSound === 'undefined') {
-        window.notificationSound = null; // Usar window para garantir acesso global
-        console.log('🔊 notificationSound inicializado');
-    }
-    
-    // Variáveis do sistema de áudio
-    if (typeof audioManager === 'undefined') {
-        window.audioManager = {
-            playChallengeSound: function() { console.log('🎯 Som de desafio'); },
-            playNotificationSound: function() { console.log('🔊 Som de notificação'); },
-            playGameStartSound: function() { console.log('🎮 Som de início de jogo'); },
-            playClickSound: function() { console.log('🖱️ Som de clique'); },
-            playVictorySound: function() { console.log('🎉 Som de vitória'); },
-            playDefeatSound: function() { console.log('😞 Som de derrota'); },
-            playSelectionSound: function() { console.log('🔘 Som de seleção'); },
-            createSound: function() { console.log('🎵 Criando som'); }
-        };
-        console.log('🔊 audioManager inicializado');
-    }
-    
-    console.log('✅ Variáveis globais inicializadas');
 }
 
 // Adicione ao window para testar no console
@@ -1574,15 +787,11 @@ function updateOnlineUsersStats() {
     document.getElementById('active-tables').textContent = activeTables;
     document.getElementById('total-coins').textContent = totalCoins.toLocaleString();
 }
+
+// ===== DESAFIAR JOGADOR =====
 async function challengePlayer(userId, userName) {
     if (!currentUser) {
         showNotification('Você precisa estar logado para desafiar alguém', 'error');
-        return;
-    }
-    
-    // Verificar se está tentando desafiar a si mesmo
-    if (userId === currentUser.uid) {
-        showNotification('Você não pode desafiar a si mesmo', 'error');
         return;
     }
     
@@ -1596,20 +805,13 @@ async function challengePlayer(userId, userName) {
     try {
         // Verificar se o jogador alvo está online
         const targetUserDoc = await db.collection('users').doc(userId).get();
-        if (!targetUserDoc.exists) {
-            showNotification('Jogador não encontrado', 'error');
-            return;
-        }
-        
-        const targetUserData = targetUserDoc.data();
-        
-        if (!targetUserData.isOnline) {
+        if (!targetUserDoc.exists || !targetUserDoc.data().isOnline) {
             showNotification(`${userName} não está mais online`, 'error');
             return;
         }
         
         // Verificar se o jogador alvo já está em um jogo
-        if (targetUserData.isPlaying) {
+        if (targetUserDoc.data().isPlaying) {
             showNotification(`${userName} já está em um jogo`, 'error');
             return;
         }
@@ -1623,682 +825,119 @@ async function challengePlayer(userId, userName) {
     }
 }
 
-
-// ===== MOSTRAR MODAL DE DESAFIO =====
-function showChallengeModal(targetUserId, targetUserName) {
-    // Criar o modal de desafio
-    const modalHtml = `
-        <div class="modal active" id="challenge-modal">
+// ===== MODAL DE DESAFIO =====
+function showChallengeModal(userId, userName) {
+    const modalHTML = `
+        <div class="modal challenge-modal" id="challenge-modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3>Desafiar ${targetUserName}</h3>
-                    <button class="modal-close" id="close-challenge-modal">&times;</button>
+                    <h3>🎯 Desafiar ${userName}</h3>
+                    <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div class="input-group">
-                        <label>Tempo por Jogada</label>
+                    <div class="challenge-info">
+                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=e74c3c&color=fff" 
+                             alt="${userName}" class="challenge-avatar">
+                        <p>Configure o desafio para ${userName}</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Tempo por jogada:</label>
                         <select id="challenge-time">
-                            <option value="60">1 minuto</option>
-                            <option value="120" selected>2 minutos</option>
+                            <option value="30">30 segundos</option>
+                            <option value="60" selected>1 minuto</option>
+                            <option value="120">2 minutos</option>
                             <option value="300">5 minutos</option>
-                            <option value="0">Sem limite</option>
                         </select>
                     </div>
-                    <div class="input-group">
-                        <label>Aposta de Moedas (opcional)</label>
-                        <input type="number" id="challenge-bet" min="0" max="${currentUser.coins || 0}" placeholder="0">
-                        <small>Seu saldo: ${currentUser.coins || 0} moedas</small>
+                    
+                    <div class="form-group">
+                        <label>Aposta (opcional):</label>
+                        <input type="number" id="challenge-bet" min="0" max="${userData?.coins || 0}" 
+                               placeholder="0" value="0">
+                        <small>Saldo disponível: ${userData?.coins || 0} moedas</small>
                     </div>
-                    <div class="input-group checkbox-group">
-                        <input type="checkbox" id="challenge-double" checked>
-                        <label for="challenge-double">Jogo de damas duplas (obrigatório capturar)</label>
+                    
+                    <div class="challenge-message">
+                        <label>Mensagem (opcional):</label>
+                        <textarea id="challenge-message" placeholder="Ex: Vamos jogar! Boa sorte!"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" id="cancel-challenge">Cancelar</button>
-                    <button class="btn btn-primary" id="send-challenge">Enviar Desafio</button>
+                    <button class="btn btn-secondary modal-cancel">Cancelar</button>
+                    <button id="btn-send-challenge" class="btn btn-primary">Enviar Desafio</button>
                 </div>
             </div>
         </div>
     `;
     
-    // Adicionar o modal ao documento
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    // Remover modal anterior se existir
+    const existingModal = document.getElementById('challenge-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
     
-    // Configurar eventos
-    document.getElementById('close-challenge-modal').addEventListener('click', closeChallengeModal);
-    document.getElementById('cancel-challenge').addEventListener('click', closeChallengeModal);
-    document.getElementById('send-challenge').addEventListener('click', () => {
-        sendChallenge(targetUserId, targetUserName);
-    });
-}
-
-// ===== FECHAR MODAL DE DESAFIO =====
-function closeChallengeModal() {
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
     const modal = document.getElementById('challenge-modal');
-    if (modal) {
-        modal.remove();
-    }
     
-    // Também remover qualquer overlay de modal existente
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        if (modal.id !== 'online-users-modal' && modal.id !== 'modal-confirm') {
-            modal.remove();
-        }
+    // Event listeners
+    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.modal-cancel').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
     });
-}
-
-
-
-// ===== ESCUTAR DESAFIOS EM TEMPO REAL (COM LOGS) =====
-function listenForChallenges() {
-    if (!currentUser) {
-        console.log('❌ Não há usuário atual para escutar desafios');
-        return;
-    }
     
-    console.log('✅ Iniciando listener de desafios para usuário:', currentUser.uid);
+    document.getElementById('btn-send-challenge').addEventListener('click', async () => {
+        await sendChallenge(userId, userName);
+        modal.remove();
+    });
     
-    // Escutar desafios onde o usuário atual é o alvo
-    return db.collection('challenges')
-        .where('targetId', '==', currentUser.uid)
-        .where('status', '==', 'pending')
-        .onSnapshot(snapshot => {
-            console.log('📨 Mudança detectada em notificações de desafio');
-            console.log('Mudanças:', snapshot.docChanges().length);
-            
-            snapshot.docChanges().forEach(change => {
-                console.log('Mudança tipo:', change.type, 'ID:', change.doc.id);
-                
-                if (change.type === 'added') {
-                    const challenge = change.doc.data();
-                    console.log('Novo desafio recebido:', challenge);
-                    showChallengeNotification(challenge);
-                }
-            });
-        }, error => {
-            console.error('❌ Erro ao escutar desafios:', error);
-        });
+    modal.classList.add('active');
 }
-
-function initApp() {
-    // ... seu código de login existente
-      // Iniciar listener de redirecionamento de jogo
-    gameRedirectListener = setupGameRedirectListener();
-    // Iniciar listener de desafios
-    challengesListener = listenForChallenges();
-
-    
-}
-
-
-// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
-function showChallengeNotification(challenge) {
-    // Criar notificação na UI
-    const notificationHtml = `
-        <div class="notification-item challenge-notification" data-challenge-id="${challenge.id}">
-            <div class="notification-icon">
-                <i class="fas fa-trophy"></i>
-            </div>
-            <div class="notification-content">
-                <h4>${challenge.challengerName} te desafiou!</h4>
-                <p>Partida ${challenge.betAmount > 0 ? 'com aposta de ' + challenge.betAmount + ' moedas' : 'amistosa'}</p>
-                <p>Tempo: ${formatTime(challenge.timePerMove)}</p>
-                <div class="notification-actions">
-                    <button class="btn btn-success btn-small accept-challenge">Aceitar</button>
-                    <button class="btn btn-danger btn-small reject-challenge">Recusar</button>
-                </div>
-            </div>
-            <button class="notification-close">&times;</button>
-        </div>
-    `;
-    
-    // Adicionar à lista de notificações
-    const notificationsContainer = document.getElementById('notifications-container');
-    if (notificationsContainer) {
-        notificationsContainer.insertAdjacentHTML('afterbegin', notificationHtml);
-        
-        // Configurar eventos dos botões
-        const notificationElement = document.querySelector(`[data-challenge-id="${challenge.id}"]`);
-        
-        notificationElement.querySelector('.accept-challenge').addEventListener('click', () => {
-            acceptChallenge(challenge.id);
-        });
-        
-        notificationElement.querySelector('.reject-challenge').addEventListener('click', () => {
-            rejectChallenge(challenge.id);
-        });
-        
-        notificationElement.querySelector('.notification-close').addEventListener('click', () => {
-            rejectChallenge(challenge.id);
-        });
-    }
-}
-
-
-
-
-// ===== VERIFICAR DESAFIOS EXPIRADOS =====
-async function checkExpiredChallenges() {
-    if (!currentUser) return;
-    
-    try {
-        const expiredChallenges = await db.collection('challenges')
-            .where('targetId', '==', currentUser.uid)
-            .where('status', '==', 'pending')
-            .where('expiresAt', '<', new Date())
-            .get();
-        
-        const batch = db.batch();
-        
-        expiredChallenges.forEach(doc => {
-            batch.update(doc.ref, { status: 'expired' });
-            
-            // Remover notificação expirada
-            const notificationElement = document.querySelector(`[data-challenge-id="${doc.id}"]`);
-            if (notificationElement) {
-                notificationElement.remove();
-            }
-        });
-        
-        await batch.commit();
-        
-    } catch (error) {
-        console.error('Erro ao verificar desafios expirados:', error);
-    }
-}
-
-// Executar verificação de desafios expirados a cada minuto
-setInterval(checkExpiredChallenges, 60000);
-
-// ===== GERAR ID ÚNICO =====
-function generateId() {
-    return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
-
-
-
-
-async function joinChallengeTable(tableId, notificationId) {
-    try {
-        console.log('Entrando na mesa de desafio:', tableId);
-        
-        // Verificar se a mesa existe
-        const tableDoc = await db.collection('tables').doc(tableId).get();
-        if (!tableDoc.exists) {
-            showNotification('Mesa não encontrada', 'error');
-            return;
-        }
-        
-        const tableData = tableDoc.data();
-        
-        // Verificar se o usuário é um dos jogadores
-        const isPlayer = tableData.players.some(player => player.uid === currentUser.uid);
-        if (!isPlayer) {
-            showNotification('Você não é um jogador desta mesa', 'error');
-            return;
-        }
-        
-        // Marcar notificação como vista
-        if (notificationId) {
-            await markNotificationAsSeen(notificationId);
-        }
-        
-        // Entrar na mesa
-        userActiveTable = tableId;
-        setupGameListener(tableId);
-        showScreen('game-screen');
-        
-        showNotification('Entrando na mesa de desafio...', 'success');
-        
-    } catch (error) {
-        console.error('Erro ao entrar na mesa:', error);
-        showNotification('Erro ao entrar na mesa', 'error');
-    }
-}
-
-function showChallengeAcceptedNotification(notification) {
-    // Criar notificação na UI
-    const notificationElement = document.createElement('div');
-    notificationElement.className = 'notification challenge-accepted';
-    notificationElement.innerHTML = `
-        <div class="notification-content">
-            <div class="notification-icon">🎯</div>
-            <div class="notification-text">
-                <strong>${notification.fromUserName}</strong> aceitou seu desafio!
-            </div>
-            <button class="notification-action" onclick="joinChallengeTable('${notification.tableId}', '${notification.id}')">
-                Entrar na Mesa
-            </button>
-        </div>
-    `;
-    
-    // Adicionar à área de notificações
-    const notificationsContainer = document.getElementById('notifications-container');
-    if (notificationsContainer) {
-        notificationsContainer.appendChild(notificationElement);
-    }
-    
-    // Remover após alguns segundos
-    setTimeout(() => {
-        if (notificationElement.parentNode) {
-            notificationElement.remove();
-        }
-    }, 10000);
-}
-
-// ===== ENVIAR DESAFIO =====
+// ===== ENVIAR DESAFIO (COM MAIS LOGS) =====
 async function sendChallenge(targetUserId, targetUserName) {
+    console.log('=== ENVIANDO DESAFIO ===');
+    console.log('👤 De:', currentUser.uid, userData.displayName);
+    console.log('🎯 Para:', targetUserId, targetUserName);
+    
+    const timeLimit = parseInt(document.getElementById('challenge-time').value);
+    const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
+    const message = document.getElementById('challenge-message').value;
+    
+    console.log('⚙️ Detalhes:', { timeLimit, betAmount, message });
+    
     try {
-        const timePerMove = parseInt(document.getElementById('challenge-time').value);
-        const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
-        const isDouble = document.getElementById('challenge-double').checked;
+        console.log('📝 Criando notificação no Firestore...');
         
-        // Validar aposta
-        if (betAmount > 0) {
-            if (betAmount > currentUser.coins) {
-                showNotification('Você não tem moedas suficientes para esta aposta', 'error');
-                return;
-            }
-        }
-        
-        // Verificar novamente se o alvo ainda está disponível
-        const targetUserDoc = await db.collection('users').doc(targetUserId).get();
-        if (!targetUserDoc.exists) {
-            showNotification('Jogador não encontrado', 'error');
-            closeChallengeModal();
-            return;
-        }
-        
-        const targetUserData = targetUserDoc.data();
-        
-        if (!targetUserData.isOnline) {
-            showNotification(`${targetUserName} não está mais online`, 'error');
-            closeChallengeModal();
-            return;
-        }
-        
-        if (targetUserData.isPlaying) {
-            showNotification(`${targetUserName} já está em um jogo`, 'error');
-            closeChallengeModal();
-            return;
-        }
-        
-        // Criar o documento de desafio
-        const challengeRef = await db.collection('challenges').add({
-            challengerId: currentUser.uid,
-            challengerName: currentUser.displayName || currentUser.email,
-            targetId: targetUserId,
-            targetName: targetUserName,
-            timePerMove: timePerMove,
+        const notificationData = {
+            type: 'challenge',
+            fromUserId: currentUser.uid,
+            fromUserName: userData.displayName,
+            toUserId: targetUserId,
+            message: message || `${userData.displayName} te desafiou para uma partida!`,
+            timeLimit: timeLimit,
             betAmount: betAmount,
-            isDouble: isDouble,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             status: 'pending',
-            createdAt: new Date(),
-            expiresAt: new Date(Date.now() + 5 * 60000) // Expira em 5 minutos
-        });
+            expiresAt: new Date(Date.now() + 5 * 60000),
+            read: false
+        };
         
-        // Atualizar o desafio com seu próprio ID
-        await db.collection('challenges').doc(challengeRef.id).update({
-            id: challengeRef.id
-        });
+        console.log('💾 Dados da notificação:', notificationData);
         
-        showNotification(`Desafio enviado para ${targetUserName}!`, 'success');
-        closeChallengeModal();
+        const docRef = await db.collection('notifications').add(notificationData);
         
-    } catch (error) {
-        console.error('Erro ao enviar desafio:', error);
-        showNotification('Erro ao enviar desafio', 'error');
-    }
-}
-// ===== ACEITAR DESAFIO (CORRIGIDA) =====
-async function acceptChallenge(challengeId) {
-    try {
-        console.log('Tentando aceitar desafio com ID:', challengeId);
+        console.log('✅ Notificação criada com ID:', docRef.id);
+        console.log('📤 Desafio enviado com sucesso!');
         
-        const challengeDoc = await db.collection('challenges').doc(challengeId).get();
-        
-        if (!challengeDoc.exists) {
-            console.error('Desafio não encontrado no Firebase:', challengeId);
-            showNotification('Desafio não encontrado ou já expirado', 'error');
-            removeChallengeNotification(challengeId);
-            return;
-        }
-        
-        const challenge = challengeDoc.data();
-        console.log('Dados do desafio:', challenge);
-        
-        // Verificar se o desafio é para o usuário atual
-        if (challenge.targetId !== currentUser.uid) {
-            console.error('Desafio não é para o usuário atual:', challenge.targetId, currentUser.uid);
-            showNotification('Este desafio não é para você', 'error');
-            removeChallengeNotification(challengeId);
-            return;
-        }
-        
-        // Verificar se o desafio ainda está pendente
-        if (challenge.status !== 'pending') {
-            console.error('Desafio já processado com status:', challenge.status);
-            showNotification('Este desafio já foi processado', 'error');
-            removeChallengeNotification(challengeId);
-            return;
-        }
-        
-        // Verificar se o desafiante ainda está online
-        const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
-        if (!challengerDoc.exists) {
-            console.error('Desafiante não encontrado:', challenge.challengerId);
-            showNotification('O desafiante não existe mais', 'error');
-            await updateChallengeStatus(challengeId, 'expired');
-            removeChallengeNotification(challengeId);
-            return;
-        }
-        
-        const challengerData = challengerDoc.data();
-        if (!challengerData.isOnline) {
-            console.error('Desafiante offline:', challenge.challengerId);
-            showNotification('O desafiante não está mais online', 'error');
-            await updateChallengeStatus(challengeId, 'expired');
-            removeChallengeNotification(challengeId);
-            return;
-        }
-        
-        // Verificar se ambos os jogadores têm moedas suficientes para a aposta
-        if (challenge.betAmount > 0) {
-            if (currentUser.coins < challenge.betAmount) {
-                console.error('Usuário atual não tem moedas suficientes:', currentUser.coins, challenge.betAmount);
-                showNotification('Você não tem moedas suficientes para aceitar esta aposta', 'error');
-                await updateChallengeStatus(challengeId, 'rejected');
-                removeChallengeNotification(challengeId);
-                return;
-            }
-            
-            if (challengerData.coins < challenge.betAmount) {
-                console.error('Desafiante não tem moedas suficientes:', challengerData.coins, challenge.betAmount);
-                showNotification('O desafiante não tem moedas suficientes para esta aposta', 'error');
-                await updateChallengeStatus(challengeId, 'expired');
-                removeChallengeNotification(challengeId);
-                return;
-            }
-        }
-        
-        console.log('Todas as validações passaram. Criando jogo...');
-        
-        // Atualizar status do desafio para aceito
-        await updateChallengeStatus(challengeId, 'accepted');
-        
-        // Criar uma nova partida
-        const gameId = await createNewGame(
-            challenge.challengerId, 
-            currentUser.uid, 
-            challenge.timePerMove, 
-            challenge.betAmount, 
-            challenge.isDouble
-        );
-        
-        console.log('Jogo criado com ID:', gameId);
-        
-        // Redirecionar ambos os jogadores para a partida
-        window.location.href = `game.html?gameId=${gameId}`;
+        showNotification(`Desafio enviado para ${targetUserName}! Aguardando resposta...`, 'success');
         
     } catch (error) {
-        console.error('Erro ao aceitar desafio:', error);
-        showNotification('Erro ao aceitar desafio', 'error');
+        console.error('❌ Erro ao enviar desafio:', error);
+        showNotification('Erro ao enviar desafio: ' + error.message, 'error');
     }
 }
 
-// ===== INICIALIZAR TABULEIRO PARA FIREBASE =====
-function initializeBoardForFirebase() {
-    // Criar um objeto plano em vez de array multidimensional
-    const board = {};
-    
-    // Posicionar peças pretas (jogador 1)
-    for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 8; col++) {
-            if ((row + col) % 2 === 1) {
-                board[`${row}_${col}`] = { 
-                    player: 1, 
-                    isKing: false,
-                    row: row,
-                    col: col
-                };
-            }
-        }
-    }
-    
-    // Posicionar peças vermelhas (jogador 2)
-    for (let row = 5; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-            if ((row + col) % 2 === 1) {
-                board[`${row}_${col}`] = { 
-                    player: 2, 
-                    isKing: false,
-                    row: row,
-                    col: col
-                };
-            }
-        }
-    }
-    
-    return board;
-}
-
-// Função auxiliar para converter o formato do tabuleiro
-function convertBoardToArrayFormat(boardData) {
-    const board = Array(8).fill().map(() => Array(8).fill(null));
-    
-    for (const key in boardData) {
-        if (boardData.hasOwnProperty(key)) {
-            const piece = boardData[key];
-            board[piece.row][piece.col] = piece;
-        }
-    }
-    
-    return board;
-}
-
-// Função auxiliar para converter array para formato Firebase
-function convertArrayToFirebaseFormat(boardArray) {
-    const boardData = {};
-    
-    for (let row = 0; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-            if (boardArray[row][col] !== null) {
-                boardData[`${row}_${col}`] = {
-                    ...boardArray[row][col],
-                    row: row,
-                    col: col
-                };
-            }
-        }
-    }
-    
-    return boardData;
-}
-
-// ===== RECUSAR DESAFIO =====
-async function rejectChallenge(challengeId) {
-    try {
-        await updateChallengeStatus(challengeId, 'rejected');
-        removeChallengeNotification(challengeId);
-        showNotification('Desafio recusado', 'info');
-    } catch (error) {
-        console.error('Erro ao recusar desafio:', error);
-        showNotification('Erro ao recusar desafio', 'error');
-    }
-}
-
-// ===== ATUALIZAR STATUS DO DESAFIO =====
-async function updateChallengeStatus(challengeId, status) {
-    try {
-        await db.collection('challenges').doc(challengeId).update({
-            status: status,
-            resolvedAt: new Date()
-        });
-    } catch (error) {
-        console.error('Erro ao atualizar status do desafio:', error);
-        throw error;
-    }
-}
-
-// ===== REMOVER NOTIFICAÇÃO DE DESAFIO =====
-function removeChallengeNotification(challengeId) {
-    const notification = document.querySelector(`[data-challenge-id="${challengeId}"]`);
-    if (notification) {
-        notification.remove();
-    }
-}
-// ===== CRIAR NOVO JOGO =====
-async function createNewGame(player1Id, player2Id, timePerMove, betAmount, isDouble) {
-    try {
-        // Inicializar o tabuleiro em formato compatível com Firebase
-        const boardData = initializeBoardForFirebase();
-        
-        // Criar documento do jogo
-        const gameRef = await db.collection('games').add({
-            player1: player1Id,
-            player2: player2Id,
-            currentPlayer: player1Id, // O desafiante começa
-            timePerMove: timePerMove,
-            betAmount: betAmount,
-            isDouble: isDouble,
-            board: boardData,
-            status: 'active',
-            createdAt: new Date(),
-            lastMoveAt: new Date(),
-            moves: [] // Array para armazenar histórico de movimentos
-        });
-        
-        const gameId = gameRef.id;
-        
-        // Atualizar o jogo com seu próprio ID
-        await db.collection('games').doc(gameId).update({
-            id: gameId
-        });
-        
-        // Atualizar status dos jogadores para "em jogo"
-        await db.collection('users').doc(player1Id).update({
-            isPlaying: true,
-            currentGame: gameId
-        });
-        
-        await db.collection('users').doc(player2Id).update({
-            isPlaying: true,
-            currentGame: gameId
-        });
-        
-        return gameId;
-        
-    } catch (error) {
-        console.error('Erro ao criar novo jogo:', error);
-        throw error;
-    }
-}
-
-
-// ===== INICIALIZAR TABULEIRO =====
-function initializeBoard() {
-    // Implementação do tabuleiro inicial de damas
-    const board = Array(8).fill().map(() => Array(8).fill(null));
-    
-    // Posicionar peças pretas (jogador 1)
-    for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 8; col++) {
-            if ((row + col) % 2 === 1) {
-                board[row][col] = { player: 1, isKing: false };
-            }
-        }
-    }
-    
-    // Posicionar peças vermelhas (jogador 2)
-    for (let row = 5; row < 8; row++) {
-        for (let col = 0; col < 8; col++) {
-            if ((row + col) % 2 === 1) {
-                board[row][col] = { player: 2, isKing: false };
-            }
-        }
-    }
-    
-    return board;
-}
-
-// ===== FORMATAR TEMPO =====
-function formatTime(seconds) {
-    if (seconds === 0) return 'Sem limite';
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (minutes > 0) {
-        return `${minutes} minuto${minutes > 1 ? 's' : ''}`;
-    } else {
-        return `${remainingSeconds} segundo${remainingSeconds > 1 ? 's' : ''}`;
-    }
-}
-
-// ===== VERIFICAR MESA ATIVA =====
-async function checkUserActiveTable() {
-    try {
-        if (!currentUser) return { hasActiveTable: false };
-        
-        const gameQuery = await db.collection('games')
-            .where('status', 'in', ['active', 'waiting'])
-            .where('player1', '==', currentUser.uid)
-            .get();
-        
-        if (!gameQuery.empty) {
-            return { hasActiveTable: true, gameId: gameQuery.docs[0].id };
-        }
-        
-        const gameQuery2 = await db.collection('games')
-            .where('status', 'in', ['active', 'waiting'])
-            .where('player2', '==', currentUser.uid)
-            .get();
-        
-        if (!gameQuery2.empty) {
-            return { hasActiveTable: true, gameId: gameQuery2.docs[0].id };
-        }
-        
-        return { hasActiveTable: false };
-    } catch (error) {
-        console.error('Erro ao verificar mesa ativa:', error);
-        return { hasActiveTable: false };
-    }
-}
-
-// ===== LIMPAR DESAFIOS EXPIRADOS =====
-function cleanUpExpiredChallenges() {
-    // Limpar desafios expirados a cada minuto
-    setInterval(async () => {
-        try {
-            const expiredChallenges = await db.collection('challenges')
-                .where('expiresAt', '<', new Date())
-                .where('status', '==', 'pending')
-                .get();
-            
-            const batch = db.batch();
-            expiredChallenges.docs.forEach(doc => {
-                batch.update(doc.ref, { status: 'expired' });
-            });
-            
-            await batch.commit();
-        } catch (error) {
-            console.error('Erro ao limpar desafios expirados:', error);
-        }
-    }, 60000); // Executar a cada minuto
-}
-
-// Iniciar a limpeza de desafios expirados quando o app carregar
-cleanUpExpiredChallenges();
-
-
-function initChallengesListener() {
-    if (challengesListener) {
-        challengesListener(); // Remove listener anterior se existir
-    }
-    challengesListener = listenForChallenges();
-}
 // ===== TESTAR LISTENER SIMPLES =====
 async function testListenerSimple() {
     console.log('=== TESTE SIMPLES DE LISTENER ===');
@@ -2365,34 +1004,15 @@ function setupTimerPause() {
 function initializeAuth() {
     console.log('Inicializando autenticação...');
     
-    auth.onAuthStateChanged(async (user) => {
+     auth.onAuthStateChanged(async (user) => {
         console.log('Estado de autenticação alterado:', user);
         
         if (user) {
             currentUser = user;
-
-
-        initializeFriendsSystem();
-
-        setupUsersSearch();
-            
-        // Inicializar sistema de notificações
-        initializeNotificationsSystem();
-
-
-
-challengesListener = listenForChallenges();
-
-            // Reiniciar listener de notificações
-            if (typeof setupChallengeListener === 'function') {
-                setupChallengeListener();
-            }
-            
-            // Inicializar listeners de voz APÓS o login
-            initializeVoiceListeners();
-
-            
-            
+              // Reiniciar listener de notificações
+        if (typeof setupChallengeListener === 'function') {
+            setupChallengeListener();
+        }
             // Marcar usuário como online ao fazer login
             await updateUserOnlineStatus();
             
@@ -2408,31 +1028,25 @@ challengesListener = listenForChallenges();
             
             // Iniciar listener de mesa ativa
             setupActiveTableListener();
-            
-            // 🔥 IMPORTANTE: Reiniciar listener de notificações
-            console.log('🔄 Reiniciando listener de notificações para usuário:', user.uid);
-            setTimeout(() => {
-                setupChallengeListener();
-                checkActiveListener();
-            }, 2000);
+              // 🔥 IMPORTANTE: Reiniciar listener de notificações
+        console.log('🔄 Reiniciando listener de notificações para usuário:', user.uid);
+        setTimeout(() => {
+            setupChallengeListener();
+            checkActiveListener();
+        }, 2000);
 
         } else {
-            // Limpar notificações ao fazer logout
-            if (typeof cleanupNotifications === 'function') {
-                cleanupNotifications();
-            }
-            
-            // Parar listener ao fazer logout
-            if (window.challengeListener) {
-                window.challengeListener();
-                window.challengeListener = null;
-                console.log('🔌 Listener de notificações parado (logout)');
-            }
 
-            if (gameRedirectListener) {
-    gameRedirectListener();
-    gameRedirectListener = null;
-}
+            // Limpar notificações ao fazer logout
+        if (typeof cleanupNotifications === 'function') {
+            cleanupNotifications();
+        }
+ // Parar listener ao fazer logout
+        if (window.challengeListener) {
+            window.challengeListener();
+            window.challengeListener = null;
+            console.log('🔌 Listener de notificações parado (logout)');
+        }
 
             // Marcar como offline ao fazer logout
             if (currentUser) {
@@ -2494,73 +1108,6 @@ challengesListener = listenForChallenges();
         });
     }
 }
-
-
-
-// ===== VERIFICAR E CORRIGIR ESTADO DE JOGO =====
-async function checkAndFixGameState() {
-    if (!currentUser) return;
-    
-    try {
-        const userDoc = await db.collection('users').doc(currentUser.uid).get();
-        const userData = userDoc.data();
-        
-        // Se o usuário está marcado como jogando mas não tem mesa ativa
-        if (userData.isPlaying && !userData.activeTable) {
-            console.log('🔄 Corrigindo estado inconsistente: isPlaying sem activeTable');
-            await db.collection('users').doc(currentUser.uid).update({
-                isPlaying: false,
-                activeTable: null
-            });
-            return;
-        }
-        
-        // Se tem mesa ativa, verificar se a mesa ainda existe
-        if (userData.activeTable) {
-            const tableDoc = await db.collection('tables').doc(userData.activeTable).get();
-            
-            if (!tableDoc.exists) {
-                console.log('🔄 Corrigindo estado: Mesa não existe mais');
-                await db.collection('users').doc(currentUser.uid).update({
-                    isPlaying: false,
-                    activeTable: null
-                });
-                return;
-            }
-            
-            const tableData = tableDoc.data();
-            
-            // Verificar se o usuário ainda está na mesa
-            const isUserInTable = tableData.players && tableData.players.some(player => player.uid === currentUser.uid);
-            
-            if (!isUserInTable) {
-                console.log('🔄 Corrigindo estado: Usuário não está mais na mesa');
-                await db.collection('users').doc(currentUser.uid).update({
-                    isPlaying: false,
-                    activeTable: null
-                });
-                return;
-            }
-            
-            // Se tudo estiver correto, restaurar o listener do jogo
-            if (userData.isPlaying && isUserInTable) {
-                console.log('🎮 Restaurando jogo ativo:', userData.activeTable);
-                userActiveTable = userData.activeTable;
-                setupGameListener(userData.activeTable);
-                
-                // Se não estiver na tela de jogo, redirecionar
-                const currentScreen = document.querySelector('.screen.active');
-                if (!currentScreen || currentScreen.id !== 'game-screen') {
-                    showScreen('game-screen');
-                    showNotification('Jogo restaurado!', 'info');
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao verificar estado de jogo:', error);
-    }
-}
-
 
 
 // ===== HANDLERS PARA FECHAMENTO DA PÁGINA =====
@@ -2672,8 +1219,7 @@ async function signIn() {
     const user = userCredential.user;
     
  
-    let challengesListener = null;
-
+    
     showNotification('Login realizado com sucesso!', 'success');
   } catch (error) {
     showNotification(getAuthErrorMessage(error), 'error');
@@ -2727,10 +1273,7 @@ async function signOut() {
         if (currentUser) {
             await setUserOffline();
         }
-         if (challengesListener) {
-        challengesListener(); // Parar de escutar desafios
-        challengesListener = null;
-    }
+        
         await auth.signOut();
         showNotification('Logout realizado com sucesso', 'info');
     } catch (error) {
@@ -3045,13 +1588,6 @@ function tryToDetectCountry() {
 }
 // ===== INTERFACE DO USUÁRIO =====
 function initializeUI() {
-
-    spectatorsModal = document.getElementById('spectators-modal');
-if (!spectatorsModal) {
-    spectatorsModal = null; // ou crie o modal
-}
-
-
   console.log('Inicializando interface do usuário...');
       // Inicializar chat
     initializeChat();
@@ -3604,44 +2140,12 @@ function showModal(modalId) {
   }
 }
 
-// ===== ESCUTAR REDIRECIONAMENTOS DE JOGO =====
-function setupGameRedirectListener() {
-    if (!currentUser) return;
-    
-    return db.collection('notifications')
-        .where('userId', '==', currentUser.uid)
-        .where('type', '==', 'game_redirect')
-        .where('isRead', '==', false)
-        .onSnapshot(snapshot => {
-            snapshot.docChanges().forEach(change => {
-                if (change.type === 'added') {
-                    const notification = change.doc.data();
-                    handleGameRedirect(notification);
-                    
-                    // Marcar como lida
-                    db.collection('notifications').doc(notification.id).update({
-                        isRead: true
-                    });
-                }
-            });
-        });
+function closeAllModals() {
+  document.querySelectorAll('.modal').forEach(modal => {
+    modal.classList.remove('active');
+  });
 }
 
-// ===== MANIPULAR REDIRECIONAMENTO DE JOGO =====
-async function handleGameRedirect(notification) {
-    const tableId = notification.data.tableId;
-    
-    console.log('🎮 Recebendo redirecionamento para jogo:', tableId);
-    
-    // Fechar todos os modais
-    closeAllModals();
-    closeChallengeModal();
-    
-    // Entrar na mesa
-    await joinTable(tableId);
-    
-    showNotification('Desafio aceito! Partida iniciada.', 'success');
-}
 function showLoading(show) {
   const loadingEl = document.getElementById('loading');
   if (loadingEl) {
@@ -3652,118 +2156,54 @@ function showLoading(show) {
     }
   }
 }
-// ===== SHOW NOTIFICATION (CORRIGIDA) =====
-function showNotification(message, type = 'info', duration = 5000) {
-    console.log(`📢 Notificação [${type}]: ${message}`);
-    
-    // ✅ VERIFICAÇÃO SEGURA do audioManager
-    if (audioManager && typeof audioManager.playNotificationSound === 'function') {
-        try {
-            audioManager.playNotificationSound();
-        } catch (error) {
-            console.warn('Erro ao reproduzir som de notificação:', error);
-        }
-    } else {
-        console.warn('audioManager não disponível para tocar som de notificação');
-    }
-    
-    // Remover notificações anteriores
-    removeExistingNotifications();
-    
-    // Criar elemento de notificação
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    
-    // Ícone baseado no tipo
-    let icon = 'info-circle';
-    if (type === 'error') icon = 'exclamation-triangle';
-    if (type === 'success') icon = 'check-circle';
-    if (type === 'warning') icon = 'exclamation-circle';
-    
-    notification.innerHTML = `
-        <i class="fas fa-${icon}"></i>
-        <span>${message}</span>
-    `;
-    
-    // Adicionar ao documento
-    document.body.appendChild(notification);
-    
-    // Animação de entrada
+
+function showNotification(message, type = 'info') {
+const originalShowNotification = showNotification;
+showNotification = function(message, type) {
+    audioManager.playNotificationSound();
+    return originalShowNotification.call(this, message, type);
+};
+  // Remover notificações anteriores
+  removeExistingNotifications();
+  
+  // Criar elemento de notificação
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  
+  // Ícone baseado no tipo
+  let icon = 'info-circle';
+  if (type === 'error') icon = 'exclamation-triangle';
+  if (type === 'success') icon = 'check-circle';
+  if (type === 'warning') icon = 'exclamation-circle';
+  
+  notification.innerHTML = `
+    <i class="fas fa-${icon}"></i>
+    <span>${message}</span>
+  `;
+  
+  // Adicionar ao documento
+  document.body.appendChild(notification);
+  
+  // Remover após 5 segundos
+  setTimeout(() => {
+    notification.classList.add('fade-out');
     setTimeout(() => {
-        notification.classList.add('show');
-    }, 100);
-    
-    // Remover após o tempo especificado
-    setTimeout(() => {
-        notification.classList.add('fade-out');
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 500);
-    }, duration);
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 500);
+  }, 5000);
 }
-// ===== REMOVER NOTIFICAÇÕES EXISTENTES (CORRIGIDA) =====
+
 function removeExistingNotifications() {
-    try {
-        const notifications = document.querySelectorAll('.notification');
-        notifications.forEach(notification => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        });
-    } catch (error) {
-        console.warn('Erro ao remover notificações:', error);
+  const notifications = document.querySelectorAll('.notification');
+  notifications.forEach(notification => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
     }
+  });
 }
 
-
-// ===== LOGOUT =====
-async function logout() {
-    try {
-        // Limpar estado de jogo antes de fazer logout
-        if (userActiveTable) {
-            await leaveGame(true); // true = silent mode (não mostra notificações)
-        }
-        
-        // Atualizar estado do usuário
-        await db.collection('users').doc(currentUser.uid).update({
-            isOnline: false,
-            isPlaying: false,
-            activeTable: null,
-            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Limpar listeners
-        if (challengesListener) {
-            challengesListener();
-            challengesListener = null;
-        }
-        
-        if (gameRedirectListener) {
-            gameRedirectListener();
-            gameRedirectListener = null;
-        }
-        
-        if (activeTableListener) {
-            activeTableListener();
-            activeTableListener = null;
-        }
-        
-        // Limpar dados locais
-        currentUser = null;
-        userData = null;
-        userActiveTable = null;
-        
-        // Mostrar tela de login
-        showScreen('auth-screen');
-        showNotification('Logout realizado com sucesso', 'success');
-        
-    } catch (error) {
-        console.error('Erro no logout:', error);
-        showNotification('Erro ao fazer logout', 'error');
-    }
-}
 // ===== GERENCIAMENTO DE USUÁRIO =====
 async function loadUserData(uid) {
     try {
@@ -4125,8 +2565,6 @@ async function createNewTable() {
         
         setupGameListener(tableRef.id);
         showScreen('game-screen');
-        setupGameListener(tableRef.id); // ← Use o ID da mesa criada
-
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa:', error);
@@ -4135,19 +2573,15 @@ async function createNewTable() {
 }
 // ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
-
-    const originalJoinTable = joinTable;
-    joinTable = async function(tableId) {
-        audioManager.playGameStartSound();
-        return originalJoinTable.call(this, tableId);
-    };
+const originalJoinTable = joinTable;
+joinTable = async function(tableId) {
+    audioManager.playGameStartSound();
+    return originalJoinTable.call(this, tableId);
+};
 
     console.log('🎯 Entrando na mesa:', tableId);
     
-      // ATUALIZAR STATUS PARA JOGANDO
-        await updateUserStatus('playing', tableId);
-
-    // ✅ VERIFICAÇÃO CRÍTICA: garantir que tableId não está vazio
+    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
     if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
         console.error('❌ TableId inválido:', tableId);
         showNotification('Erro: ID da mesa inválido', 'error');
@@ -4169,19 +2603,7 @@ async function joinTable(tableId) {
         
         const table = tableDoc.data();
 
- // ✅ VERIFICAÇÃO: Garantir que table existe e tem status
-        if (!table) {
-            console.error('❌ Dados da mesa não encontrados');
-            showNotification('Erro ao carregar mesa', 'error');
-            userActiveTable = null;
-            return;
-        }
-        
-        // ✅ VALOR PADRÃO para status se não existir
-        if (!table.status) {
-            console.warn('⚠️ Status da mesa não definido, usando padrão "waiting"');
-            table.status = 'waiting';
-        }
+
 
         // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
         if (table.isChallenge && table.status === 'waiting') {
@@ -4398,7 +2820,8 @@ function setupSpectatorsListener(tableId) {
                 currentSpectators.push({ id: doc.id, ...doc.data() });
             });
             
-          
+            // Atualizar contagem na mesa principal
+            await updateTableSpectatorsCount(tableId, currentSpectators.length);
             
             // Atualizar badge do botão
             const badge = document.getElementById('spectators-count');
@@ -4419,21 +2842,13 @@ function setupSpectatorsListener(tableId) {
             console.error('Erro no listener de espectadores:', error);
         });
 }
-
-
 // ===== ATUALIZAR SPECTATORS UI CORRIGIDA =====
 function updateSpectatorsUI(oldSpectators = []) {
-     const spectatorsContainer = document.getElementById('spectators-container');
+    const spectatorsContainer = document.getElementById('spectators-container');
     const supportersContainer = document.getElementById('supporters-container');
     const spectatorsCountBadge = document.querySelector('.spectators-count-badge');
     
     if (!spectatorsContainer || !supportersContainer) return;
-    
-    // Atualizar contador na mesa principal (se tableId for fornecido)
-    if (tableId) {
-        updateTableSpectatorsCount(tableId, currentSpectators.length);
-    }
-    
     
     // Atualizar contador
     if (spectatorsCountBadge) {
@@ -4688,34 +3103,8 @@ function renderTable(table, container) {
 
 
 // ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
-// ===== SETUP GAME LISTENER (CORRIGIDA) =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
-    
-       // Parar listener anterior se existir
-    if (tableListeners[tableId]) {
-        tableListeners[tableId]();
-    }
-
-    
-      
-    // ✅ VERIFICAÇÃO EXTRA: Garantir que tableId existe
-    if (typeof tableId === 'undefined') {
-        console.error('❌ tableId não definido em setupGameListener');
-        
-        // Tentar obter tableId de outras fontes
-        if (userActiveTable) {
-            tableId = userActiveTable;
-            console.log('🔄 Usando userActiveTable como tableId:', tableId);
-        } else if (currentGameRef) {
-            tableId = currentGameRef.id;
-            console.log('🔄 Usando currentGameRef.id como tableId:', tableId);
-        } else {
-            console.error('❌ Não foi possível determinar tableId');
-            showNotification('Erro ao conectar com o jogo', 'error');
-            return;
-        }
-    }
     
     // Remover listener anterior se existir
     if (gameListener) {
@@ -4724,10 +3113,10 @@ function setupGameListener(tableId) {
         gameListener = null;
     }
     
-    // ✅ VERIFICAÇÃO CRÍTICA: Garantir que tableId é válido
-    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
-        console.error('❌ ID da mesa inválido em setupGameListener:', tableId);
-        showNotification('Erro ao conectar com o jogo', 'error');
+    // Verificar se tableId é válido
+    if (!tableId) {
+        console.error('❌ ID da mesa inválido');
+        showNotification('Erro ao entrar na mesa', 'error');
         return;
     }
     
@@ -4745,7 +3134,7 @@ function setupGameListener(tableId) {
         isProcessing = true;
         
         try {
-            // ✅ VERIFICAÇÃO: Verificar se a referência ainda é a mesma
+            // Verificar se a referência ainda é a mesma
             if (!currentGameRef || currentGameRef.id !== tableId) {
                 console.log('🔀 Referência mudou, ignorando listener');
                 isProcessing = false;
@@ -4763,13 +3152,6 @@ function setupGameListener(tableId) {
             const newGameState = doc.data();
             const newStateHash = JSON.stringify(newGameState);
             
-            // ✅ VERIFICAÇÃO: Garantir que newGameState existe
-            if (!newGameState) {
-                console.error('❌ newGameState é null ou undefined');
-                isProcessing = false;
-                return;
-            }
-            
             // Verificar se o estado realmente mudou
             if (newStateHash === lastProcessedStateHash) {
                 console.log('⚡ Estado inalterado, ignorando update');
@@ -4783,22 +3165,16 @@ function setupGameListener(tableId) {
             
             console.log('🔄 Novo estado do jogo recebido:', gameState.status);
             
-            // ✅ VERIFICAÇÃO: Garantir que gameState tem as propriedades necessárias
+            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
             if (!gameState.players) gameState.players = [];
             if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
             
-            // 1. CONVERSÃO DO TABULEIRO (se necessário)
+            // 2. CONVERSÃO DO TABULEIRO (se necessário)
             if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
                 gameState.board = convertFirestoreFormatToBoard(gameState.board);
             }
             
-            // ✅ VERIFICAÇÃO: Garantir que gameState.status existe
-            if (!gameState.status) {
-                console.error('❌ gameState.status não definido');
-                gameState.status = 'waiting'; // Valor padrão
-            }
-            
-            // 2. VERIFICAR SE JOGO TERMINOU
+            // 3. VERIFICAR SE JOGO TERMINOU
             if (gameState.status === 'finished' || gameState.status === 'draw') {
                 console.log('🏁 Jogo finalizado, processando estado final');
                 await handleFinishedGame(oldGameState, gameState);
@@ -4806,7 +3182,7 @@ function setupGameListener(tableId) {
                 return;
             }
             
-            // DETECTAR MUDANÇAS IMPORTANTES
+            // 4. DETECTAR MUDANÇAS IMPORTANTES
             const boardChanged = !oldGameState || 
                                JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
             
@@ -4816,7 +3192,7 @@ function setupGameListener(tableId) {
             const playersChanged = !oldGameState || 
                                  JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
             
-            // PROCESSAR EVENTOS ESPECÍFICOS
+            // 5. PROCESSAR EVENTOS ESPECÍFICOS
             if (playersChanged && oldGameState) {
                 await handlePlayersChange(oldGameState, gameState);
             }
@@ -4825,26 +3201,26 @@ function setupGameListener(tableId) {
                 await handleDrawOffer(gameState.drawOffer);
             }
             
-            // ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-            if (boardChanged || turnChanged || playersChanged) {
-                console.log('🎨 Atualizando interface');
-                updateGameInterface();
-            }
-            
-            // GERENCIAR TIMER
-            manageGameTimer(oldGameState, gameState);
-            
-            // INICIALIZAR SISTEMAS SECUNDÁRIOS
-            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-                console.log('🎮 Jogo iniciado, configurando sistemas');
-                setupChatListener();
-                setupSpectatorsListener(tableId);
-            }
-            
-            // VERIFICAR FIM DE JOGO
-            if (boardChanged && gameState.status === 'playing') {
-                checkGameEnd(gameState.board, gameState.currentTurn);
-            }
+           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+if (boardChanged || turnChanged || playersChanged) {
+    console.log('🎨 Atualizando interface');
+    updateGameInterface();
+}
+
+// 7. GERENCIAR TIMER
+manageGameTimer(oldGameState, gameState);
+
+// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+    console.log('🎮 Jogo iniciado, configurando sistemas');
+    setupChatListener();
+    setupSpectatorsListener(tableId);
+}
+
+// 9. VERIFICAR FIM DE JOGO
+if (boardChanged && gameState.status === 'playing') {
+    checkGameEnd(gameState.board, gameState.currentTurn);
+}
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
@@ -4865,8 +3241,6 @@ function setupGameListener(tableId) {
         }
     });
 }
-
-
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
@@ -5233,9 +3607,6 @@ function renderDrawOfferIndicator() {
 // ===== SISTEMA DE NOTIFICAÇÕES =====
 function initializeNotifications() {
     // Verificar se usuário está logado
-    if (!activeNotifications) {
-    activeNotifications = new Map();
-}
     if (!currentUser) return;
     
     // Listener para notificações
@@ -5364,41 +3735,11 @@ function setupSpectatorUI() {
     }
 }
 
-// ===== DETECTAR SAÍDA DA PÁGINA =====
-function setupPageUnloadListener() {
-    window.addEventListener('beforeunload', async (e) => {
-        if (userActiveTable) {
-            // Não impedir a saída, apenas limpar o estado em segundo plano
-            try {
-                await leaveGame(true); // silent mode
-            } catch (error) {
-                console.error('Erro ao limpar estado na saída:', error);
-            }
-        }
-    });
-    
-    // Também detectar mudanças de página (SPA)
-    window.addEventListener('unload', async () => {
-        if (userActiveTable) {
-            try {
-                await leaveGame(true);
-            } catch (error) {
-                console.error('Erro ao limpar estado no unload:', error);
-            }
-        }
-    });
-}
-
-
 
 // ===== FUNÇÃO LEAVE GAME CORRIGIDA =====
 function leaveGame() {
-
-
     console.log('Saindo do jogo...');
-        cleanupGameVoiceChat();
-
-
+    
     // Remover listener do jogo primeiro
     if (gameListener) {
         gameListener();
@@ -5462,7 +3803,9 @@ async function initializeTableCheck() {
 }
 
 
-
+// ===== VARIÁVEIS GLOBAIS PARA CAPTURAS =====
+let hasGlobalMandatoryCaptures = false;
+let capturingPieces = [];
 
 
 // ===== FUNÇÃO HANDLE CELL CLICK (VERIFICAÇÃO FINAL) =====
@@ -5771,8 +4114,6 @@ function updateGameHeader(currentPlayer, opponent) {
 // ===== FUNÇÃO SURRENDER FROM GAME (CORRIGIDA) =====
 async function surrenderFromGame() {
     console.log('Iniciando processo de desistência...');
-    cleanupGameVoiceChat();
-
     
     if (!currentGameRef || !gameState) {
         showNotification('Nenhum jogo ativo para desistir', 'error');
@@ -6327,8 +4668,6 @@ function cleanFirestoreData(data) {
 }
 // ===== FUNÇÃO ENDGAME SAFE COMPLETA (CORRIGIDA) =====
 async function endGameSafe(result) {
-
-     cleanupGameVoiceChat();
     // Prevenir múltiplas execuções
     if (isGameEnding) {
         console.log('endGameSafe já em execução, ignorando chamada duplicada');
@@ -6796,762 +5135,11 @@ function visualizeBoardForDebug() {
 // Adicione ao window
 window.showBoard = visualizeBoardForDebug;
 // ===== AMIGOS =====
-
-
-// ===== CARREGAR AMIGOS (COM IDs CORRETOS) =====
 async function loadFriends() {
-    const friendsContainer = document.getElementById('friends-container');
-    if (!friendsContainer) return;
-    
-    friendsContainer.innerHTML = `
-        <div class="friends-section">
-            <div class="friends-header">
-                <h2>👥 Sistema de Amigos</h2>
-                <p>Conecte-se com outros jogadores e jogue together</p>
-            </div>
-            
-            <div class="friends-stats">
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="total-friends">0</span>
-                    <span class="stat-label">Amigos no Total</span>
-                </div>
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="online-friends">0</span>
-                    <span class="stat-label">Amigos Online</span>
-                </div>
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="pending-requests-count">0</span>
-                    <span class="stat-label">Solicitações Pendentes</span>
-                </div>
-            </div>
-            
-            <div class="friends-search">
-                <div class="search-container">
-                    <input type="text" id="friends-search" placeholder="Buscar jogadores...">
-                    <i class="fas fa-search"></i>
-                    <div class="search-results" id="search-results" style="display: none;"></div>
-                </div>
-            </div>
-            
-            <div class="friends-tabs">
-                <button class="friend-tab active" data-tab="all">
-                    Todos os Amigos
-                </button>
-                <button class="friend-tab" data-tab="online">
-                    Online
-                </button>
-                <button class="friend-tab" data-tab="requests" id="tab-requests-btn">
-                    Solicitações
-                    <span class="tab-badge" id="requests-badge" style="display: none;">0</span>
-                </button>
-                <button class="friend-tab" data-tab="add">
-                    Adicionar
-                </button>
-            </div>
-            
-            <div class="tab-content active" id="tab-all">
-                <div class="friends-grid" id="friends-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-user-friends"></i>
-                        <h3>Nenhum amigo ainda</h3>
-                        <p>Adicione amigos para começar a jogar together</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-online">
-                <div class="friends-grid" id="online-friends-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-wifi"></i>
-                        <h3>Nenhum amigo online</h3>
-                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-requests">
-                <div class="friends-grid" id="requests-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-user-plus"></i>
-                        <h3>Nenhuma solicitação</h3>
-                        <p>Solicitações de amizade aparecerão aqui</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-add">
-                <div class="add-friends-container" id="add-friends-container">
-                    <div class="empty-friends">
-                        <i class="fas fa-search"></i>
-                        <h3>Encontrar Amigos</h3>
-                        <p>Use a busca acima para encontrar outros jogadores</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="friends-footer">
-                <button class="invite-friends-btn" id="btn-invite-friends">
-                    <i class="fas fa-envelope"></i>
-                    Convidar Amigos
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // Configurar event listeners
-    setupFriendsListeners();
-    setupUsersSearch();
-    setupFriendRequestsListener();
-}
-
-
-// ===== CARREGAR LISTA DE AMIGOS =====
-async function loadFriendsList() {
-    try {
-        const friendsGrid = document.getElementById('friends-grid');
-        if (!friendsGrid) {
-            console.error('friends-grid não encontrado');
-            return;
-        }
-        
-        // Mostrar loading
-        friendsGrid.innerHTML = `
-            <div class="search-loading">
-                <i class="fas fa-spinner"></i>
-                <p>Carregando amigos...</p>
-            </div>
-        `;
-        
-        // Carregar amigos do Firestore
-        const snapshot = await db.collection('users')
-            .doc(currentUser.uid)
-            .collection('friends')
-            .get();
-        
-        userFriends = [];
-        onlineFriends = 0;
-        
-        if (snapshot.empty) {
-            friendsGrid.innerHTML = `
-                <div class="empty-friends">
-                    <i class="fas fa-user-friends"></i>
-                    <h3>Nenhum amigo ainda</h3>
-                    <p>Adicione amigos para começar a jogar together</p>
-                </div>
-            `;
-            return;
-        }
-        
-        // Carregar informações completas de cada amigo
-        const friendsPromises = [];
-        
-        snapshot.forEach(doc => {
-            const friendData = doc.data();
-            const friendId = friendData.friendId || doc.id;
-            
-            friendsPromises.push(
-                db.collection('users').doc(friendId).get().then(userDoc => {
-                    if (userDoc.exists) {
-                        const userData = userDoc.data();
-                        return {
-                            id: friendId,
-                            ...userData,
-                            ...friendData,
-                            friendSince: friendData.friendSince?.toDate?.() || new Date()
-                        };
-                    }
-                    return null;
-                })
-            );
-        });
-        
-        const friendsData = await Promise.all(friendsPromises);
-        userFriends = friendsData.filter(friend => friend !== null);
-        
-        // Contar amigos online
-        onlineFriends = userFriends.filter(friend => friend.isOnline).length;
-        
-        // Atualizar estatísticas
-        updateFriendsStats();
-        
-        // Renderizar amigos
-        renderFriendsGrid();
-        
-    } catch (error) {
-        console.error('Erro ao carregar lista de amigos:', error);
-        const friendsGrid = document.getElementById('friends-grid');
-        if (friendsGrid) {
-            friendsGrid.innerHTML = `
-                <div class="empty-friends">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h3>Erro ao carregar</h3>
-                    <p>Tente novamente</p>
-                </div>
-            `;
-        }
-    }
-}
-
-
-
-// ===== CARREGAR ABA ADICIONAR AMIGOS =====
-function loadAddFriends() {
-    const addContainer = document.getElementById('add-friends-container');
-    if (!addContainer) return;
-    
-    addContainer.innerHTML = `
-        <div class="empty-friends">
-            <i class="fas fa-search"></i>
-            <h3>Encontrar Amigos</h3>
-            <p>Use a busca acima para encontrar outros jogadores</p>
-            <div style="margin-top: 20px;">
-                <button class="btn btn-primary" onclick="showAddFriendsTips()">
-                    <i class="fas fa-lightbulb"></i> Dicas para encontrar amigos
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-// ===== MOSTRAR DICAS PARA ADICIONAR AMIGOS =====
-function showAddFriendsTips() {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>💡 Dicas para encontrar amigos</h3>
-                <button class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="display: flex; flex-direction: column; gap: 15px;">
-                    <div>
-                        <h4>🔍 Busque por nome</h4>
-                        <p>Digite o nome do jogador na barra de busca</p>
-                    </div>
-                    <div>
-                        <h4>🎮 Partidas públicas</h4>
-                        <p>Jogue partidas públicas e adicione oponentes</p>
-                    </div>
-                    <div>
-                        <h4>👥 Comunidade</h4>
-                        <p>Participe de torneios e eventos da comunidade</p>
-                    </div>
-                    <div>
-                        <h4>📱 Redes sociais</h4>
-                        <p>Compartilhe seu código de amizade</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" onclick="this.closest('.modal').remove()">
-                    Entendi!
-                </button>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    // Event listeners
-    const closeBtn = modal.querySelector('.modal-close');
-    closeBtn.addEventListener('click', () => modal.remove());
-    
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
-    
-    setTimeout(() => modal.classList.add('active'), 100);
-}
-
-
-// ===== CARREGAR AMIGOS ONLINE =====
-async function loadOnlineFriends() {
-    try {
-        const onlineGrid = document.getElementById('online-friends-grid');
-        if (!onlineGrid) return;
-        
-        // Mostrar loading
-        onlineGrid.innerHTML = `
-            <div class="search-loading">
-                <i class="fas fa-spinner"></i>
-                <p>Carregando amigos online...</p>
-            </div>
-        `;
-        
-        // Se já temos os amigos carregados, filtrar os online
-        if (userFriends.length > 0) {
-            const onlineFriends = userFriends.filter(friend => friend.isOnline);
-            
-            if (onlineFriends.length === 0) {
-                onlineGrid.innerHTML = `
-                    <div class="empty-friends">
-                        <i class="fas fa-wifi"></i>
-                        <h3>Nenhum amigo online</h3>
-                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
-                    </div>
-                `;
-            } else {
-                renderFilteredFriends(onlineFriends, 'online-friends-grid');
-            }
-            return;
-        }
-        
-        // Se não temos amigos carregados, buscar do Firestore
-        const snapshot = await db.collection('users')
-            .doc(currentUser.uid)
-            .collection('friends')
-            .get();
-        
-        const onlineFriends = [];
-        const friendsPromises = [];
-        
-        snapshot.forEach(doc => {
-            const friendData = doc.data();
-            const friendId = friendData.friendId || doc.id;
-            
-            friendsPromises.push(
-                db.collection('users').doc(friendId).get().then(userDoc => {
-                    if (userDoc.exists) {
-                        const userData = userDoc.data();
-                        if (userData.isOnline) {
-                            return {
-                                id: friendId,
-                                ...userData,
-                                ...friendData,
-                                friendSince: friendData.friendSince?.toDate?.() || new Date()
-                            };
-                        }
-                    }
-                    return null;
-                })
-            );
-        });
-        
-        const friendsData = await Promise.all(friendsPromises);
-        const filteredFriends = friendsData.filter(friend => friend !== null);
-        
-        if (filteredFriends.length === 0) {
-            onlineGrid.innerHTML = `
-                <div class="empty-friends">
-                    <i class="fas fa-wifi"></i>
-                    <h3>Nenhum amigo online</h3>
-                    <p>Seus amigos aparecerão aqui quando estiverem online</p>
-                </div>
-            `;
-        } else {
-            renderFilteredFriends(filteredFriends, 'online-friends-grid');
-        }
-        
-    } catch (error) {
-        console.error('Erro ao carregar amigos online:', error);
-    }
-}
-// ===== CONFIGURAR LISTENER DE SOLICITAÇÕES (ATUALIZADA) =====
-function setupFriendRequestsListener() {
-    if (!currentUser || !db) {
-        setTimeout(setupFriendRequestsListener, 2000);
-        return;
-    }
-    
-    if (friendRequestsListener) {
-        friendRequestsListener();
-    }
-    
-    friendRequestsListener = db.collection('friendRequests')
-        .where('toUserId', '==', currentUser.uid)
-        .where('status', '==', 'pending')
-        .onSnapshot((snapshot) => {
-            pendingRequestsCount = snapshot.size;
-            updateRequestsBadge();
-            updateFriendsStats(); // Atualizar estatísticas também
-            
-            // Usar render seguro
-            safeRenderFriendRequests(snapshot);
-        });
-}
-
-
-// ===== RENDERIZAR SOLICITAÇÕES DE AMIZADE (SIMPLIFICADA) =====
-async function renderFriendRequests(snapshot) {
-    const requestsGrid = document.getElementById('requests-grid');
-    if (!requestsGrid) return;
-    
-    if (snapshot.empty) {
-        requestsGrid.innerHTML = `
-            <div class="empty-friends">
-                <i class="fas fa-user-plus"></i>
-                <h3>Nenhuma solicitação</h3>
-                <p>Solicitações de amizade aparecerão aqui</p>
-            </div>
-        `;
-        return;
-    }
-    
-    // Limpar o grid
-    requestsGrid.innerHTML = '';
-    
-    snapshot.forEach((doc) => {
-        const request = doc.data();
-        const requestId = doc.id;
-        
-        // Usar os dados que já estão na solicitação
-        const requestElement = document.createElement('div');
-        requestElement.className = 'friend-card';
-        requestElement.innerHTML = `
-            <div class="friend-header">
-                <div class="friend-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(request.fromUserName)}&background=0072ff&color=fff" 
-                         alt="${request.fromUserName}">
-                    <div class="online-status offline"></div>
-                </div>
-                <div class="friend-info">
-                    <h3 class="friend-name">${request.fromUserName}</h3>
-                    <p class="friend-status">🟡 Status desconhecido</p>
-                    <p class="friend-time">
-                        <small>${formatTimeAgo(request.timestamp)}</small>
-                    </p>
-                </div>
-            </div>
-            
-            <div class="friend-stats">
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Rating</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Vitórias</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Win Rate</span>
-                </div>
-            </div>
-            
-            <div class="friend-actions">
-                <button class="friend-btn btn-accept" onclick="acceptFriendRequest('${requestId}', '${request.fromUserId}')">
-                    <i class="fas fa-check"></i> Aceitar
-                </button>
-                <button class="friend-btn btn-decline" onclick="declineFriendRequest('${requestId}')">
-                    <i class="fas fa-times"></i> Recusar
-                </button>
-                <button class="friend-btn btn-profile" onclick="viewUserProfile('${request.fromUserId}')">
-                    <i class="fas fa-eye"></i> Ver Perfil
-                </button>
-            </div>
-        `;
-        
-        requestsGrid.appendChild(requestElement);
-        
-        // Carregar informações adicionais em segundo plano
-loadAdditionalUserInfo(request.fromUserId, requestElement, request.fromUserName);
-    });
-}
-// ===== CARREGAR INFORMAÇÕES ADICIONAIS DO USUÁRIO (CORRIGIDA) =====
-async function loadAdditionalUserInfo(userId, requestElement, userName = '') {
-    try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (userDoc.exists) {
-            const userData = userDoc.data();
-            
-            // Atualizar o card com as informações reais
-            const avatar = requestElement.querySelector('.friend-avatar img');
-            const status = requestElement.querySelector('.friend-status');
-            const rating = requestElement.querySelector('.friend-stat:nth-child(1) .friend-stat-value');
-            const wins = requestElement.querySelector('.friend-stat:nth-child(2) .friend-stat-value');
-            const winRate = requestElement.querySelector('.friend-stat:nth-child(3) .friend-stat-value');
-            const onlineStatus = requestElement.querySelector('.online-status');
-            const nameElement = requestElement.querySelector('.friend-name');
-            
-            if (avatar) {
-                avatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName || userName)}&background=0072ff&color=fff`;
-                avatar.alt = userData.displayName || userName;
-            }
-            
-            if (status) {
-                status.textContent = userData.isOnline ? '🟢 Online' : '⚫ Offline';
-                if (userData.isPlaying) status.textContent = '🎮 Jogando agora';
-            }
-            
-            if (rating) rating.textContent = userData.rating || 1000;
-            if (wins) wins.textContent = userData.wins || 0;
-            
-            if (winRate) {
-                const totalGames = (userData.wins || 0) + (userData.losses || 0);
-                const winRateValue = totalGames > 0 ? Math.floor((userData.wins || 0) / totalGames * 100) : 0;
-                winRate.textContent = `${winRateValue}%`;
-            }
-            
-            if (onlineStatus) {
-                onlineStatus.className = 'online-status ' + (userData.isPlaying ? 'playing' : userData.isOnline ? 'online' : 'offline');
-            }
-            
-            // Atualizar nome se for diferente
-            if (nameElement && userData.displayName && userData.displayName !== userName) {
-                nameElement.textContent = userData.displayName;
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao carregar informações adicionais:', error);
-    }
-}
-
-// ===== DEBUG: VERIFICAR SOLICITAÇÕES =====
-async function debugFriendRequests() {
-    try {
-        console.log('=== DEBUG FRIEND REQUESTS ===');
-        console.log('Current user ID:', currentUser.uid);
-        
-        const snapshot = await db.collection('friendRequests')
-            .where('toUserId', '==', currentUser.uid)
-            .where('status', '==', 'pending')
-            .get();
-        
-        console.log('Found requests:', snapshot.size);
-        
-        snapshot.forEach(doc => {
-            console.log('Request:', doc.id, doc.data());
-        });
-        
-    } catch (error) {
-        console.error('Debug error:', error);
-    }
-}
-
-// Adicione ao window para testar
-window.debugRequests = debugFriendRequests;
-// ===== RENDERIZAR SOLICITAÇÕES DE AMIZADE (COM MELHOR TRATAMENTO DE ERRO) =====
-async function renderFriendRequests(snapshot) {
-    const requestsGrid = document.getElementById('requests-grid');
-    if (!requestsGrid) {
-        console.error('requests-grid não encontrado');
-        return;
-    }
-    
-    if (snapshot.empty) {
-        requestsGrid.innerHTML = `
-            <div class="empty-friends">
-                <i class="fas fa-user-plus"></i>
-                <h3>Nenhuma solicitação</h3>
-                <p>Solicitações de amizade aparecerão aqui</p>
-            </div>
-        `;
-        return;
-    }
-    
-    // Limpar o grid
-    requestsGrid.innerHTML = '';
-    
-    snapshot.forEach((doc) => {
-        const request = doc.data();
-        const requestId = doc.id;
-        
-        // Verificar se temos os dados necessários
-        if (!request.fromUserId || !request.fromUserName) {
-            console.error('Solicitação inválida:', request);
-            return;
-        }
-        
-        // Usar os dados que já estão na solicitação
-        const requestElement = document.createElement('div');
-        requestElement.className = 'friend-card';
-        requestElement.innerHTML = `
-            <div class="friend-header">
-                <div class="friend-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(request.fromUserName)}&background=0072ff&color=fff" 
-                         alt="${request.fromUserName}">
-                    <div class="online-status offline"></div>
-                </div>
-                <div class="friend-info">
-                    <h3 class="friend-name">${request.fromUserName}</h3>
-                    <p class="friend-status">🟡 Carregando...</p>
-                    <p class="friend-time">
-                        <small>${formatTimeAgo(request.timestamp)}</small>
-                    </p>
-                </div>
-            </div>
-            
-            <div class="friend-stats">
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Rating</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Vitórias</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">?</span>
-                    <span class="friend-stat-label">Win Rate</span>
-                </div>
-            </div>
-            
-            <div class="friend-actions">
-                <button class="friend-btn btn-accept" onclick="acceptFriendRequest('${requestId}', '${request.fromUserId}')">
-                    <i class="fas fa-check"></i> Aceitar
-                </button>
-                <button class="friend-btn btn-decline" onclick="declineFriendRequest('${requestId}')">
-                    <i class="fas fa-times"></i> Recusar
-                </button>
-                <button class="friend-btn btn-profile" onclick="viewUserProfile('${request.fromUserId}')">
-                    <i class="fas fa-eye"></i> Ver Perfil
-                </button>
-            </div>
-        `;
-        
-        requestsGrid.appendChild(requestElement);
-        
-        // Carregar informações adicionais em segundo plano
-        loadAdditionalUserInfo(request.fromUserId, requestElement, request.fromUserName);
-    });
-}
-
-// ===== VERIFICAÇÃO DE SEGURANÇA PARA REQUEST DATA =====
-function validateRequestData(request) {
-    if (!request) return false;
-    if (!request.fromUserId) return false;
-    if (!request.fromUserName) return false;
-    if (!request.timestamp) return false;
-    return true;
-}
-// ===== DEBUG DETALHADO DAS SOLICITAÇÕES =====
-function debugRequestsDetailed() {
-    console.log('=== DEBUG DETALHADO DE SOLICITAÇÕES ===');
-    
-    db.collection('friendRequests')
-        .where('toUserId', '==', currentUser.uid)
-        .where('status', '==', 'pending')
-        .get()
-        .then(snapshot => {
-            console.log('Solicitações encontradas:', snapshot.size);
-            
-            snapshot.forEach(doc => {
-                const request = doc.data();
-                console.log('Solicitação:', doc.id, {
-                    fromUserId: request.fromUserId,
-                    fromUserName: request.fromUserName,
-                    timestamp: request.timestamp,
-                    isValid: validateRequestData(request)
-                });
-            });
-        })
-        .catch(error => {
-            console.error('Erro no debug detalhado:', error);
-        });
-}
-
-// Adicione ao window
-window.debugDetailed = debugRequestsDetailed;
-
-// ===== ACEITAR SOLICITAÇÃO DE AMIZADE =====
-async function acceptFriendRequest(requestId, friendId) {
-    try {
-        const requestDoc = await db.collection('friendRequests').doc(requestId).get();
-        if (!requestDoc.exists) {
-            showNotification('Solicitação não encontrada', 'error');
-            return;
-        }
-        
-        const request = requestDoc.data();
-        const friendDoc = await db.collection('users').doc(friendId).get();
-        
-        if (!friendDoc.exists) {
-            showNotification('Usuário não encontrado', 'error');
-            return;
-        }
-        
-        const friendData = friendDoc.data();
-        
-        // Adicionar como amigo para o usuário atual
-        await db.collection('users').doc(currentUser.uid).collection('friends').doc(friendId).set({
-            friendId: friendId,
-            displayName: friendData.displayName,
-            friendSince: firebase.firestore.FieldValue.serverTimestamp(),
-            rating: friendData.rating || 1000
-        });
-        
-        // Adicionar como amigo para o outro usuário
-        await db.collection('users').doc(friendId).collection('friends').doc(currentUser.uid).set({
-            friendId: currentUser.uid,
-            displayName: userData.displayName,
-            friendSince: firebase.firestore.FieldValue.serverTimestamp(),
-            rating: userData.rating || 1000
-        });
-        
-        // Atualizar a solicitação para aceita
-        await db.collection('friendRequests').doc(requestId).update({
-            status: 'accepted',
-            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Enviar notificação para o usuário
-        await db.collection('notifications').add({
-            type: 'friend_request_accepted',
-            toUserId: friendId,
-            fromUserId: currentUser.uid,
-            fromUserName: userData.displayName,
-            message: `${userData.displayName} aceitou sua solicitação de amizade!`,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-        });
-        
-        showNotification(`Agora você é amigo de ${friendData.displayName}!`, 'success');
-        
-    } catch (error) {
-        console.error('Erro ao aceitar solicitação:', error);
-        showNotification('Erro ao aceitar solicitação', 'error');
-    }
-}
-
-// ===== RECUSAR SOLICITAÇÃO DE AMIZADE =====
-async function declineFriendRequest(requestId) {
-    try {
-        const requestDoc = await db.collection('friendRequests').doc(requestId).get();
-        if (!requestDoc.exists) {
-            showNotification('Solicitação não encontrada', 'error');
-            return;
-        }
-        
-        const request = requestDoc.data();
-        
-        // Atualizar a solicitação para recusada
-        await db.collection('friendRequests').doc(requestId).update({
-            status: 'declined',
-            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        showNotification('Solicitação recusada', 'info');
-        
-    } catch (error) {
-        console.error('Erro ao recusar solicitação:', error);
-        showNotification('Erro ao recusar solicitação', 'error');
-    }
-}
-
-// ===== ATUALIZAR BADGE DE SOLICITAÇÕES =====
-function updateRequestsBadge() {
-    const badge = document.getElementById('requests-badge');
-    const tabBtn = document.getElementById('tab-requests-btn');
-    
-    if (badge && tabBtn) {
-        if (pendingRequestsCount > 0) {
-            badge.textContent = pendingRequestsCount;
-            badge.style.display = 'flex';
-            tabBtn.classList.add('has-requests');
-        } else {
-            badge.style.display = 'none';
-            tabBtn.classList.remove('has-requests');
-        }
-    }
-}
-// ===== ATUALIZAR ESTATÍSTICAS DE SOLICITAÇÕES =====
-// ===== ATUALIZAR ESTATÍSTICAS DE SOLICITAÇÕES =====
-function updateRequestsStats() {
-    const statElement = document.getElementById('pending-requests');
-    if (statElement) {
-        statElement.textContent = pendingRequestsCount;
-    }
+  const friendsContainer = document.getElementById('friends-container');
+  if (friendsContainer) {
+    friendsContainer.innerHTML = '<p class="text-center">Funcionalidade de amigos em desenvolvimento</p>';
+  }
 }
 
 // ===== FUNÇÃO CHECK GAME END CORRIGIDA =====
@@ -8351,7 +5939,9 @@ function getKingAdditionalCaptures(fromRow, fromCol, piece, currentCaptures = []
     
     return additionalCaptures;
 }
-
+// ===== RENDER BOARD OTIMIZADA =====
+let lastRenderTime = 0;
+let lastRenderedBoardHash = '';
 
 function renderBoard(boardState) {
 
@@ -8641,23 +6231,11 @@ function getNormalMoves(fromRow, fromCol, piece) {
     }
     
     return moves;
-}
-// ===== CHECK GLOBAL MANDATORY CAPTURES (CORRIGIDA) =====
+}// ===== FUNÇÃO CHECK GLOBAL MANDATORY CAPTURES OTIMIZADA =====
+let lastCaptureCheckTime = 0;
+let lastBoardStateHash = '';
+
 function checkGlobalMandatoryCaptures() {
-    // ✅ INICIALIZAÇÃO SEGURA: Garantir que as variáveis existam
-    if (typeof lastCaptureCheckTime === 'undefined') {
-        lastCaptureCheckTime = 0;
-    }
-    if (typeof lastBoardStateHash === 'undefined') {
-        lastBoardStateHash = '';
-    }
-    if (typeof hasGlobalMandatoryCaptures === 'undefined') {
-        hasGlobalMandatoryCaptures = false;
-    }
-    if (typeof capturingPieces === 'undefined') {
-        capturingPieces = [];
-    }
-    
     // Prevenir checks muito frequentes
     const now = Date.now();
     if (now - lastCaptureCheckTime < 500) { // Só verificar a cada 500ms
@@ -8705,6 +6283,7 @@ function checkGlobalMandatoryCaptures() {
     
     return hasGlobalMandatoryCaptures;
 }
+
 // ===== FUNÇÃO GET NORMAL MOVES PARA PEÇAS NORMAIS =====
 function getNormalMoves(fromRow, fromCol, piece) {
     const moves = [];
@@ -9133,18 +6712,11 @@ function cleanupChat() {
 
 
 
+// ===== VARIÁVEIS GLOBAIS =====
+let spectatorsModal = null;
 
-// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES (CORRIGIDA) =====
+// ===== INICIALIZAÇÃO DO MODAL DE ESPECTADORES =====
 function initializeSpectatorsModal() {
-    console.log('Initializando modal de espectadores...');
-    
-    // Verificar se o botão existe antes de adicionar event listeners
-    const spectatorsBtn = document.getElementById('btn-spectators');
-    if (!spectatorsBtn) {
-        console.error('Botão de espectadores não encontrado (#btn-spectators)');
-        return;
-    }
-    
     // Criar modal se não existir
     if (!document.getElementById('spectators-modal')) {
         const modalHTML = `
@@ -9161,11 +6733,11 @@ function initializeSpectatorsModal() {
                                 <span>Total: <strong id="total-spectators">0</strong></span>
                             </div>
                             <div class="stat-item">
-                                <i class="fas fa-heart" style="color: #e74c3c;"></i>
+                                <i class="fas fa-heart red"></i>
                                 <span>Vermelhas: <strong id="red-supporters-count">0</strong></span>
                             </div>
                             <div class="stat-item">
-                                <i class="fas fa-heart" style="color: #2c3e50;"></i>
+                                <i class="fas fa-heart black"></i>
                                 <span>Pretas: <strong id="black-supporters-count">0</strong></span>
                             </div>
                         </div>
@@ -9204,90 +6776,54 @@ function initializeSpectatorsModal() {
         `;
         
         document.body.insertAdjacentHTML('beforeend', modalHTML);
-        console.log('Modal de espectadores criado');
     }
     
-    // Inicializar a variável global
     spectatorsModal = document.getElementById('spectators-modal');
     
-    if (!spectatorsModal) {
-        console.error('❌ Modal de espectadores não foi criado corretamente');
-        return;
-    }
-    
-    // Configurar event listeners com verificações de segurança
-    setupSpectatorsModalEvents();
-    
-    console.log('✅ Modal de espectadores inicializado com sucesso');
-}
-
-// ===== CONFIGURAR EVENTOS DO MODAL =====
-function setupSpectatorsModalEvents() {
-    // Remover event listeners existentes para evitar duplicação
-    const newSpectatorsBtn = document.getElementById('btn-spectators').cloneNode(true);
-    document.getElementById('btn-spectators').parentNode.replaceChild(newSpectatorsBtn, document.getElementById('btn-spectators'));
-    
-    // Event listener para abrir modal
-    newSpectatorsBtn.addEventListener('click', openSpectatorsModal);
-    
-    // Event listener para fechar modal
-    const closeBtn = document.getElementById('close-spectators');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeSpectatorsModal);
-    } else {
-        console.error('Botão de fechar modal não encontrado (#close-spectators)');
-    }
+    // Event listeners
+    document.getElementById('btn-spectators').addEventListener('click', openSpectatorsModal);
+    document.getElementById('close-spectators').addEventListener('click', closeSpectatorsModal);
     
     // Fechar modal clicando fora
-    if (spectatorsModal) {
-        spectatorsModal.addEventListener('click', (e) => {
-            if (e.target === spectatorsModal) {
-                closeSpectatorsModal();
-            }
-        });
-    }
+    spectatorsModal.addEventListener('click', (e) => {
+        if (e.target === spectatorsModal) {
+            closeSpectatorsModal();
+        }
+    });
     
     // Sistema de tabs
     const tabButtons = document.querySelectorAll('.tab-btn');
-    if (tabButtons.length > 0) {
-        tabButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                // Remover classe active de todos
-                tabButtons.forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-                
-                // Adicionar classe active ao selecionado
-                btn.classList.add('active');
-                const tabContent = document.getElementById(`tab-${btn.dataset.tab}`);
-                if (tabContent) {
-                    tabContent.classList.add('active');
-                }
-            });
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Remover classe active de todos
+            tabButtons.forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            
+            // Adicionar classe active ao selecionado
+            btn.classList.add('active');
+            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
         });
-    }
+    });
 }
 
 // ===== FUNÇÃO PARA ABRIR MODAL =====
 function openSpectatorsModal() {
     if (!spectatorsModal) {
-        console.error('Modal de espectadores não inicializado');
-        return;
+        initializeSpectatorsModal();
     }
     
     // Atualizar dados antes de abrir
     updateSpectatorsModal();
     
     spectatorsModal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-    
-    console.log('Modal de espectadores aberto');
+    document.body.style.overflow = 'hidden'; // Previne scroll do body
 }
 
 // ===== FUNÇÃO PARA FECHAR MODAL =====
 function closeSpectatorsModal() {
     if (spectatorsModal) {
         spectatorsModal.classList.remove('active');
-        document.body.style.overflow = '';
+        document.body.style.overflow = ''; // Restaura scroll
     }
 }
 
@@ -9295,24 +6831,22 @@ function closeSpectatorsModal() {
 function updateSpectatorsModal() {
     if (!spectatorsModal || !spectatorsModal.classList.contains('active')) return;
     
-    // Usar dados atuais dos espectadores
-    const totalSpectators = currentSpectators?.length || 0;
-    const redSupporters = currentSpectators?.filter(s => s.supporting === 'red').length || 0;
-    const blackSupporters = currentSpectators?.filter(s => s.supporting === 'black').length || 0;
+    const totalSpectators = currentSpectators.length;
+    const redSupporters = currentSpectators.filter(s => s.supporting === 'red');
+    const blackSupporters = currentSpectators.filter(s => s.supporting === 'black');
+    const neutralSpectators = currentSpectators.filter(s => !s.supporting);
     
     // Atualizar estatísticas
-    const totalEl = document.getElementById('total-spectators');
-    const redEl = document.getElementById('red-supporters-count');
-    const blackEl = document.getElementById('black-supporters-count');
+    document.getElementById('total-spectators').textContent = totalSpectators;
+    document.getElementById('red-supporters-count').textContent = redSupporters.length;
+    document.getElementById('black-supporters-count').textContent = blackSupporters.length;
     
-    if (totalEl) totalEl.textContent = totalSpectators;
-    if (redEl) redEl.textContent = redSupporters;
-    if (blackEl) blackEl.textContent = blackSupporters;
+    // Atualizar lista completa
+    updateSpectatorsList('all', currentSpectators);
     
-    // Atualizar listas
-    updateSpectatorsList('all', currentSpectators || []);
-    updateSpectatorsList('red', currentSpectators?.filter(s => s.supporting === 'red') || []);
-    updateSpectatorsList('black', currentSpectators?.filter(s => s.supporting === 'black') || []);
+    // Atualizar listas por time
+    updateSpectatorsList('red', redSupporters);
+    updateSpectatorsList('black', blackSupporters);
 }
 
 // ===== FUNÇÃO PARA ATUALIZAR LISTA =====
@@ -9338,7 +6872,7 @@ function updateSpectatorsList(type, spectators) {
                 <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(spectator.displayName)}&background=random" 
                      alt="${spectator.displayName}">
                 ${spectator.supporting ? `
-                    <div class="support-badge ${spectator.supporting}" style="background: ${spectator.supporting === 'red' ? '#e74c3c' : '#2c3e50'}">
+                    <div class="support-badge ${spectator.supporting}">
                         <i class="fas fa-heart"></i>
                     </div>
                 ` : ''}
@@ -9358,9 +6892,20 @@ function updateSpectatorsList(type, spectators) {
     `).join('');
 }
 
-
-
-
+// ===== FUNÇÃO FORMATAR TEMPO =====
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'Agora';
+    
+    const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diff = now - time;
+    const minutes = Math.floor(diff / 60000);
+    
+    if (minutes < 1) return 'Agora';
+    if (minutes < 60) return `Há ${minutes} min`;
+    if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
+    return `Há ${Math.floor(minutes / 1440)} d`;
+}
 // ===== FUNÇÃO MANAGE GAME TIMER =====
 function manageGameTimer(oldGameState, newGameState) {
     if (!newGameState || !oldGameState) return;
@@ -9644,16 +7189,49 @@ function setupConnectionMonitoring() {
 }
 
 
+// ===== CHECK USER ACTIVE TABLE (ATUALIZADA) =====
+async function checkUserActiveTable(userId = null) {
+    const targetUserId = userId || currentUser?.uid;
+    
+    if (!targetUserId || !db) {
+        return { hasActiveTable: false };
+    }
+    
+    try {
+        const snapshot = await db.collection('tables')
+            .where('players', 'array-contains', { uid: targetUserId })
+            .where('status', 'in', ['waiting', 'playing'])
+            .limit(1)
+            .get();
+        
+        if (!snapshot.empty) {
+            const table = snapshot.docs[0].data();
+            return {
+                hasActiveTable: true,
+                tableId: snapshot.docs[0].id,
+                tableName: table.name,
+                tableBet: table.bet || 0,
+                tableStatus: table.status,
+                tableTimeLimit: table.timeLimit,
+                players: table.players || []
+            };
+        }
+        
+        return { hasActiveTable: false };
+    } catch (error) {
+        console.error('Erro ao verificar mesa ativa:', error);
+        return { hasActiveTable: false };
+    }
+}
 
 
+// ===== LISTENER DE MESAS ATIVAS =====
+let activeTableListener = null;
 // ===== SETUP ACTIVE TABLE LISTENER (CORRIGIDA) =====
 function setupActiveTableListener() {
-     // Garantir que a variável existe
-    if (!activeTableListener) {
-        activeTableListener = null;
-    } 
-     // Garantir que a variável existe
-    if (!activeTableListener) {
+    // Remover listener anterior
+    if (activeTableListener) {
+        activeTableListener();
         activeTableListener = null;
     }
     
@@ -10051,8 +7629,9 @@ document.addEventListener('click', function(e) {
     }
 });
 
-
-
+// ===== SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
+let activeNotifications = new Map();
+let notificationSound = null;
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
 // ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES DE DESAFIO =====
@@ -10077,135 +7656,49 @@ function initializeChallengeNotifications() {
     }
 }
 
-function addChallengeModalStyles() {
-    // Verificar se os estilos já foram adicionados
-    if (document.getElementById('challenge-modal-styles')) return;
 
-    const styles = `
-        .challenge-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .challenge-modal-content {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            width: 90%;
-            max-width: 400px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        }
-
-        .challenge-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #f0f0f0;
-            padding-bottom: 10px;
-        }
-
-        .close-modal {
-            font-size: 24px;
-            cursor: pointer;
-            color: #666;
-        }
-
-        .close-modal:hover {
-            color: #000;
-        }
-
-        .challenge-info p {
-            margin: 10px 0;
-            font-size: 14px;
-            line-height: 1.4;
-        }
-
-        .challenge-info strong {
-            color: #333;
-        }
-
-        .challenge-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-
-        .btn-accept, .btn-reject {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: all 0.3s ease;
-        }
-
-        .btn-accept {
-            background: #4CAF50;
-            color: white;
-        }
-
-        .btn-accept:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-        }
-
-        .btn-reject {
-            background: #f44336;
-            color: white;
-        }
-
-        .btn-reject:hover {
-            background: #da190b;
-            transform: translateY(-2px);
-        }
-
-        /* Animações */
-        .challenge-modal {
-            animation: modalFadeIn 0.3s ease;
-        }
-
-        @keyframes modalFadeIn {
-            from {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
-        }
-
-        /* Responsivo */
-        @media (max-width: 480px) {
-            .challenge-modal-content {
-                padding: 15px;
-                width: 95%;
-            }
-            
-            .challenge-actions {
-                flex-direction: column;
-            }
-            
-            .btn-accept, .btn-reject {
-                width: 100%;
-            }
-        }
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO ACEITO =====
+function showChallengeAcceptedNotification(notification) {
+    const notificationEl = document.createElement('div');
+    notificationEl.className = 'game-notification challenge-accepted';
+    notificationEl.innerHTML = `
+        <div class="notification-glowing-border" style="background: linear-gradient(90deg, #00ff88, #ffd700, #00ff88);"></div>
+        <div class="notification-header">
+            <div class="notification-icon">🎯</div>
+            <h3 class="notification-title">DESAFIO ACEITO!</h3>
+        </div>
+        
+        <div class="notification-content">
+            <p><strong>${notification.fromUserName}</strong> aceitou seu desafio!</p>
+            <p>Pronto para jogar?</p>
+        </div>
+        
+        <div class="notification-actions">
+            <button class="notification-btn accept" onclick="joinChallengeTable('${notification.tableId}', '${notification.id}')">
+                <i class="fas fa-play"></i> ENTRAR NA MESA
+            </button>
+        </div>
+        
+        <div class="notification-timer">
+            Mesa aguardando sua entrada...
+        </div>
     `;
-
-    const styleElement = document.createElement('style');
-    styleElement.id = 'challenge-modal-styles';
-    styleElement.textContent = styles;
-    document.head.appendChild(styleElement);
+    
+    const notificationSystem = getNotificationContainer();
+    notificationSystem.appendChild(notificationEl);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notificationEl.classList.add('show');
+    }, 100);
+    
+    // Auto-remover após 30 segundos
+    setTimeout(() => {
+        if (notificationEl.parentNode) {
+            notificationEl.classList.remove('show');
+            setTimeout(() => notificationEl.remove(), 500);
+        }
+    }, 30000);
 }
 
 // ===== ENTRAR NA MESA DE DESAFIO =====
@@ -10404,115 +7897,123 @@ function checkActiveListener() {
 
 // Adicione ao window para testar
 window.checkListener = checkActiveListener;
-
-
-// ===== FUNÇÕES AUXILIARES (SE NÃO EXISTIREM) =====
-function createNotificationElement(notification, id) {
-    const element = document.createElement('div');
-    element.className = 'notification challenge';
-    element.id = id;
-    element.innerHTML = `
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
+// ===== MOSTRAR NOTIFICAÇÃO DE DESAFIO =====
+async function showChallengeNotification(notification) {
+const originalShowChallengeNotification = showChallengeNotification;
+showChallengeNotification = function(notification) {
+    audioManager.playChallengeSound();
+    return originalShowChallengeNotification.call(this, notification);
+};
+    console.log('Novo desafio recebido:', notification);
+    
+    // Evitar notificações duplicadas
+    if (activeNotifications.has(notification.id)) {
+        console.log('Notificação duplicada, ignorando...');
+        return;
+    }
+    
+    // 🔥 CORREÇÃO: Garantir que o container existe
+    const notificationSystem = getNotificationContainer();
+if (!notificationSystem) {
+    console.error('❌ Não foi possível criar o container de notificações');
+    return;
+}
+    
+    // Tocar som de notificação
+    if (notificationSound) {
+        notificationSound();
+    }
+    
+    // Criar elemento de notificação
+    const notificationEl = document.createElement('div');
+    notificationEl.className = 'game-notification';
+    notificationEl.id = `notification-${notification.id}`;
+    notificationEl.dataset.notificationId = notification.id;
+    
+    // Formatar informações do desafio
+    const timeLimit = notification.timeLimit || 60;
+    const betAmount = notification.betAmount || 0;
+    const expiresAt = notification.expiresAt ? notification.expiresAt.toDate() : new Date(Date.now() + 5 * 60000);
+    const timeLeft = Math.max(0, Math.floor((expiresAt - new Date()) / 1000));
+    
+    notificationEl.innerHTML = `
+        <div class="notification-glowing-border"></div>
+        <div class="notification-header">
+            <div class="notification-icon">⚔️</div>
+            <h3 class="notification-title">DESAFIO RECEBIDO!</h3>
+        </div>
+        
         <div class="notification-content">
-            <i class="fas fa-trophy"></i>
-            <div>
-                <strong>${notification.fromUserName} te desafiou!</strong>
-                <p>${notification.message || 'Partida de damas'}</p>
-                <small>Tempo: ${notification.timeLimit}s | Aposta: ${notification.betAmount || 0} moedas</small>
+            <p><strong>${notification.fromUserName}</strong> te desafiou para uma partida!</p>
+            ${notification.message ? `<p>"${notification.message}"</p>` : ''}
+        </div>
+        
+        <div class="notification-challenge-info">
+            <div class="challenge-stats">
+                <div class="challenge-stat">
+                    <i class="fas fa-clock"></i>
+                    <span>${timeLimit}s por jogada</span>
+                </div>
+                <div class="challenge-stat">
+                    <i class="fas fa-coins"></i>
+                    <span>${betAmount} moedas</span>
+                </div>
+                <div class="challenge-stat">
+                    <i class="fas fa-hourglass-half"></i>
+                    <span>${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}</span>
+                </div>
             </div>
         </div>
-        <button class="notification-close">&times;</button>
+        
+        <div class="notification-actions">
+            <button class="notification-btn accept" onclick="acceptChallenge('${notification.id}')">
+                <i class="fas fa-check"></i> ACEITAR
+            </button>
+            <button class="notification-btn decline" onclick="declineChallenge('${notification.id}')">
+                <i class="fas fa-times"></i> RECUSAR
+            </button>
+        </div>
+        
+        <div class="notification-timer" id="timer-${notification.id}">
+            Expira em: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}
+        </div>
     `;
     
-    // Evento para fechar
-    element.querySelector('.notification-close').addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeNotification(id);
+    // 🔥 CORREÇÃO: Verificar novamente se o container existe antes de adicionar
+    if (!notificationSystem.parentNode) {
+        console.log('Container perdeu parent, recriando...');
+        createNotificationContainer();
+        notificationSystem = document.getElementById('notification-system');
+    }
+    
+    // Adicionar ao sistema de notificações
+    notificationSystem.appendChild(notificationEl);
+    
+    // Animação de entrada
+    setTimeout(() => {
+        notificationEl.classList.add('show');
+        createParticleEffect(notificationEl);
+    }, 100);
+    
+    // Adicionar à lista de notificações ativas
+    activeNotifications.set(notification.id, {
+        element: notificationEl,
+        expiresAt: expiresAt,
+        timer: setInterval(() => updateNotificationTimer(notification.id), 1000)
     });
     
-    return element;
-}
-
-function createNotificationsContainer() {
-    const container = document.createElement('div');
-    container.id = 'notifications-container';
-    container.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 10000;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        max-width: 350px;
-    `;
-    document.body.appendChild(container);
-    return container;
-}
-
-function removeNotification(id) {
-    if (activeNotifications && activeNotifications.has(id)) {
-        const notification = activeNotifications.get(id);
-        
-        // Remover elemento com animação
-        notification.element.classList.remove('show');
-        setTimeout(() => {
-            if (notification.element.parentNode) {
-                notification.element.parentNode.removeChild(notification.element);
-            }
-        }, 300);
-        
-        // Limpar timer e remover do mapa
-        clearTimeout(notification.timer);
-        activeNotifications.delete(id);
+    // Adicionar efeito de urgência se faltar pouco tempo
+    if (timeLeft < 60) {
+        notificationEl.classList.add('notification-urgent');
     }
-}
-
-async function handleChallengeClick(notification) {
-    console.log('Desafio clicado:', notification);
     
-    try {
-        // Se já tem tableId, entrar diretamente na mesa
-        if (notification.tableId) {
-            await joinTable(notification.tableId);
-            showNotification('Entrando na mesa de desafio...', 'success');
-            return;
+    // Auto-remover quando expirar
+    setTimeout(() => {
+        if (activeNotifications.has(notification.id)) {
+            removeChallengeNotification(notification.id, 'expired');
         }
-        
-        // Se não tem tableId, mostrar modal para aceitar/recusar
-        if (notification.type === 'challenge') {
-            await showChallengeModal(notification);
-        } 
-        else if (notification.type === 'challenge_accepted') {
-            await joinTable(notification.tableId);
-        }
-        
-    } catch (error) {
-        console.error('Erro ao processar notificação:', error);
-        showNotification('Erro ao processar notificação: ' + error.message, 'error');
-    }
-}
-
-
-
-// Adicione este event listener no seu código de inicialização
-document.addEventListener('DOMContentLoaded', function() {
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            closeChallengeModal();
-        }
-    });
-});
-
-// Se não existir, adicione esta função:
-async function markNotificationAsSeen(notificationId) {
-    try {
-        await db.collection('notifications').doc(notificationId).update({
-            status: 'seen',
-            seenAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (error) {
-        console.error('Erro ao marcar notificação como vista:', error);
-    }
+    }, timeLeft * 1000);
 }
 
 
@@ -10580,21 +8081,78 @@ function updateNotificationTimer(notificationId) {
     }
 }
 
+// ===== ACEITAR DESAFIO =====
+async function acceptChallenge(notificationId) {
+    console.log('Aceitando desafio:', notificationId);
+    
+    try {
+        const notification = activeNotifications.get(notificationId);
+        if (!notification) {
+            console.log('Notificação não encontrada nas notificações ativas');
+            return;
+        }
+        
+        // Buscar dados completos do desafio do Firestore
+        const challengeDoc = await db.collection('notifications').doc(notificationId).get();
+        
+        if (!challengeDoc.exists) {
+            console.error('Desafio não encontrado no Firestore');
+            showNotification('Desafio não encontrado', 'error');
+            return;
+        }
+        
+        const challenge = {
+            id: challengeDoc.id,
+            ...challengeDoc.data()
+        };
+        
+        console.log('Dados completos do desafio:', challenge);
+        
+        // Atualizar status da notificação
+        await db.collection('notifications').doc(notificationId).update({
+            status: 'accepted',
+            respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Criar mesa para o desafio
+        await createChallengeTable(challenge);
+        
+        // Remover notificação
+        removeChallengeNotification(notificationId, 'accepted');
+        
+        showNotification('Desafio aceito! Criando mesa...', 'success');
+        
+    } catch (error) {
+        console.error('Erro ao aceitar desafio:', error);
+        showNotification('Erro ao aceitar desafio: ' + error.message, 'error');
+    }
+}
 
+// ===== VALIDAR DADOS DO DESAFIO =====
 function validateChallengeData(challenge) {
     if (!challenge) {
         throw new Error('Dados do desafio são nulos');
     }
     
+    if (!challenge.fromUserId) {
+        throw new Error('ID do remetente não definido');
+    }
+    
+    if (!challenge.fromUserName) {
+        throw new Error('Nome do remetente não definido');
+    }
+    
+    // Garantir valores padrão
     return {
         id: challenge.id || null,
-        fromUserId: challenge.fromUserId || challenge.senderId,
-        fromUserName: challenge.fromUserName || challenge.senderName || 'Desafiante',
+        fromUserId: challenge.fromUserId,
+        fromUserName: challenge.fromUserName || 'Desafiante',
         timeLimit: challenge.timeLimit || 60,
-        betAmount: challenge.betAmount || challenge.bet || 0,
+        betAmount: challenge.betAmount || 0,
         message: challenge.message || ''
     };
 }
+
 
 // ===== RECUSAR DESAFIO =====
 async function declineChallenge(notificationId) {
@@ -10618,13 +8176,37 @@ async function declineChallenge(notificationId) {
     }
 }
 
+// ===== REMOVER NOTIFICAÇÃO =====
+function removeChallengeNotification(notificationId, reason = 'dismissed') {
+    const notification = activeNotifications.get(notificationId);
+    if (!notification) return;
+    
+    // Parar timer
+    clearInterval(notification.timer);
+    
+    // Animação de saída
+    notification.element.classList.remove('show');
+    notification.element.classList.add('hide');
+    
+    // Remover após animação
+    setTimeout(() => {
+        if (notification.element.parentNode) {
+            notification.element.parentNode.removeChild(notification.element);
+        }
+        activeNotifications.delete(notificationId);
+    }, 500);
+    
+    console.log(`Notificação ${notificationId} removida: ${reason}`);
+}
 
-async function createChallengeTable(notification) {
+
+// ===== CRIAR MESA PARA DESAFIO =====
+async function createChallengeTable(challenge) {
     try {
-        console.log('Criando mesa para desafio:', notification);
+        console.log('Criando mesa para desafio:', challenge);
         
         // Validar dados do desafio
-        const validatedChallenge = validateChallengeData(notification);
+        const validatedChallenge = validateChallengeData(challenge);
         
         const tableName = `Desafio: ${validatedChallenge.fromUserName} vs ${userData.displayName}`;
         
@@ -10632,55 +8214,48 @@ async function createChallengeTable(notification) {
         
         const tableData = {
             name: tableName,
-            timeLimit: validatedChallenge.timeLimit || 60,
-            bet: validatedChallenge.betAmount || 0,
-            status: 'waiting',
+            timeLimit: validatedChallenge.timeLimit,
+            bet: validatedChallenge.betAmount,
+            status: 'waiting', // 🔥 MUDAR para 'waiting' inicialmente
             players: [
                 {
                     uid: validatedChallenge.fromUserId,
                     displayName: validatedChallenge.fromUserName,
                     rating: 1000,
-                    color: 'black',
-                    ready: false
+                    color: 'black'
                 },
                 {
                     uid: currentUser.uid,
                     displayName: userData.displayName,
-                    rating: userData.rating || 1000,
-                    color: 'red',
-                    ready: false
+                    rating: userData.rating,
+                    color: 'red'
                 }
             ],
             createdBy: validatedChallenge.fromUserId,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             currentTurn: 'black',
             board: boardData,
-            waitingForOpponent: true,
-            platformFee: calculatePlatformFee(validatedChallenge.betAmount || 0),
+            waitingForOpponent: true, // 🔥 Esperando o desafiante entrar
+            platformFee: calculatePlatformFee(validatedChallenge.betAmount),
             isChallenge: true,
             challengeId: validatedChallenge.id || null
         };
         
         console.log('Dados da mesa validados:', tableData);
         
-        // Criar a mesa
         const tableRef = await db.collection('tables').add(tableData);
         
         console.log('✅ Mesa de desafio criada com ID:', tableRef.id);
         
-        // Atualizar a notificação com o ID da mesa
-        await db.collection('notifications').doc(notification.id).update({
-            tableId: tableRef.id,
-            status: 'table_created'
-        });
-        
-        // Entrar na mesa
-        await joinTable(tableRef.id);
-        
-        // Notificar o desafiante
+        // 🔥 NOTIFICAR O DESAFIANTE SOBRE A MESA CRIADA
         await notifyChallengerAboutTable(validatedChallenge.fromUserId, tableRef.id, validatedChallenge);
         
-        showNotification('Mesa criada! Aguardando o desafiante...', 'success');
+        // Entrar na mesa (quem aceitou)
+        userActiveTable = tableRef.id;
+        setupGameListener(tableRef.id);
+        showScreen('game-screen');
+        
+        showNotification('Mesa criada! Aguardando o desafiante entrar...', 'success');
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa de desafio:', error);
@@ -10689,11 +8264,12 @@ async function createChallengeTable(notification) {
 }
 
 
-
+// ===== NOTIFICAR DESAFIANTE SOBRE MESA CRIADA =====
 async function notifyChallengerAboutTable(challengerUserId, tableId, challenge) {
     try {
         console.log('Notificando desafiante:', challengerUserId);
         
+        // Criar notificação para o desafiante
         await db.collection('notifications').add({
             type: 'challenge_accepted',
             fromUserId: currentUser.uid,
@@ -11150,82 +8726,49 @@ class AudioManager {
 }
 
 
+// Instância global do gerenciador de áudio
+const audioManager = new AudioManager();
 
+// ===== CONTROLES DE SOM SIMPLIFICADOS =====
 function createSoundControls() {
-    console.log('🔊 Criando controles de som...');
-    // Implementação básica para evitar erros
-    // No lugar onde você define o audioManager (provavelmente no topo do arquivo)
-// ===== AUDIO MANAGER COMPLETO =====
-let audioManager = {
-    // Métodos de som
-    playNotificationSound: function() {
-        this.createSound(800, 0.3, 'sine', 0.1);
-        console.log('🔊 Som de notificação');
-    },
+    // Verificar se já existe
+    if (document.getElementById('sound-controls')) return;
     
-    playGameStartSound: function() {
-        this.createSound(600, 0.5, 'sine', 0.2);
-        console.log('🎮 Som de início de jogo');
-    },
+    const controlsHTML = `
+        <div id="sound-controls" class="sound-controls">
+            <button id="btn-sound-toggle" class="sound-btn" title="Efeitos sonoros">
+                <i class="fas fa-volume-up"></i>
+            </button>
+            <button id="btn-music-toggle" class="sound-btn" title="Música">
+                <i class="fas fa-music"></i>
+            </button>
+        </div>
+    `;
     
-    playClickSound: function() {
-        this.createSound(300, 0.1, 'sine', 0.1);
-        console.log('🖱️ Som de clique');
-    },
+    document.body.insertAdjacentHTML('beforeend', controlsHTML);
     
-    playVictorySound: function() {
-        this.createSound(800, 0.8, 'sine', 0.3);
-        console.log('🎉 Som de vitória');
-    },
+    // Configurar event listeners
+    document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+        audioManager.toggleSound(!audioManager.sfxEnabled);
+        updateSoundButtons();
+        audioManager.playClickSound(); // Feedback
+    });
     
-    playDefeatSound: function() {
-        this.createSound(400, 0.8, 'sine', 0.3);
-        console.log('😞 Som de derrota');
-    },
+    document.getElementById('btn-music-toggle').addEventListener('click', () => {
+        audioManager.toggleMusic(!audioManager.musicEnabled);
+        updateSoundButtons();
+        audioManager.playClickSound(); // Feedback
+    });
     
-    playChallengeSound: function() {
-        this.createSound(700, 0.4, 'sine', 0.25);
-        console.log('🎯 Som de desafio');
-    },
+    // Carregar preferências e atualizar botões
+    audioManager.loadPreferences();
+    updateSoundButtons();
     
-    playSelectionSound: function() {
-        this.createSound(500, 0.2, 'sine', 0.15);
-        console.log('🔘 Som de seleção');
-    },
-    
-    // Método base para criar sons
-    createSound: function(frequency, duration, type, volume) {
-        try {
-            // Verificar se o navegador suporta AudioContext
-            if (!window.AudioContext && !window.webkitAudioContext) {
-                console.log('Navegador não suporta AudioContext');
-                return;
-            }
-            
-            const context = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = context.createOscillator();
-            const gainNode = context.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(context.destination);
-            
-            oscillator.type = type || 'sine';
-            oscillator.frequency.value = frequency || 440;
-            gainNode.gain.value = volume || 0.1;
-            
-            oscillator.start();
-            gainNode.gain.exponentialRampToValueAtTime(0.001, context.currentTime + (duration || 0.3));
-            oscillator.stop(context.currentTime + (duration || 0.3));
-            
-        } catch (error) {
-            console.log('Áudio não disponível:', error);
-        }
+    // Iniciar música se habilitada
+    if (audioManager.musicEnabled) {
+        audioManager.playBackgroundMusic();
     }
-};
-
 }
-
-
 function updateSoundButtons() {
     const soundBtn = document.getElementById('btn-sound-toggle');
     const musicBtn = document.getElementById('btn-music-toggle');
@@ -11335,2100 +8878,5 @@ function initializeGameWithSound() {
     // Aplicar handler se gameState existir
     if (gameState) {
         gameState = new Proxy(gameState, gameStateHandler);
-    }
-}
-
-// Configuração simples de WebRTC
-class VoiceChat {
-    constructor() {
-        this.localStream = null;
-        this.peerConnection = null;
-        this.isAudioActive = false;
-    }
-
-    async initVoiceChat() {
-        try {
-            // Solicitar permissão de microfone
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: false
-            });
-            
-            this.setupUI();
-            console.log('Microfone ativado com sucesso!');
-            
-        } catch (error) {
-            console.error('Erro ao acessar microfone:', error);
-            this.showError('Não foi possível acessar o microfone');
-        }
-    }
-
-    setupUI() {
-        const toggleBtn = document.getElementById('voice-toggle');
-        const statusDiv = document.getElementById('voice-status');
-
-        toggleBtn.addEventListener('click', () => {
-            this.isAudioActive = !this.isAudioActive;
-            
-            if (this.isAudioActive) {
-                this.startVoiceChat();
-                toggleBtn.style.background = '#2ecc71';
-                toggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
-                statusDiv.style.display = 'block';
-            } else {
-                this.stopVoiceChat();
-                toggleBtn.style.background = '#e74c3c';
-                toggleBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-                statusDiv.style.display = 'none';
-            }
-        });
-
-        // Visualização de áudio (opcional)
-        this.createAudioVisualizer();
-    }
-
-    async startVoiceChat() {
-        // Aqui você conectaria com o oponente via WebRTC
-        console.log('Voice chat iniciado');
-        this.showNotification('Chat de voz ativado');
-    }
-
-    stopVoiceChat() {
-        console.log('Voice chat parado');
-        this.showNotification('Chat de voz desativado');
-    }
-
-    createAudioVisualizer() {
-        // Implementação simples de visualizador de áudio
-        const audioContext = new AudioContext();
-        const analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(this.localStream);
-        
-        source.connect(analyser);
-        // ... código do visualizador
-    }
-
-    showNotification(message) {
-        // Usar seu sistema de notificação existente
-        if (typeof showNotification === 'function') {
-            showNotification(message, 'info');
-        }
-    }
-
-    showError(message) {
-        if (typeof showNotification === 'function') {
-            showNotification(message, 'error');
-        }
-    }
-}
-
-// Inicializar quando o jogo começar
-const voiceChat = new VoiceChat();
-
-// Iniciar quando o jogo começar
-function startGameVoiceChat() {
-    voiceChat.initVoiceChat();
-}
-
-// Parar quando o jogo terminar
-function stopGameVoiceChat() {
-    voiceChat.stopVoiceChat();
-}
-
-// ===== INICIALIZAR VOICE CHAT =====
-async function initializeGameVoiceChat() {
-    if (voiceChatSystem) {
-        console.log('⚠️ Sistema de voz já inicializado');
-        return;
-    }
-    
-    if (!gameState || !gameState.players || gameState.players.length < 2) {
-        console.log('⚠️ Jogo não está pronto para voice chat');
-        return;
-    }
-    
-    console.log('🎮 Inicializando voice chat...');
-    
-    voiceChatSystem = new VoiceChatSystem();
-    const success = await voiceChatSystem.initialize();
-    
-    if (success) {
-        console.log('✅ Voice chat pronto para uso');
-        // Mostrar instruções após um delay
-        setTimeout(() => {
-            voiceChatSystem.showNotification('💬 Clique no ícone de microfone no canto inferior direito para falar', 'info', 5000);
-        }, 2000);
-    }
-}
-
-function cleanupGameVoiceChat() {
-    if (voiceChatSystem.isEnabled) {
-        stopVoiceChat();
-        
-        const voiceToggle = document.getElementById('voice-toggle');
-        if (voiceToggle) {
-            voiceToggle.classList.remove('active');
-            voiceToggle.innerHTML = '<i class="fas fa-microphone-slash"></i> Voz';
-        }
-        
-        voiceChatSystem.isEnabled = false;
-    }
-}
-
-// ===== VERIFICAR SE É MOBILE =====
-function isMobileDevice() {
-    return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-}
-
-// ===== CLASSE VoiceChatSystem (SIMPIFICADA) =====
-class VoiceChatSystem {
-    constructor() {
-        this.localStream = null;
-        this.isAudioActive = false;
-        this.hasAudioPermission = false;
-    }
-
-    async initialize() {
-        console.log('🎤 Inicializando sistema de voz...');
-        
-        try {
-            // Verificar suporte do navegador
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                this.showError('Seu navegador não suporta chat de voz');
-                return false;
-            }
-
-            // Solicitar permissão de microfone
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                },
-                video: false
-            });
-
-            this.hasAudioPermission = true;
-            this.createUI();
-            this.setupEventListeners();
-            
-            console.log('✅ Sistema de voz inicializado com sucesso');
-            return true;
-
-        } catch (error) {
-            console.error('❌ Erro ao inicializar voz:', error);
-            this.handlePermissionError(error);
-            return false;
-        }
-    }
-
-    handlePermissionError(error) {
-        let errorMessage = 'Não foi possível acessar o microfone';
-        
-        if (error.name === 'NotAllowedError') {
-            errorMessage = 'Permissão de microfone negada. Clique no ícone de cadeado na barra de URL para permitir.';
-        } else if (error.name === 'NotFoundError') {
-            errorMessage = 'Nenhum microfone encontrado';
-        } else if (error.name === 'NotReadableError') {
-            errorMessage = 'Microfone está sendo usado por outra aplicação';
-        }
-        
-        this.showError(errorMessage);
-    }
-
-    createUI() {
-        // Verificar se a UI já existe
-        if (document.getElementById('voice-chat-container')) {
-            return;
-        }
-
-        const voiceChatHTML = `
-            <div id="voice-chat-container" style="position: fixed; bottom: 20px; right: 20px; z-index: 1000;">
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 20px;">
-                    <button id="voice-toggle" style="background: #e74c3c; color: white; border: none; padding: 15px; border-radius: 50%; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
-                        <i class="fas fa-microphone"></i>
-                    </button>
-                    
-                    <div id="voice-status" style="color: white; padding: 8px 12px; border-radius: 15px; font-size: 12px; text-align: center;">
-                        <div>Clique para falar</div>
-                        <div id="connection-status" style="font-size: 10px; opacity: 0.7; margin-top: 5px;">Pronto</div>
-                    </div>
-                    
-                    <div id="audio-visualizer" style="width: 100px; height: 20px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden;">
-                        <div id="audio-level" style="height: 100%; width: 0%; background: linear-gradient(90deg, #2ecc71, #f1c40f); transition: width 0.1s;"></div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.insertAdjacentHTML('beforeend', voiceChatHTML);
-    }
-
-    setupEventListeners() {
-        const toggleBtn = document.getElementById('voice-toggle');
-        const statusDiv = document.getElementById('voice-status');
-        const connectionStatus = document.getElementById('connection-status');
-
-        if (!toggleBtn) return;
-
-        toggleBtn.addEventListener('click', () => {
-            this.toggleVoiceChat();
-        });
-
-        // Iniciar visualizador de áudio
-        this.setupAudioVisualizer();
-    }
-
-    toggleVoiceChat() {
-        const toggleBtn = document.getElementById('voice-toggle');
-        const statusDiv = document.getElementById('voice-status');
-        const connectionStatus = document.getElementById('connection-status');
-
-        this.isAudioActive = !this.isAudioActive;
-        
-        if (this.isAudioActive) {
-            this.startVoice();
-            toggleBtn.style.background = '#2ecc71';
-            toggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
-            statusDiv.innerHTML = '<div>Microfone ativo</div>';
-            connectionStatus.textContent = 'Falando...';
-            connectionStatus.style.color = '#2ecc71';
-        } else {
-            this.stopVoice();
-            toggleBtn.style.background = '#e74c3c';
-            toggleBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-            statusDiv.innerHTML = '<div>Clique para falar</div>';
-            connectionStatus.textContent = 'Pronto';
-            connectionStatus.style.color = '';
-        }
-    }
-
-    startVoice() {
-        console.log('🎤 Microfone ativado');
-        this.showNotification('Microfone ativado - Você está sendo ouvido', 'info');
-        
-        // Aqui você pode adicionar lógica para enviar áudio para o oponente
-        // quando implementar WebRTC completo
-    }
-
-    stopVoice() {
-        console.log('🎤 Microfone desativado');
-        this.showNotification('Microfone desativado', 'info');
-    }
-
-    setupAudioVisualizer() {
-        if (!this.localStream || !this.hasAudioPermission) return;
-
-        try {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const analyser = audioContext.createAnalyser();
-            const source = audioContext.createMediaStreamSource(this.localStream);
-            
-            source.connect(analyser);
-            analyser.fftSize = 256;
-
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            const visualizer = document.getElementById('audio-level');
-
-            const updateVisualizer = () => {
-                analyser.getByteFrequencyData(dataArray);
-                
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                }
-                
-                const average = sum / dataArray.length;
-                const width = Math.min(100, average * 0.5);
-                
-                if (visualizer) {
-                    visualizer.style.width = width + '%';
-                }
-                
-                if (this.isAudioActive) {
-                    requestAnimationFrame(updateVisualizer);
-                }
-            };
-
-            updateVisualizer();
-
-        } catch (error) {
-            console.log('Visualizador de áudio não disponível:', error);
-        }
-    }
-
-    showNotification(message, type = 'info') {
-        // Use seu sistema de notificação existente
-        if (typeof showNotification === 'function') {
-            showNotification(message, type);
-        } else {
-            // Fallback simples
-            console.log(`${type.toUpperCase()}: ${message}`);
-        }
-    }
-
-    showError(message) {
-        this.showNotification(message, 'error');
-    }
-
-    // Função para limpar (importante!)
-    cleanup() {
-        if (this.localStream) {
-            this.localStream.getTracks().forEach(track => track.stop());
-            this.localStream = null;
-        }
-        
-        this.isAudioActive = false;
-        this.hasAudioPermission = false;
-        
-        // Remover UI se existir
-        const voiceContainer = document.getElementById('voice-chat-container');
-        if (voiceContainer) {
-            voiceContainer.remove();
-        }
-        
-        console.log('🧹 Sistema de voz limpo');
-    }
-}
-
-
-
-
-
-// ===== DEBUG DETALHADO DAS CONEXÕES =====
-function debugWebRTC() {
-    console.log('=== DEBUG WEBRTC ===');
-    console.log('Local stream:', voiceChatSystem.localStream ? 'Present' : 'Null');
-    if (voiceChatSystem.localStream) {
-        console.log('Audio tracks:', voiceChatSystem.localStream.getAudioTracks().length);
-        voiceChatSystem.localStream.getAudioTracks().forEach(track => {
-            console.log('Track:', track.id, 'enabled:', track.enabled, 'muted:', track.muted);
-        });
-    }
-    
-    console.log('Peer connections:', Object.keys(voiceChatSystem.peerConnections).length);
-    Object.entries(voiceChatSystem.peerConnections).forEach(([userId, pc]) => {
-        console.log(`Peer ${userId}:`);
-        console.log('  - connectionState:', pc.connectionState);
-        console.log('  - iceConnectionState:', pc.iceConnectionState);
-        console.log('  - signalingState:', pc.signalingState);
-        console.log('  - local description:', pc.localDescription ? 'Set' : 'Not set');
-        console.log('  - remote description:', pc.remoteDescription ? 'Set' : 'Not set');
-    });
-    
-    console.log('Audio elements:', Object.keys(audioElements).length);
-}
-
-// Adicione ao window para testar
-window.debugWebRTC = debugWebRTC;
-
-
-
-// ===== INICIALIZAR MODAL DE NOTIFICAÇÕES =====
-function initializeNotificationsModal() {
-    if (document.getElementById('notifications-modal')) return;
-    
-    const modalHTML = `
-        <div class="notifications-modal" id="notifications-modal">
-            <div class="notifications-content">
-                <div class="notifications-header">
-                    <h3>🎯 Notificações</h3>
-                    <button class="notifications-close">&times;</button>
-                </div>
-                <div class="notifications-body">
-                    <div class="notifications-list" id="notifications-list">
-                        <div class="empty-notifications">
-                            <i class="fas fa-bell-slash"></i>
-                            <p>Nenhuma notificação</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="notifications-footer">
-                    <button class="btn-clear-all" id="btn-clear-notifications">
-                        <i class="fas fa-trash"></i> Limpar Tudo
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-    
-    // Event listeners
-    const modal = document.getElementById('notifications-modal');
-    const closeBtn = modal.querySelector('.notifications-close');
-    const clearBtn = document.getElementById('btn-clear-notifications');
-    
-    closeBtn.addEventListener('click', closeNotificationsModal);
-    clearBtn.addEventListener('click', clearAllNotifications);
-    
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            closeNotificationsModal();
-        }
-    });
-}
-
-// ===== INICIALIZAR SISTEMA DE NOTIFICAÇÕES =====
-function initializeNotificationsSystem() {
-    initializeNotificationsModal();
-    setupNotificationsButton();
-    setupNotificationsListener();
-}
-
-// ===== CONFIGURAR BOTÃO DE NOTIFICAÇÕES =====
-function setupNotificationsButton() {
-    const notificationsBtn = document.getElementById('btn-notifications');
-    if (!notificationsBtn) {
-        console.error('Botão de notificações não encontrado');
-        return;
-    }
-    
-    // Adicionar badge inicial
-    const badge = document.createElement('span');
-    badge.className = 'notifications-badge';
-    badge.id = 'notifications-badge';
-    badge.style.display = 'none';
-    notificationsBtn.appendChild(badge);
-    
-    // Event listener
-    notificationsBtn.addEventListener('click', toggleNotificationsModal);
-    
-    console.log('✅ Botão de notificações configurado');
-}
-
-// ===== CONFIGURAR LISTENER DE NOTIFICAÇÕES (ATUALIZADA) =====
-function setupNotificationsListener() {
-    if (!currentUser || !db) {
-        console.log('Usuário não logado, aguardando para configurar listener...');
-        setTimeout(setupNotificationsListener, 2000);
-        return;
-    }
-    
-    // Remover listener anterior se existir
-    if (notificationsListener) {
-        notificationsListener();
-    }
-    
-    notificationsListener = db.collection('notifications')
-        .where('toUserId', '==', currentUser.uid)
-        .orderBy('timestamp', 'desc')
-        .limit(50) // Aumentar limite para melhor filtragem
-        .onSnapshot((snapshot) => {
-            userNotifications = [];
-            unreadCount = 0;
-            
-            snapshot.forEach((doc) => {
-                const notification = {
-                    id: doc.id,
-                    ...doc.data(),
-                    timestamp: doc.data().timestamp?.toDate ? 
-                             doc.data().timestamp.toDate() : 
-                             new Date(doc.data().timestamp)
-                };
-                
-                userNotifications.push(notification);
-            });
-            
-            // Aplicar filtro para remover notificações indesejadas
-            userNotifications = filterNotifications(userNotifications);
-            
-            // Contar não lidas após filtro
-            unreadCount = userNotifications.filter(n => !n.read).length;
-            
-            updateNotificationsBadge();
-            updateNotificationsList();
-            
-        }, (error) => {
-            console.error('Erro no listener de notificações:', error);
-        });
-}
-
-// ===== CRIAR NOTIFICAÇÃO DE TESTE =====
-async function createTestNotification(type = 'message') {
-    if (!currentUser || !db) {
-        showNotification('Você precisa estar logado', 'error');
-        return;
-    }
-    
-    const testMessages = {
-        'message': 'Olá! Vamos jogar uma partida?',
-        'table_available': 'Seu amigo João criou uma mesa nova!',
-        'friend_online': 'Maria está online e procurando parceiros',
-        'system': 'Sistema atualizado com novas funcionalidades',
-        'reward': 'Você ganhou 50 moedas por jogar hoje!'
-    };
-    
-    try {
-        await db.collection('notifications').add({
-            type: type,
-            toUserId: currentUser.uid,
-            fromUserId: 'system',
-            fromUserName: 'Sistema',
-            message: testMessages[type] || 'Notificação de teste',
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-        });
-        
-        showNotification('Notificação de teste criada', 'success');
-    } catch (error) {
-        console.error('Erro ao criar notificação teste:', error);
-    }
-}
-
-// Adicione ao window para testar
-window.testNotification = createTestNotification;
-
-// ===== ATUALIZAR BADGE DE NOTIFICAÇÕES =====
-function updateNotificationsBadge() {
-    const badge = document.getElementById('notifications-badge');
-    const btn = document.getElementById('btn-notifications');
-    
-    if (badge && btn) {
-        if (unreadCount > 0) {
-            badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
-            badge.style.display = 'flex';
-            
-            // Adicionar animação de pulsação
-            badge.style.animation = 'pulse 2s infinite';
-            
-            // Adicionar efeito no botão
-            btn.classList.add('has-notifications');
-        } else {
-            badge.style.display = 'none';
-            btn.classList.remove('has-notifications');
-        }
-    }
-}
-// ===== ATUALIZAR LISTA DE NOTIFICAÇÕES (CORRIGIDA) =====
-function updateNotificationsList(notifications) {
-    const container = document.getElementById('notifications-container');
-    if (!container) return;
-    
-    // Ordenar notificações: mais recentes primeiro
-    notifications.sort((a, b) => b.createdAt - a.createdAt);
-    
-    container.innerHTML = notifications.map(notification => {
-        let icon = 'info-circle';
-        let text = '';
-        
-        switch (notification.type) {
-            case 'challenge':
-                icon = 'trophy';
-                text = `${notification.data.challengerName} te desafiou!`;
-                break;
-            case 'game_invite':
-                icon = 'chess-board';
-                text = `Convite para partida de ${notification.data.inviterName}`;
-                break;
-            case 'game_over':
-                icon = 'flag-checkered';
-                text = `Partida contra ${notification.data.opponentName} finalizada`;
-                break;
-            case 'message':
-                icon = 'envelope';
-                text = `Mensagem de ${notification.data.senderName}`;
-                break;
-            default:
-                text = notification.message || 'Nova notificação';
-        }
-        
-        return `
-            <div class="notification-item ${notification.isRead ? 'read' : 'unread'}" 
-                 data-notification-id="${notification.id}">
-                <div class="notification-icon">
-                    <i class="fas fa-${icon}"></i>
-                </div>
-                <div class="notification-content">
-                    <p>${text}</p>
-                    <small>${formatTimeAgo(notification.createdAt)}</small>
-                </div>
-                <button class="notification-close" onclick="markNotificationAsRead('${notification.id}')">
-                    &times;
-                </button>
-            </div>
-        `;
-    }).join('');
-}
-
-
-// ===== FORMATAR TEMPO DECORRIDO (formatTimeAgo) =====
-function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Agora mesmo';
-    
-    // Converter para objeto Date se for Timestamp do Firebase
-    const date = timestamp instanceof Date ? timestamp : timestamp.toDate();
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-    
-    if (seconds < 60) {
-        return 'Agora mesmo';
-    }
-    
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) {
-        return `há ${minutes} minuto${minutes !== 1 ? 's' : ''}`;
-    }
-    
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) {
-        return `há ${hours} hora${hours !== 1 ? 's' : ''}`;
-    }
-    
-    const days = Math.floor(hours / 24);
-    if (days < 30) {
-        return `há ${days} dia${days !== 1 ? 's' : ''}`;
-    }
-    
-    const months = Math.floor(days / 30);
-    if (months < 12) {
-        return `há ${months} mês${months !== 1 ? 'es' : ''}`;
-    }
-    
-    const years = Math.floor(months / 12);
-    return `há ${years} ano${years !== 1 ? 's' : ''}`;
-}
-// ===== OBTER TÍTULO DA NOTIFICAÇÃO =====
-// ===== OBTER TÍTULO DA NOTIFICAÇÃO (ATUALIZADA) =====
-function getNotificationTitle(type) {
-    const titles = {
-        'message': '💬 Mensagem',
-        'table_available': '🎮 Mesa Disponível',
-        'friend_online': '👥 Amigo Online',
-        'game_result': '🏆 Resultado de Jogo',
-        'system': '⚙️ Sistema',
-        'reward': '🎁 Recompensa',
-        'warning': '⚠️ Aviso'
-    };
-    
-    return titles[type] || '🔔 Notificação';
-}
-
-// ===== OBTER AÇÕES DA NOTIFICAÇÃO (ATUALIZADA) =====
-function getNotificationActions(notification) {
-    // Remover ações para desafios
-    if (notification.type === 'message' && notification.tableId) {
-        return `
-            <div class="notification-actions">
-                <button class="notification-btn btn-view" data-action="view-message" data-id="${notification.id}">
-                    <i class="fas fa-comment"></i> Responder
-                </button>
-            </div>
-        `;
-    }
-    
-    if (notification.type === 'table_available') {
-        return `
-            <div class="notification-actions">
-                <button class="notification-btn btn-accept" data-action="join-table" data-id="${notification.id}">
-                    <i class="fas fa-gamepad"></i> Entrar
-                </button>
-                <button class="notification-btn btn-decline" data-action="ignore" data-id="${notification.id}">
-                    <i class="fas fa-times"></i> Ignorar
-                </button>
-            </div>
-        `;
-    }
-    
-    if (notification.type === 'friend_online') {
-        return `
-            <div class="notification-actions">
-                <button class="notification-btn btn-view" data-action="view-profile" data-id="${notification.id}">
-                    <i class="fas fa-user"></i> Ver Perfil
-                </button>
-            </div>
-        `;
-    }
-    
-    return '';
-}
-
-// ===== ADICIONAR LISTENERS DAS AÇÕES =====
-function addNotificationActionsListeners() {
-    document.querySelectorAll('.notification-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            const notificationId = btn.dataset.id;
-            const action = btn.dataset.action;
-            
-            await handleNotificationAction(notificationId, action);
-        });
-    });
-}
-// ===== MANIPULAR AÇÃO DE NOTIFICAÇÃO (ATUALIZADA) =====
-async function handleNotificationAction(notificationId, action) {
-    try {
-        const notification = userNotifications.find(n => n.id === notificationId);
-        if (!notification) return;
-        
-        // Marcar como lida
-        await db.collection('notifications').doc(notificationId).update({
-            read: true
-        });
-        
-        // Executar ação específica
-        switch (action) {
-            case 'join-table':
-                if (notification.tableId) {
-                    joinTable(notification.tableId);
-                }
-                break;
-                
-            case 'view-message':
-                // Futura implementação de chat
-                showNotification('Sistema de mensagens em desenvolvimento', 'info');
-                break;
-                
-            case 'view-profile':
-                // Futura implementação de perfil
-                showNotification('Perfil em desenvolvimento', 'info');
-                break;
-                
-            case 'ignore':
-                // Apenas marcar como lida
-                break;
-        }
-        
-        closeNotificationsModal();
-        
-    } catch (error) {
-        console.error('Erro ao manipular ação de notificação:', error);
-        showNotification('Erro ao processar notificação', 'error');
-    }
-}
-
-
-// ===== FILTRAR NOTIFICAÇÕES =====
-function filterNotifications(notifications) {
-    return notifications.filter(notification => {
-        // Remover notificações de desafio
-        if (notification.type === 'challenge') {
-            return false;
-        }
-        
-        // Remover notificações expiradas
-        if (notification.expiresAt) {
-            const expiresDate = notification.expiresAt.toDate ? 
-                              notification.expiresAt.toDate() : 
-                              new Date(notification.expiresAt);
-            if (expiresDate < new Date()) {
-                // Opcional: deletar notificações expiradas
-                db.collection('notifications').doc(notification.id).delete();
-                return false;
-            }
-        }
-        
-        return true;
-    });
-}
-// ===== ABRIR MODAL DE NOTIFICAÇÕES =====
-function openNotificationsModal() {
-    const modal = document.getElementById('notifications-modal');
-    modal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-    
-    // Atualizar lista ao abrir
-    updateNotificationsList();
-}
-
-// ===== FECHAR MODAL DE NOTIFICAÇÕES =====
-function closeNotificationsModal() {
-    const modal = document.getElementById('notifications-modal');
-    modal.classList.remove('active');
-    document.body.style.overflow = '';
-}
-
-// ===== TOGGLE MODAL =====
-function toggleNotificationsModal() {
-    const modal = document.getElementById('notifications-modal');
-    if (modal.classList.contains('active')) {
-        closeNotificationsModal();
-    } else {
-        openNotificationsModal();
-    }
-}
-
-// ===== LIMPAR TODAS NOTIFICAÇÕES =====
-async function clearAllNotifications() {
-    try {
-        const batch = db.batch();
-        
-        userNotifications.forEach(notification => {
-            const ref = db.collection('notifications').doc(notification.id);
-            batch.delete(ref);
-        });
-        
-        await batch.commit();
-        showNotification('Notificações limpas', 'success');
-        
-    } catch (error) {
-        console.error('Erro ao limpar notificações:', error);
-        showNotification('Erro ao limpar notificações', 'error');
-    }
-}
-
-
-
-// ===== VARIÁVEIS DO SISTEMA DE AMIGOS =====
-let friendsListener = null;
-let userFriends = [];
-let friendRequests = [];
-let onlineFriends = 0;
-
-// ===== INICIALIZAR SISTEMA DE AMIGOS (ATUALIZADA) =====
-// ===== INICIALIZAR SISTEMA DE AMIGOS (COMPATÍVEL) =====
-function initializeFriendsSystem() {
-    // Verificar se já temos a estrutura de tabs
-    const existingTabs = document.querySelectorAll('.friend-tab');
-    
-    if (existingTabs.length === 0) {
-        // Se não existem tabs, carregar a estrutura completa
-        loadFriends();
-    } else {
-        // Se já existem tabs, apenas configurar os listeners
-        setupFriendsTabs();
-        setupUsersSearch();
-        setupFriendRequestsListener();
-        
-        // Carregar dados iniciais
-        loadFriendsList();
-    }
-}
-
-// ===== CONFIGURAR ABAS DE AMIGOS (COMPATÍVEL) =====
-function setupFriendsTabs() {
-    const tabs = document.querySelectorAll('.friend-tab');
-    const contents = document.querySelectorAll('.tab-content');
-    
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.dataset.tab;
-            
-            // Remover active de todas as tabs
-            tabs.forEach(t => t.classList.remove('active'));
-            contents.forEach(c => c.classList.remove('active'));
-            
-            // Adicionar active à tab clicada
-            tab.classList.add('active');
-            document.getElementById(`tab-${tabName}-content`).classList.add('active');
-            
-            // Carregar conteúdo específico
-            switch (tabName) {
-                case 'all':
-                    loadFriendsList();
-                    break;
-                case 'online':
-                    loadOnlineFriends();
-                    break;
-                case 'requests':
-                    loadFriendRequestsList();
-                    break;
-                case 'add':
-                    loadAddFriends();
-                    break;
-            }
-        });
-    });
-}
-// ===== CARREGAR LISTA DE SOLICITAÇÕES (CORRIGIDA) =====
-async function loadFriendRequestsList() {
-    try {
-        const requestsGrid = document.getElementById('requests-grid');
-        if (!requestsGrid) return;
-        
-        // Mostrar loading
-        requestsGrid.innerHTML = `
-            <div class="search-loading">
-                <i class="fas fa-spinner"></i>
-                <p>Carregando solicitações...</p>
-            </div>
-        `;
-        
-        const snapshot = await db.collection('friendRequests')
-            .where('toUserId', '==', currentUser.uid)
-            .where('status', '==', 'pending')
-            .orderBy('timestamp', 'desc')
-            .get();
-        
-        renderFriendRequests(snapshot);
-        
-    } catch (error) {
-        console.error('Erro ao carregar solicitações:', error);
-        const requestsGrid = document.getElementById('requests-grid');
-        if (requestsGrid) {
-            requestsGrid.innerHTML = `
-                <div class="empty-friends">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h3>Erro ao carregar</h3>
-                    <p>Tente novamente</p>
-                </div>
-            `;
-        }
-    }
-}
-
-// ===== CARREGAR AMIGOS (COMPATÍVEL COM HTML EXISTENTE) =====
-async function loadFriends() {
-    const friendsContainer = document.getElementById('friends-container');
-    if (!friendsContainer) return;
-    
-    // Manter a estrutura existente do HTML, apenas preencher o conteúdo
-    friendsContainer.innerHTML = `
-        <div class="friends-section">
-            <div class="friends-header">
-                <h2>👥 Sistema de Amigos</h2>
-                <p>Conecte-se com outros jogadores e jogue together</p>
-            </div>
-            
-            <div class="friends-stats">
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="total-friends">0</span>
-                    <span class="stat-label">Amigos no Total</span>
-                </div>
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="online-friends">0</span>
-                    <span class="stat-label">Amigos Online</span>
-                </div>
-                <div class="friend-stat-card">
-                    <span class="stat-number" id="pending-requests-count">0</span>
-                    <span class="stat-label">Solicitações Pendentes</span>
-                </div>
-            </div>
-            
-            <div class="friends-tabs">
-                <button class="friend-tab active" data-tab="all">
-                    Todos os Amigos
-                </button>
-                <button class="friend-tab" data-tab="online">
-                    Online
-                </button>
-                <button class="friend-tab" data-tab="requests" id="tab-requests-btn">
-                    Solicitações
-                    <span class="tab-badge" id="requests-badge" style="display: none;">0</span>
-                </button>
-                <button class="friend-tab" data-tab="add">
-                    Adicionar
-                </button>
-            </div>
-            
-            <div class="tab-content active" id="tab-all-content">
-                <div class="friends-grid" id="friends-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-user-friends"></i>
-                        <h3>Nenhum amigo ainda</h3>
-                        <p>Adicione amigos para começar a jogar together</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-online-content">
-                <div class="friends-grid" id="online-friends-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-wifi"></i>
-                        <h3>Nenhum amigo online</h3>
-                        <p>Seus amigos aparecerão aqui quando estiverem online</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-requests-content">
-                <div class="friends-grid" id="requests-grid">
-                    <div class="empty-friends">
-                        <i class="fas fa-user-plus"></i>
-                        <h3>Nenhuma solicitação</h3>
-                        <p>Solicitações de amizade aparecerão aqui</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tab-content" id="tab-add-content">
-                <div class="add-friends-container" id="add-friends-container">
-                    <div class="empty-friends">
-                        <i class="fas fa-search"></i>
-                        <h3>Encontrar Amigos</h3>
-                        <p>Use a busca acima para encontrar outros jogadores</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="friends-footer">
-                <button class="invite-friends-btn" id="btn-invite-friends">
-                    <i class="fas fa-envelope"></i>
-                    Convidar Amigos
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // Configurar event listeners
-    setupFriendsListeners();
-    setupUsersSearch();
-    setupFriendRequestsListener();
-}
-
-// ===== CONFIGURAR LISTENERS DE AMIGOS (COM VERIFICAÇÃO) =====
-function setupFriendsListeners() {
-    // Listener para amigos
-    if (friendsListener) {
-        friendsListener();
-    }
-    
-    if (!currentUser || !db) return;
-    
-    friendsListener = db.collection('users')
-        .doc(currentUser.uid)
-        .collection('friends')
-        .onSnapshot(async (snapshot) => {
-            // Verificar se ainda estamos na tab de amigos
-            const friendsGrid = document.getElementById('friends-grid');
-            if (!friendsGrid) return;
-            
-            userFriends = [];
-            onlineFriends = 0;
-            let playingFriends = 0;
-            
-            for (const doc of snapshot.docs) {
-                const friendData = doc.data();
-                const friendId = friendData.friendId || doc.id;
-                
-                // Buscar dados completos do amigo
-                const friendDoc = await db.collection('users').doc(friendId).get();
-                if (friendDoc.exists) {
-                    const friend = {
-                        id: friendId,
-                        ...friendDoc.data(),
-                        ...friendData,
-                        friendSince: friendData.friendSince?.toDate?.() || new Date()
-                    };
-                    
-                    userFriends.push(friend);
-                    
-                    if (friend.isOnline) onlineFriends++;
-                    if (friend.isPlaying) playingFriends++;
-                }
-            }
-            
-            updateFriendsStats();
-            
-            // Só renderizar se ainda estivermos na tab de amigos
-            if (document.querySelector('.friend-tab[data-tab="all"]')?.classList.contains('active')) {
-                renderFriendsGrid();
-            }
-        });
-}
-
-// ===== DEBUG: VERIFICAR SE ELEMENTOS EXISTEM =====
-function checkElements() {
-    console.log('friends-grid:', document.getElementById('friends-grid'));
-    console.log('requests-grid:', document.getElementById('requests-grid'));
-    console.log('total-friends:', document.getElementById('total-friends'));
-    console.log('online-friends:', document.getElementById('online-friends'));
-    console.log('playing-friends:', document.getElementById('playing-friends'));
-}
-
-// ===== DEBUG: FORÇAR RENDERIZAÇÃO =====
-function forceRenderRequests() {
-    const snapshot = {
-        empty: false,
-        forEach: (callback) => {
-            // Simular dados de exemplo
-            callback({
-                id: 'test-request',
-                data: () => ({
-                    fromUserId: 'test-user',
-                    fromUserName: 'Usuário Teste',
-                    toUserId: currentUser.uid,
-                    toUserName: userData.displayName,
-                    status: 'pending',
-                    timestamp: new Date()
-                })
-            });
-        }
-    };
-    
-    renderFriendRequests(snapshot);
-}
-
-// Adicione ao window
-window.checkElements = checkElements;
-window.forceRender = forceRenderRequests;
-// ===== ATUALIZAR ESTATÍSTICAS DE AMIGOS =====
-
-// ===== ATUALIZAR ESTATÍSTICAS DE AMIGOS (CORRIGIDA) =====
-function updateFriendsStats() {
-    // Verificar se os elementos ainda existem no DOM
-    const totalFriendsEl = document.getElementById('total-friends');
-    const onlineFriendsEl = document.getElementById('online-friends');
-    const pendingRequestsEl = document.getElementById('pending-requests-count');
-    
-    if (totalFriendsEl) totalFriendsEl.textContent = userFriends.length;
-    if (onlineFriendsEl) onlineFriendsEl.textContent = onlineFriends;
-    if (pendingRequestsEl) pendingRequestsEl.textContent = pendingRequestsCount;
-}
-
-// ===== DEBUG: VERIFICAR ESTRUTURA DO DOM =====
-// ===== DEBUG: VERIFICAR ESTRUTURA DO DOM (ATUALIZADA) =====
-function debugDOM() {
-    console.log('=== DEBUG DOM STRUCTURE ===');
-    
-    // Verificar todos os elementos importantes
-    const elements = {
-        'friends-container': document.getElementById('friends-container'),
-        'friends-grid': document.getElementById('friends-grid'),
-        'online-friends-grid': document.getElementById('online-friends-grid'),
-        'requests-grid': document.getElementById('requests-grid'),
-        'search-results': document.getElementById('search-results'),
-        'friends-search': document.getElementById('friends-search')
-    };
-    
-    console.log('Elementos principais:', elements);
-    
-    // Verificar tabs
-    const tabs = document.querySelectorAll('.friend-tab');
-    console.log('Tabs encontradas:', tabs.length);
-    tabs.forEach(tab => {
-        console.log('Tab:', tab.dataset.tab, 'active:', tab.classList.contains('active'));
-    });
-    
-    // Verificar conteúdos
-    const contents = document.querySelectorAll('.tab-content');
-    console.log('Contents encontrados:', contents.length);
-    contents.forEach(content => {
-        console.log('Content:', content.id, 'active:', content.classList.contains('active'));
-    });
-    
-    // Verificar se o sistema de busca está funcionando
-    const searchContainer = document.querySelector('.search-container');
-    console.log('Search container:', !!searchContainer);
-}
-
-// ===== RECRIAR ESTRUTURA DE AMIGOS =====
-function recreateFriendsStructure() {
-    const friendsContainer = document.getElementById('friends-container');
-    if (friendsContainer) {
-        friendsContainer.innerHTML = '';
-        loadFriends();
-    }
-}
-
-// Adicione ao window para testar
-window.recreateFriends = recreateFriendsStructure;
-// Adicione ao window
-window.debugDOM = debugDOM;
-
-// ===== VERIFICAR E CRIAR ELEMENTOS SE NECESSÁRIO =====
-function ensureGridElements() {
-    let friendsGrid = document.getElementById('friends-grid');
-    let requestsGrid = document.getElementById('requests-grid');
-    
-    if (!friendsGrid) {
-        const tabAll = document.getElementById('tab-all');
-        if (tabAll) {
-            friendsGrid = document.createElement('div');
-            friendsGrid.id = 'friends-grid';
-            friendsGrid.className = 'friends-grid';
-            tabAll.appendChild(friendsGrid);
-        }
-    }
-    
-    if (!requestsGrid) {
-        const tabRequests = document.getElementById('tab-requests');
-        if (tabRequests) {
-            requestsGrid = document.createElement('div');
-            requestsGrid.id = 'requests-grid';
-            requestsGrid.className = 'friends-grid';
-            tabRequests.appendChild(requestsGrid);
-        }
-    }
-    
-    return { friendsGrid, requestsGrid };
-}
-
-// Use esta função antes de tentar renderizar
-function safeRenderFriendRequests(snapshot) {
-    const { requestsGrid } = ensureGridElements();
-    if (requestsGrid) {
-        renderFriendRequests(snapshot);
-    }
-}
-
-// ===== RENDERIZAR GRADE DE AMIGOS =====
-function renderFriendsGrid() {
-    const grid = document.getElementById('friends-grid');
-    if (!grid) return;
-    
-    if (userFriends.length === 0) {
-        grid.innerHTML = `
-            <div class="empty-friends">
-                <i class="fas fa-user-friends"></i>
-                <h3>Nenhum amigo ainda</h3>
-                <p>Adicione amigos para começar a jogar together</p>
-            </div>
-        `;
-        return;
-    }
-    
-    grid.innerHTML = userFriends.map(friend => `
-        <div class="friend-card ${friend.isOnline ? 'online' : 'offline'} ${friend.isPlaying ? 'playing' : ''}">
-            <div class="friend-header">
-                <div class="friend-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(friend.displayName)}&background=0072ff&color=fff" 
-                         alt="${friend.displayName}">
-                    <div class="online-status ${friend.isPlaying ? 'playing' : friend.isOnline ? 'online' : 'offline'}"></div>
-                </div>
-                <div class="friend-info">
-                    <h3 class="friend-name">${friend.displayName}</h3>
-                    <p class="friend-status">
-                        ${friend.isPlaying ? '🎮 Jogando agora' : friend.isOnline ? '🟢 Online' : '⚫ Offline'}
-                    </p>
-                </div>
-            </div>
-            
-            <div class="friend-stats">
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.rating || 1000}</span>
-                    <span class="friend-stat-label">Rating</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.wins || 0}</span>
-                    <span class="friend-stat-label">Vitórias</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.coins || 0}</span>
-                    <span class="friend-stat-label">Moedas</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${Math.floor((friend.wins || 0) / ((friend.wins || 0) + (friend.losses || 0) + 1) * 100)}%</span>
-                    <span class="friend-stat-label">Win Rate</span>
-                </div>
-            </div>
-            
-            <div class="friend-actions">
-                <button class="friend-btn btn-challenge" onclick="challengeFriend('${friend.id}')">
-                    <i class="fas fa-crosshairs"></i> Desafiar
-                </button>
-                <button class="friend-btn btn-send-coins" onclick="sendCoinsToFriend('${friend.id}')">
-                    <i class="fas fa-coins"></i> Moedas
-                </button>
-                <button class="friend-btn btn-message" onclick="messageFriend('${friend.id}')">
-                    <i class="fas fa-comment"></i> Mensagem
-                </button>
-                <button class="friend-btn btn-profile" onclick="viewFriendProfile('${friend.id}')">
-                    <i class="fas fa-user"></i> Perfil
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-// ===== CONFIGURAR BUSCA DE AMIGOS =====
-function setupFriendsSearch() {
-    const searchInput = document.getElementById('friends-search');
-    if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            filterFriends(searchTerm);
-        });
-    }
-}
-
-// ===== FILTRAR AMIGOS =====
-function filterFriends(searchTerm) {
-    const filteredFriends = userFriends.filter(friend =>
-        friend.displayName.toLowerCase().includes(searchTerm) ||
-        (friend.city && friend.city.toLowerCase().includes(searchTerm))
-    );
-    
-    renderFilteredFriends(filteredFriends);
-}
-// ===== RENDERIZAR AMIGOS FILTRADOS (ATUALIZADA) =====
-function renderFilteredFriends(friends, targetGridId = 'friends-grid') {
-    const grid = document.getElementById(targetGridId);
-    if (!grid) {
-        console.error('Grid não encontrado:', targetGridId);
-        return;
-    }
-    
-    if (friends.length === 0) {
-        grid.innerHTML = `
-            <div class="empty-friends">
-                <i class="fas fa-search"></i>
-                <h3>Nenhum amigo encontrado</h3>
-                <p>Tente buscar por outro nome</p>
-            </div>
-        `;
-        return;
-    }
-    
-    grid.innerHTML = friends.map(friend => `
-        <div class="friend-card ${friend.isOnline ? 'online' : 'offline'} ${friend.isPlaying ? 'playing' : ''}">
-            <div class="friend-header">
-                <div class="friend-avatar">
-                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(friend.displayName)}&background=0072ff&color=fff" 
-                         alt="${friend.displayName}">
-                    <div class="online-status ${friend.isPlaying ? 'playing' : friend.isOnline ? 'online' : 'offline'}"></div>
-                </div>
-                <div class="friend-info">
-                    <h3 class="friend-name">${friend.displayName}</h3>
-                    <p class="friend-status">
-                        ${friend.isPlaying ? '🎮 Jogando agora' : friend.isOnline ? '🟢 Online' : '⚫ Offline'}
-                    </p>
-                </div>
-            </div>
-            
-            <div class="friend-stats">
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.rating || 1000}</span>
-                    <span class="friend-stat-label">Rating</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.wins || 0}</span>
-                    <span class="friend-stat-label">Vitórias</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${friend.coins || 0}</span>
-                    <span class="friend-stat-label">Moedas</span>
-                </div>
-                <div class="friend-stat">
-                    <span class="friend-stat-value">${Math.floor((friend.wins || 0) / ((friend.wins || 0) + (friend.losses || 0) + 1) * 100)}%</span>
-                    <span class="friend-stat-label">Win Rate</span>
-                </div>
-            </div>
-            
-            <div class="friend-actions">
-                <button class="friend-btn btn-challenge" onclick="challengeFriend('${friend.id}')">
-                    <i class="fas fa-crosshairs"></i> Desafiar
-                </button>
-                <button class="friend-btn btn-send-coins" onclick="sendCoinsToFriend('${friend.id}')">
-                    <i class="fas fa-coins"></i> Moedas
-                </button>
-                <button class="friend-btn btn-message" onclick="messageFriend('${friend.id}')">
-                    <i class="fas fa-comment"></i> Mensagem
-                </button>
-                <button class="friend-btn btn-profile" onclick="viewFriendProfile('${friend.id}')">
-                    <i class="fas fa-user"></i> Perfil
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-// ===== FUNÇÕES DE AÇÃO PARA AMIGOS =====
-async function challengeFriend(friendId) {
-    const friend = userFriends.find(f => f.id === friendId);
-    if (!friend) return;
-    
-    if (!friend.isOnline) {
-        showNotification(`${friend.displayName} está offline`, 'warning');
-        return;
-    }
-    
-    if (friend.isPlaying) {
-        showNotification(`${friend.displayName} está jogando no momento`, 'info');
-        return;
-    }
-    
-    showChallengeModal(friendId, friend.displayName);
-}
-
-async function sendCoinsToFriend(friendId) {
-    const friend = userFriends.find(f => f.id === friendId);
-    if (!friend) return;
-    
-    const coins = prompt(`Quantas moedas deseja enviar para ${friend.displayName}?`);
-    const coinsAmount = parseInt(coins);
-    
-    if (!coinsAmount || coinsAmount <= 0) {
-        showNotification('Quantidade inválida', 'error');
-        return;
-    }
-    
-    if (coinsAmount > (userData.coins || 0)) {
-        showNotification('Moedas insuficientes', 'error');
-        return;
-    }
-    
-    try {
-        // Debitar do usuário atual
-        await db.collection('users').doc(currentUser.uid).update({
-            coins: firebase.firestore.FieldValue.increment(-coinsAmount)
-        });
-        
-        // Creditar para o amigo
-        await db.collection('users').doc(friendId).update({
-            coins: firebase.firestore.FieldValue.increment(coinsAmount)
-        });
-        
-        // Registrar transação
-        await db.collection('transactions').add({
-            from: currentUser.uid,
-            to: friendId,
-            amount: coinsAmount,
-            type: 'friend_gift',
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        showNotification(`${coinsAmount} moedas enviadas para ${friend.displayName}`, 'success');
-        
-    } catch (error) {
-        console.error('Erro ao enviar moedas:', error);
-        showNotification('Erro ao enviar moedas', 'error');
-    }
-}
-
-function messageFriend(friendId) {
-    const friend = userFriends.find(f => f.id === friendId);
-    showNotification(`Sistema de mensagens com ${friend.displayName} em desenvolvimento`, 'info');
-}
-
-function viewFriendProfile(friendId) {
-    const friend = userFriends.find(f => f.id === friendId);
-    showNotification(`Perfil de ${friend.displayName} em desenvolvimento`, 'info');
-}
-
-// ===== CONVIDAR AMIGOS =====
-document.addEventListener('click', function(e) {
-    if (e.target.id === 'btn-invite-friends') {
-        inviteFriends();
-    }
-});
-
-function inviteFriends() {
-    const inviteText = `🎮 Venha jogar Damas Online comigo! ${window.location.href}`;
-    
-    if (navigator.share) {
-        navigator.share({
-            title: 'Jogue Damas Online',
-            text: inviteText,
-            url: window.location.href
-        }).catch(() => {
-            copyToClipboard(inviteText);
-        });
-    } else {
-        copyToClipboard(inviteText);
-    }
-}
-
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showNotification('Link de convite copiado!', 'success');
-    }).catch(() => {
-        showNotification('Não foi possível copiar o link', 'error');
-    });
-}
-
-
-
-
-
-// ===== VARIÁVEIS DA BUSCA =====
-let searchTimeout = null;
-let currentSearchTerm = '';
-
-// ===== CONFIGURAR BUSCA DE USUÁRIOS =====
-function setupUsersSearch() {
-    const searchInput = document.getElementById('friends-search');
-    const searchResults = document.getElementById('search-results');
-    
-    if (!searchInput) return;
-    
-    // Event listener para input
-    searchInput.addEventListener('input', (e) => {
-        currentSearchTerm = e.target.value.trim();
-        
-        // Limpar timeout anterior
-        if (searchTimeout) {
-            clearTimeout(searchTimeout);
-        }
-        
-        // Esconder resultados se campo estiver vazio
-        if (!currentSearchTerm) {
-            hideSearchResults();
-            return;
-        }
-        
-        // Mostrar loading
-        showSearchLoading();
-        
-        // Debounce - esperar 300ms após a última tecla
-        searchTimeout = setTimeout(() => {
-            searchUsers(currentSearchTerm);
-        }, 300);
-    });
-    
-    // Fechar resultados ao clicar fora
-    document.addEventListener('click', (e) => {
-        if (!searchResults.contains(e.target) && e.target !== searchInput) {
-            hideSearchResults();
-        }
-    });
-    
-    // Manter resultados visíveis ao clicar neles
-    searchResults.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-    
-    // Tecla ESC para fechar resultados
-    searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            hideSearchResults();
-            searchInput.blur();
-        }
-    });
-}
-
-// ===== BUSCAR USUÁRIOS =====
-async function searchUsers(searchTerm) {
-    if (!searchTerm || searchTerm.length < 2) {
-        hideSearchResults();
-        return;
-    }
-    
-    try {
-        const searchResults = document.getElementById('search-results');
-        
-        // Buscar usuários no Firestore
-        const snapshot = await db.collection('users')
-            .where('displayName', '>=', searchTerm)
-            .where('displayName', '<=', searchTerm + '\uf8ff')
-            .limit(10)
-            .get();
-        
-        const users = [];
-        snapshot.forEach(doc => {
-            // Não incluir o usuário atual
-            if (doc.id !== currentUser.uid) {
-                users.push({
-                    id: doc.id,
-                    ...doc.data()
-                });
-            }
-        });
-        
-        displaySearchResults(users);
-        
-    } catch (error) {
-        console.error('Erro na busca:', error);
-        showSearchError();
-    }
-}
-
-// ===== EXIBIR RESULTADOS DA BUSCA =====
-function displaySearchResults(users) {
-    const searchResults = document.getElementById('search-results');
-    const searchInput = document.getElementById('friends-search');
-    
-    if (!searchResults || !searchInput) return;
-    
-    if (users.length === 0) {
-        searchResults.innerHTML = `
-            <div class="search-empty">
-                <i class="fas fa-user-slash"></i>
-                <p>Nenhum jogador encontrado</p>
-                <small>Tente buscar por outro nome</small>
-            </div>
-        `;
-        showSearchResults();
-        return;
-    }
-    
-    searchResults.innerHTML = users.map(user => `
-        <div class="search-result-item" data-user-id="${user.id}">
-            <div class="search-result-avatar">
-                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=0072ff&color=fff" 
-                     alt="${user.displayName}">
-            </div>
-            <div class="search-result-info">
-                <h4 class="search-result-name">${user.displayName}</h4>
-                <p class="search-result-details">
-                    ${user.rating ? `⭐ ${user.rating} • ` : ''}
-                    ${user.city || ''}
-                    ${user.isOnline ? ' • 🟢 Online' : ' • ⚫ Offline'}
-                </p>
-            </div>
-            <div class="search-result-actions">
-                <button class="search-result-btn btn-add-friend" onclick="sendFriendRequest('${user.id}')">
-                    <i class="fas fa-user-plus"></i>
-                </button>
-                <button class="search-result-btn btn-view-profile" onclick="viewUserProfile('${user.id}')">
-                    <i class="fas fa-eye"></i>
-                </button>
-            </div>
-        </div>
-    `).join('');
-    
-    showSearchResults();
-}
-
-// ===== MOSTRAR RESULTADOS =====
-function showSearchResults() {
-    const searchResults = document.getElementById('search-results');
-    const searchInput = document.getElementById('friends-search');
-    
-    if (searchResults && searchInput) {
-        searchResults.style.display = 'block';
-        
-        // Ajustar posição se necessário
-        const inputRect = searchInput.getBoundingClientRect();
-        searchResults.style.width = inputRect.width + 'px';
-    }
-}
-
-// ===== ESCONDER RESULTADOS =====
-function hideSearchResults() {
-    const searchResults = document.getElementById('search-results');
-    if (searchResults) {
-        searchResults.style.display = 'none';
-    }
-}
-
-// ===== MOSTRAR LOADING =====
-function showSearchLoading() {
-    const searchResults = document.getElementById('search-results');
-    if (searchResults) {
-        searchResults.innerHTML = `
-            <div class="search-loading">
-                <i class="fas fa-spinner"></i>
-                <p>Buscando jogadores...</p>
-            </div>
-        `;
-        showSearchResults();
-    }
-}
-
-// ===== MOSTRAR ERRO =====
-function showSearchError() {
-    const searchResults = document.getElementById('search-results');
-    if (searchResults) {
-        searchResults.innerHTML = `
-            <div class="search-empty">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p>Erro na busca</p>
-                <small>Tente novamente</small>
-            </div>
-        `;
-        showSearchResults();
-    }
-}
-
-// ===== ENVIAR SOLICITAÇÃO DE AMIZADE =====
-async function sendFriendRequest(userId) {
-    try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-            showNotification('Usuário não encontrado', 'error');
-            return;
-        }
-        
-        const userData = userDoc.data();
-        
-        // Verificar se já são amigos
-        const existingFriend = await db.collection('users')
-            .doc(currentUser.uid)
-            .collection('friends')
-            .doc(userId)
-            .get();
-            
-        if (existingFriend.exists) {
-            showNotification(`Você já é amigo de ${userData.displayName}`, 'info');
-            hideSearchResults();
-            return;
-        }
-        
-        // Verificar se já existe solicitação
-        const existingRequest = await db.collection('friendRequests')
-            .where('fromUserId', '==', currentUser.uid)
-            .where('toUserId', '==', userId)
-            .where('status', '==', 'pending')
-            .get();
-            
-        if (!existingRequest.empty) {
-            showNotification('Solicitação já enviada', 'info');
-            hideSearchResults();
-            return;
-        }
-        
-        // Criar solicitação de amizade
-        await db.collection('friendRequests').add({
-            fromUserId: currentUser.uid,
-            fromUserName: userData.displayName,
-            toUserId: userId,
-            toUserName: userData.displayName,
-            status: 'pending',
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Notificação para o usuário
-        await db.collection('notifications').add({
-            type: 'friend_request',
-            toUserId: userId,
-            fromUserId: currentUser.uid,
-            fromUserName: userData.displayName,
-            message: `${userData.displayName} enviou uma solicitação de amizade`,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-        });
-        
-        showNotification(`Solicitação enviada para ${userData.displayName}`, 'success');
-        hideSearchResults();
-        
-    } catch (error) {
-        console.error('Erro ao enviar solicitação:', error);
-        showNotification('Erro ao enviar solicitação', 'error');
-    }
-}
-
-// ===== VER PERFIL DO USUÁRIO =====
-async function viewUserProfile(userId) {
-    try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (!userDoc.exists) {
-            showNotification('Usuário não encontrado', 'error');
-            return;
-        }
-        
-        const userData = userDoc.data();
-        
-        // Criar modal de perfil
-        const profileModal = document.createElement('div');
-        profileModal.className = 'modal';
-        profileModal.innerHTML = `
-            <div class="modal-content" style="max-width: 500px;">
-                <div class="modal-header">
-                    <h3>👤 Perfil de ${userData.displayName}</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(userData.displayName)}&background=0072ff&color=fff&size=100" 
-                             alt="${userData.displayName}" style="width: 100px; height: 100px; border-radius: 50%; border: 3px solid #00c6ff;">
-                        <h3>${userData.displayName}</h3>
-                        <p>${userData.isOnline ? '🟢 Online' : '⚫ Offline'} ${userData.isPlaying ? '• 🎮 Jogando' : ''}</p>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 20px;">
-                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.rating || 1000}</div>
-                            <div style="color: #bdc3c7; font-size: 0.9em;">Rating</div>
-                        </div>
-                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.wins || 0}</div>
-                            <div style="color: #bdc3c7; font-size: 0.9em;">Vitórias</div>
-                        </div>
-                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${userData.coins || 0}</div>
-                            <div style="color: #bdc3c7; font-size: 0.9em;">Moedas</div>
-                        </div>
-                        <div style="background: rgba(0, 198, 255, 0.1); padding: 15px; border-radius: 10px; text-align: center;">
-                            <div style="font-size: 1.5em; font-weight: bold; color: #00c6ff;">${Math.floor((userData.wins || 0) / ((userData.wins || 0) + (userData.losses || 0) + 1) * 100)}%</div>
-                            <div style="color: #bdc3c7; font-size: 0.9em;">Win Rate</div>
-                        </div>
-                    </div>
-                    
-                    ${userData.city ? `
-                        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 10px; margin-bottom: 15px;">
-                            <i class="fas fa-map-marker-alt"></i> ${userData.city}
-                        </div>
-                    ` : ''}
-                    
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <button class="btn btn-primary" onclick="sendFriendRequest('${userId}')">
-                            <i class="fas fa-user-plus"></i> Adicionar
-                        </button>
-                        <button class="btn btn-secondary" onclick="challengePlayer('${userId}', '${userData.displayName}')">
-                            <i class="fas fa-crosshairs"></i> Desafiar
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(profileModal);
-        
-        // Event listeners
-        const closeBtn = profileModal.querySelector('.modal-close');
-        closeBtn.addEventListener('click', () => {
-            profileModal.remove();
-        });
-        
-        profileModal.addEventListener('click', (e) => {
-            if (e.target === profileModal) {
-                profileModal.remove();
-            }
-        });
-        
-        // Mostrar modal
-        setTimeout(() => {
-            profileModal.classList.add('active');
-        }, 100);
-        
-        hideSearchResults();
-        
-    } catch (error) {
-        console.error('Erro ao carregar perfil:', error);
-        showNotification('Erro ao carregar perfil', 'error');
-    }
-}
-
-
-
-
-// ===== CREATE GAME TABLE FOR CHALLENGE =====
-async function createGameTable(challengerId, targetId, timePerMove, betAmount, isDoubleGame, challengeId) {
-    console.log('🎯 Criando mesa de desafio...', { challengerId, targetId, challengeId });
-    
-    try {
-        // Carregar dados dos jogadores
-        const [challengerDoc, targetDoc] = await Promise.all([
-            db.collection('users').doc(challengerId).get(),
-            db.collection('users').doc(targetId).get()
-        ]);
-        
-        if (!challengerDoc.exists || !targetDoc.exists) {
-            throw new Error('Jogador não encontrado');
-        }
-        
-        const challengerData = challengerDoc.data();
-        const targetData = targetDoc.data();
-        
-        const tableName = `Desafio: ${challengerData.displayName} vs ${targetData.displayName}`;
-        const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
-        
-        // Criar a mesa
-        const tableRef = await db.collection('tables').add({
-            name: tableName,
-            timeLimit: timePerMove,
-            bet: betAmount,
-            status: 'playing', // Já começa como playing pois ambos estão presentes
-            players: [
-                {
-                    uid: challengerId,
-                    displayName: challengerData.displayName,
-                    rating: challengerData.rating || 1200,
-                    color: 'black',
-                    avatar: challengerData.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(challengerData.displayName)}&background=2c3e50&color=fff`
-                },
-                {
-                    uid: targetId,
-                    displayName: targetData.displayName,
-                    rating: targetData.rating || 1200,
-                    color: 'red',
-                    avatar: targetData.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(targetData.displayName)}&background=e74c3c&color=fff`
-                }
-            ],
-            createdBy: challengerId,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            currentTurn: 'black',
-            board: boardData,
-            waitingForOpponent: false,
-            platformFee: calculatePlatformFee(betAmount),
-            isChallenge: true,
-            challengeId: challengeId,
-            isDoubleGame: isDoubleGame,
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp(),
-            gameStartedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        const tableId = tableRef.id;
-        console.log('✅ Mesa de desafio criada com ID:', tableId);
-        
-        // Atualizar status dos jogadores
-        await Promise.all([
-            db.collection('users').doc(challengerId).update({
-                isPlaying: true,
-                activeTable: tableId,
-                lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-            }),
-            db.collection('users').doc(targetId).update({
-                isPlaying: true,
-                activeTable: tableId,
-                lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-            })
-        ]);
-        
-        // Deduzir apostas se houver
-        if (betAmount > 0) {
-            await Promise.all([
-                db.collection('users').doc(challengerId).update({
-                    coins: firebase.firestore.FieldValue.increment(-betAmount)
-                }),
-                db.collection('users').doc(targetId).update({
-                    coins: firebase.firestore.FieldValue.increment(-betAmount)
-                })
-            ]);
-        }
-        
-        // Atualizar desafio com ID da mesa
-        await db.collection('challenges').doc(challengeId).update({
-            tableId: tableId,
-            gameStartedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Notificar ambos os jogadores
-        await Promise.all([
-            // Notificação para o desafiante
-            db.collection('notifications').doc(generateId()).set({
-                userId: challengerId,
-                type: 'game_start',
-                title: 'Desafio Aceito!',
-                message: `${targetData.displayName} aceitou seu desafio! Partida iniciada.`,
-                data: { tableId: tableId },
-                isRead: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }),
-            
-            // Notificação para o desafiado
-            db.collection('notifications').doc(generateId()).set({
-                userId: targetId,
-                type: 'game_start',
-                title: 'Partida Iniciada!',
-                message: `Você aceitou o desafio de ${challengerData.displayName}! Partida iniciada.`,
-                data: { tableId: tableId },
-                isRead: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            })
-        ]);
-        
-        // Redirecionar ambos os jogadores para o jogo
-        redirectPlayersToGame(tableId, challengerId, targetId);
-        await notifyChallengerOfGameStart(tableId, challengerId, targetId, targetData.displayName);
-
-        
-        return tableId;
-        
-    } catch (error) {
-        console.error('❌ Erro ao criar mesa de desafio:', error);
-        
-        // Reverter status do desafio em caso de erro
-        try {
-            await db.collection('challenges').doc(challengeId).update({
-                status: 'error',
-                error: error.message
-            });
-        } catch (e) {
-            console.error('Erro ao atualizar status do desafio:', e);
-        }
-        
-        throw error;
-    }
-}
-
-// ===== NOTIFICAR DESAFIANTE SOBRE INÍCIO DO JOGO =====
-async function notifyChallengerOfGameStart(tableId, challengerId, targetId, targetName) {
-    // Verificar se o desafiante está online
-    const challengerDoc = await db.collection('users').doc(challengerId).get();
-    
-    if (challengerDoc.exists && challengerDoc.data().isOnline) {
-        // Enviar notificação de redirecionamento
-        await db.collection('notifications').doc(generateId()).set({
-            userId: challengerId,
-            type: 'game_redirect',
-            title: 'Desafio Aceito!',
-            message: `${targetName} aceitou seu desafio! Clique para entrar no jogo.`,
-            data: { tableId: tableId },
-            isRead: false,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    }
-}
-
-
-
-// ===== REDIRECIONAR JOGADORES PARA O JOGO =====
-async function redirectPlayersToGame(tableId, challengerId, targetId) {
-    console.log('🔄 Redirecionando jogadores para o jogo:', tableId, challengerId, targetId);
-    
-    // Se o usuário atual é um dos jogadores, redirecionar
-    if (currentUser && (currentUser.uid === challengerId || currentUser.uid === targetId)) {
-        console.log('✅ Usuário atual é um dos jogadores, redirecionando...');
-        
-        // Fechar qualquer modal aberto (incluindo o de desafio)
-        closeAllModals();
-        closeChallengeModal();
-        
-        // Configurar o listener do jogo
-        setupGameListener(tableId);
-        
-        // Mostrar a tela de jogo
-        showScreen('game-screen');
-        
-        // Mostrar notificação
-        showNotification('Partida iniciada! Boa sorte!', 'success');
-        
-        // Atualizar a tabela ativa do usuário
-        userActiveTable = tableId;
-        
-        // Atualizar status de jogo do usuário
-        await db.collection('users').doc(currentUser.uid).update({
-            isPlaying: true,
-            activeTable: tableId,
-            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    }
-    
-    // Se o desafiante está online mas não é o usuário atual, notificá-lo
-    if (currentUser && currentUser.uid === targetId) {
-        // Enviar notificação para o desafiante
-        const challengerDoc = await db.collection('users').doc(challengerId).get();
-        if (challengerDoc.exists && challengerDoc.data().isOnline) {
-            await db.collection('notifications').doc(generateId()).set({
-                userId: challengerId,
-                type: 'game_redirect',
-                title: 'Desafio Aceito!',
-                message: `${targetUserName} aceitou seu desafio! Redirecionando para o jogo...`,
-                data: { tableId: tableId },
-                isRead: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-    }
-    
-    // Atualizar lista de usuários online
-    setTimeout(() => {
-        if (typeof refreshOnlineUsersList === 'function') {
-            refreshOnlineUsersList();
-        }
-    }, 1000);
-}
-
-// ===== FECHAR TODOS OS MODAIS =====
-function closeAllModals() {
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        modal.remove();
-    });
-}
-// ===== CALCULAR TAXA DA PLATAFORMA =====
-function calculatePlatformFee(betAmount) {
-    if (betAmount <= 0) return 0;
-    
-    // Taxa de 5% com mínimo de 1 moeda e máximo de 50 moedas
-    const fee = Math.floor(betAmount * 0.05);
-    return Math.min(Math.max(fee, 1), 50);
-}
-
-// ===== VERIFICAR SE USUÁRIO ESTÁ EM JOGO =====
-async function checkUserInGame(userId) {
-    try {
-        const userDoc = await db.collection('users').doc(userId).get();
-        return userDoc.exists && userDoc.data().isPlaying === true;
-    } catch (error) {
-        console.error('Erro ao verificar status de jogo:', error);
-        return false;
-    }
-}
-
-// ===== ATUALIZAR TABELA ATIVA DO USUÁRIO =====
-function updateUserActiveTable(userId, tableId) {
-    if (currentUser && currentUser.uid === userId) {
-        userActiveTable = tableId;
-        
-        // Configurar listener para a mesa
-        if (tableId) {
-            setupGameListener(tableId);
-            
-            // Configurar listener para atualizações da mesa
-            if (typeof setupActiveTableListener === 'function') {
-                setupActiveTableListener();
-            }
-        }
     }
 }
