@@ -218,52 +218,6 @@ async function setUserAway() {
         console.error('Erro ao marcar usuário como ausente:', error);
     }
 }
-// ===== CHECK USER ACTIVE TABLE (CORRIGIDA) =====
-async function checkUserActiveTable(userId = null) {
-    const targetUserId = userId || currentUser?.uid;
-    
-    if (!targetUserId || !db) {
-        console.log('❌ checkUserActiveTable: userId ou db não disponível');
-        return { hasActiveTable: false };
-    }
-    
-    try {
-        console.log('🔍 Verificando mesa ativa para usuário:', targetUserId);
-        
-        const snapshot = await db.collection('tables')
-            .where('players', 'array-contains', { uid: targetUserId })
-            .where('status', 'in', ['waiting', 'playing'])
-            .limit(1)
-            .get();
-        
-        console.log('📊 Mesas encontradas:', snapshot.size);
-        
-        if (!snapshot.empty) {
-            const tableDoc = snapshot.docs[0];
-            const table = tableDoc.data();
-            
-            console.log('✅ Mesa ativa encontrada:', tableDoc.id, table.status);
-            
-            return {
-                hasActiveTable: true,
-                tableId: tableDoc.id, // ← GARANTIR que tableId está sendo retornado
-                tableName: table.name,
-                tableBet: table.bet || 0,
-                tableStatus: table.status,
-                tableTimeLimit: table.timeLimit,
-                players: table.players || []
-            };
-        }
-        
-        console.log('✅ Nenhuma mesa ativa encontrada');
-        return { hasActiveTable: false };
-        
-    } catch (error) {
-        console.error('❌ Erro ao verificar mesa ativa:', error);
-        return { hasActiveTable: false };
-    }
-}
-
 // ===== DADOS TEMPORÁRIOS PARA DEMONSTRAÇÃO =====
 function showTemporaryData() {
     const usersList = document.getElementById('online-users-list');
@@ -1813,76 +1767,8 @@ function showChallengeNotification(challenge) {
     }
 }
 
-// ===== FORMATAR TEMPO =====
-function formatTime(seconds) {
-    if (seconds === 0) return 'Sem limite';
-    
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes} minuto${minutes !== 1 ? 's' : ''}`;
-}
-// ===== ACEITAR DESAFIO =====
-async function acceptChallenge(challengeId) {
-    try {
-        const challengeDoc = await db.collection('challenges').doc(challengeId).get();
-        if (!challengeDoc.exists) {
-            showNotification('Desafio não encontrado', 'error');
-            return;
-        }
-        
-        const challenge = challengeDoc.data();
-        
-        // ... (código de verificação existente) ...
-        
-        // Criar a mesa de jogo usando a nova função
-        const tableId = await createGameTable(
-            challenge.challengerId, 
-            challenge.targetId, 
-            challenge.timePerMove, 
-            challenge.betAmount, 
-            challenge.isDoubleGame,
-            challengeId
-        );
-        
-        // Atualizar tabela ativa do usuário
-        updateUserActiveTable(currentUser.uid, tableId);
-        
-        // Remover a notificação
-        const notificationElement = document.querySelector(`[data-challenge-id="${challengeId}"]`);
-        if (notificationElement) {
-            notificationElement.remove();
-        }
-        
-        showNotification('Desafio aceito! Iniciando partida...', 'success');
-        
-    } catch (error) {
-        console.error('Erro ao aceitar desafio:', error);
-        showNotification('Erro ao aceitar desafio: ' + error.message, 'error');
-    }
-}
 
 
-
-// ===== RECUSAR DESAFIO =====
-async function rejectChallenge(challengeId) {
-    try {
-        await db.collection('challenges').doc(challengeId).update({
-            status: 'rejected',
-            rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        
-        // Remover a notificação
-        const notificationElement = document.querySelector(`[data-challenge-id="${challengeId}"]`);
-        if (notificationElement) {
-            notificationElement.remove();
-        }
-        
-        showNotification('Desafio recusado', 'info');
-        
-    } catch (error) {
-        console.error('Erro ao recusar desafio:', error);
-        showNotification('Erro ao recusar desafio', 'error');
-    }
-}
 
 // ===== VERIFICAR DESAFIOS EXPIRADOS =====
 async function checkExpiredChallenges() {
@@ -1992,83 +1878,317 @@ function showChallengeAcceptedNotification(notification) {
         }
     }, 10000);
 }
+
 // ===== ENVIAR DESAFIO =====
 async function sendChallenge(targetUserId, targetUserName) {
     try {
         const timePerMove = parseInt(document.getElementById('challenge-time').value);
         const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
-        const isDoubleGame = document.getElementById('challenge-double').checked;
+        const isDouble = document.getElementById('challenge-double').checked;
         
         // Validar aposta
         if (betAmount > 0) {
-            if (betAmount > (currentUser.coins || 0)) {
-                showNotification('Saldo insuficiente para esta aposta', 'error');
-                return;
-            }
-            
-            // Verificar se o oponente tem saldo suficiente
-            const targetUserDoc = await db.collection('users').doc(targetUserId).get();
-            const targetUserCoins = targetUserDoc.data().coins || 0;
-            
-            if (betAmount > targetUserCoins) {
-                showNotification(`${targetUserName} não tem saldo suficiente para esta aposta`, 'error');
+            if (betAmount > currentUser.coins) {
+                showNotification('Você não tem moedas suficientes para esta aposta', 'error');
                 return;
             }
         }
         
-        // Criar ID único para o desafio
-        const challengeId = generateId();
+        // Verificar novamente se o alvo ainda está disponível
+        const targetUserDoc = await db.collection('users').doc(targetUserId).get();
+        if (!targetUserDoc.exists) {
+            showNotification('Jogador não encontrado', 'error');
+            closeChallengeModal();
+            return;
+        }
         
-        // Dados do desafio
-        const challengeData = {
-            id: challengeId,
+        const targetUserData = targetUserDoc.data();
+        
+        if (!targetUserData.isOnline) {
+            showNotification(`${targetUserName} não está mais online`, 'error');
+            closeChallengeModal();
+            return;
+        }
+        
+        if (targetUserData.isPlaying) {
+            showNotification(`${targetUserName} já está em um jogo`, 'error');
+            closeChallengeModal();
+            return;
+        }
+        
+        // Criar o documento de desafio
+        const challengeRef = await db.collection('challenges').add({
             challengerId: currentUser.uid,
             challengerName: currentUser.displayName || currentUser.email,
             targetId: targetUserId,
             targetName: targetUserName,
             timePerMove: timePerMove,
             betAmount: betAmount,
-            isDoubleGame: isDoubleGame,
+            isDouble: isDouble,
             status: 'pending',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            expiresAt: new Date(Date.now() + 5 * 60000)
-        };
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 5 * 60000) // Expira em 5 minutos
+        });
         
-        // Salvar o desafio no Firestore
-        await db.collection('challenges').doc(challengeId).set(challengeData);
+        // Atualizar o desafio com seu próprio ID
+        await db.collection('challenges').doc(challengeRef.id).update({
+            id: challengeRef.id
+        });
         
-        // Criar notificação para o jogador desafiado
-        const notificationData = {
-            id: generateId(),
-            userId: targetUserId,
-            type: 'challenge',
-            title: 'Novo Desafio!',
-            message: `${currentUser.displayName || currentUser.email} te desafiou para uma partida de damas!`,
-            data: {
-                challengeId: challengeId,
-                challengerId: currentUser.uid,
-                challengerName: currentUser.displayName || currentUser.email,
-                betAmount: betAmount
-            },
-            isRead: false,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        
-        await db.collection('notifications').doc(notificationData.id).set(notificationData);
-        
-        showNotification(`Desafio enviado para ${targetUserName}! Aguarde a resposta.`, 'success');
-        
-        // FECHAR O MODAL - CORREÇÃO ADICIONADA
+        showNotification(`Desafio enviado para ${targetUserName}!`, 'success');
         closeChallengeModal();
         
     } catch (error) {
         console.error('Erro ao enviar desafio:', error);
         showNotification('Erro ao enviar desafio', 'error');
-        
-        // Fechar modal mesmo em caso de erro
-        closeChallengeModal();
     }
 }
+
+// ===== ACEITAR DESAFIO =====
+async function acceptChallenge(challengeId) {
+    try {
+        const challengeDoc = await db.collection('challenges').doc(challengeId).get();
+        
+        if (!challengeDoc.exists) {
+            showNotification('Desafio não encontrado ou já expirado', 'error');
+            removeChallengeNotification(challengeId);
+            return;
+        }
+        
+        const challenge = challengeDoc.data();
+        
+        // Verificar se o desafio é para o usuário atual
+        if (challenge.targetId !== currentUser.uid) {
+            showNotification('Este desafio não é para você', 'error');
+            removeChallengeNotification(challengeId);
+            return;
+        }
+        
+        // Verificar se o desafio ainda está pendente
+        if (challenge.status !== 'pending') {
+            showNotification('Este desafio já foi processado', 'error');
+            removeChallengeNotification(challengeId);
+            return;
+        }
+        
+        // Verificar se o desafiante ainda está online
+        const challengerDoc = await db.collection('users').doc(challenge.challengerId).get();
+        if (!challengerDoc.exists || !challengerDoc.data().isOnline) {
+            showNotification('O desafiante não está mais online', 'error');
+            await updateChallengeStatus(challengeId, 'expired');
+            removeChallengeNotification(challengeId);
+            return;
+        }
+        
+        // Verificar se ambos os jogadores têm moedas suficientes para a aposta
+        if (challenge.betAmount > 0) {
+            if (currentUser.coins < challenge.betAmount) {
+                showNotification('Você não tem moedas suficientes para aceitar esta aposta', 'error');
+                await updateChallengeStatus(challengeId, 'rejected');
+                removeChallengeNotification(challengeId);
+                return;
+            }
+            
+            const challengerData = challengerDoc.data();
+            if (challengerData.coins < challenge.betAmount) {
+                showNotification('O desafiante não tem moedas suficientes para esta aposta', 'error');
+                await updateChallengeStatus(challengeId, 'expired');
+                removeChallengeNotification(challengeId);
+                return;
+            }
+        }
+        
+        // Atualizar status do desafio para aceito
+        await updateChallengeStatus(challengeId, 'accepted');
+        
+        // Criar uma nova partida
+        const gameId = await createNewGame(
+            challenge.challengerId, 
+            currentUser.uid, 
+            challenge.timePerMove, 
+            challenge.betAmount, 
+            challenge.isDouble
+        );
+        
+        // Redirecionar ambos os jogadores para a partida
+        window.location.href = `game.html?gameId=${gameId}`;
+        
+    } catch (error) {
+        console.error('Erro ao aceitar desafio:', error);
+        showNotification('Erro ao aceitar desafio', 'error');
+    }
+}
+
+// ===== RECUSAR DESAFIO =====
+async function rejectChallenge(challengeId) {
+    try {
+        await updateChallengeStatus(challengeId, 'rejected');
+        removeChallengeNotification(challengeId);
+        showNotification('Desafio recusado', 'info');
+    } catch (error) {
+        console.error('Erro ao recusar desafio:', error);
+        showNotification('Erro ao recusar desafio', 'error');
+    }
+}
+
+// ===== ATUALIZAR STATUS DO DESAFIO =====
+async function updateChallengeStatus(challengeId, status) {
+    try {
+        await db.collection('challenges').doc(challengeId).update({
+            status: status,
+            resolvedAt: new Date()
+        });
+    } catch (error) {
+        console.error('Erro ao atualizar status do desafio:', error);
+        throw error;
+    }
+}
+
+// ===== REMOVER NOTIFICAÇÃO DE DESAFIO =====
+function removeChallengeNotification(challengeId) {
+    const notification = document.querySelector(`[data-challenge-id="${challengeId}"]`);
+    if (notification) {
+        notification.remove();
+    }
+}
+
+// ===== CRIAR NOVO JOGO =====
+async function createNewGame(player1Id, player2Id, timePerMove, betAmount, isDouble) {
+    try {
+        // Criar documento do jogo
+        const gameRef = await db.collection('games').add({
+            player1: player1Id,
+            player2: player2Id,
+            currentPlayer: player1Id, // O desafiante começa
+            timePerMove: timePerMove,
+            betAmount: betAmount,
+            isDouble: isDouble,
+            board: initializeBoard(), // Função que cria o tabuleiro inicial
+            status: 'active',
+            createdAt: new Date(),
+            lastMoveAt: new Date()
+        });
+        
+        const gameId = gameRef.id;
+        
+        // Atualizar o jogo com seu próprio ID
+        await db.collection('games').doc(gameId).update({
+            id: gameId
+        });
+        
+        // Atualizar status dos jogadores para "em jogo"
+        await db.collection('users').doc(player1Id).update({
+            isPlaying: true,
+            currentGame: gameId
+        });
+        
+        await db.collection('users').doc(player2Id).update({
+            isPlaying: true,
+            currentGame: gameId
+        });
+        
+        return gameId;
+        
+    } catch (error) {
+        console.error('Erro ao criar novo jogo:', error);
+        throw error;
+    }
+}
+
+// ===== INICIALIZAR TABULEIRO =====
+function initializeBoard() {
+    // Implementação do tabuleiro inicial de damas
+    const board = Array(8).fill().map(() => Array(8).fill(null));
+    
+    // Posicionar peças pretas (jogador 1)
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) {
+                board[row][col] = { player: 1, isKing: false };
+            }
+        }
+    }
+    
+    // Posicionar peças vermelhas (jogador 2)
+    for (let row = 5; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            if ((row + col) % 2 === 1) {
+                board[row][col] = { player: 2, isKing: false };
+            }
+        }
+    }
+    
+    return board;
+}
+
+// ===== FORMATAR TEMPO =====
+function formatTime(seconds) {
+    if (seconds === 0) return 'Sem limite';
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes > 0) {
+        return `${minutes} minuto${minutes > 1 ? 's' : ''}`;
+    } else {
+        return `${remainingSeconds} segundo${remainingSeconds > 1 ? 's' : ''}`;
+    }
+}
+
+// ===== VERIFICAR MESA ATIVA =====
+async function checkUserActiveTable() {
+    try {
+        if (!currentUser) return { hasActiveTable: false };
+        
+        const gameQuery = await db.collection('games')
+            .where('status', 'in', ['active', 'waiting'])
+            .where('player1', '==', currentUser.uid)
+            .get();
+        
+        if (!gameQuery.empty) {
+            return { hasActiveTable: true, gameId: gameQuery.docs[0].id };
+        }
+        
+        const gameQuery2 = await db.collection('games')
+            .where('status', 'in', ['active', 'waiting'])
+            .where('player2', '==', currentUser.uid)
+            .get();
+        
+        if (!gameQuery2.empty) {
+            return { hasActiveTable: true, gameId: gameQuery2.docs[0].id };
+        }
+        
+        return { hasActiveTable: false };
+    } catch (error) {
+        console.error('Erro ao verificar mesa ativa:', error);
+        return { hasActiveTable: false };
+    }
+}
+
+// ===== LIMPAR DESAFIOS EXPIRADOS =====
+function cleanUpExpiredChallenges() {
+    // Limpar desafios expirados a cada minuto
+    setInterval(async () => {
+        try {
+            const expiredChallenges = await db.collection('challenges')
+                .where('expiresAt', '<', new Date())
+                .where('status', '==', 'pending')
+                .get();
+            
+            const batch = db.batch();
+            expiredChallenges.docs.forEach(doc => {
+                batch.update(doc.ref, { status: 'expired' });
+            });
+            
+            await batch.commit();
+        } catch (error) {
+            console.error('Erro ao limpar desafios expirados:', error);
+        }
+    }, 60000); // Executar a cada minuto
+}
+
+// Iniciar a limpeza de desafios expirados quando o app carregar
+cleanUpExpiredChallenges();
 
 
 function initChallengesListener() {
@@ -9136,25 +9256,6 @@ function updateSpectatorsList(type, spectators) {
     `).join('');
 }
 
-// ===== FUNÇÃO FORMATAR TEMPO (SE NÃO EXISTIR) =====
-function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Agora';
-    
-    try {
-        const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        const now = new Date();
-        const diff = now - time;
-        const minutes = Math.floor(diff / 60000);
-        
-        if (minutes < 1) return 'Agora';
-        if (minutes < 60) return `Há ${minutes} min`;
-        if (minutes < 1440) return `Há ${Math.floor(minutes / 60)} h`;
-        return `Há ${Math.floor(minutes / 1440)} d`;
-    } catch (error) {
-        return 'Agora';
-    }
-}
-
 
 
 
@@ -9441,40 +9542,6 @@ function setupConnectionMonitoring() {
 }
 
 
-// ===== CHECK USER ACTIVE TABLE (ATUALIZADA) =====
-async function checkUserActiveTable(userId = null) {
-    const targetUserId = userId || currentUser?.uid;
-    
-    if (!targetUserId || !db) {
-        return { hasActiveTable: false };
-    }
-    
-    try {
-        const snapshot = await db.collection('tables')
-            .where('players', 'array-contains', { uid: targetUserId })
-            .where('status', 'in', ['waiting', 'playing'])
-            .limit(1)
-            .get();
-        
-        if (!snapshot.empty) {
-            const table = snapshot.docs[0].data();
-            return {
-                hasActiveTable: true,
-                tableId: snapshot.docs[0].id,
-                tableName: table.name,
-                tableBet: table.bet || 0,
-                tableStatus: table.status,
-                tableTimeLimit: table.timeLimit,
-                players: table.players || []
-            };
-        }
-        
-        return { hasActiveTable: false };
-    } catch (error) {
-        console.error('Erro ao verificar mesa ativa:', error);
-        return { hasActiveTable: false };
-    }
-}
 
 
 // ===== SETUP ACTIVE TABLE LISTENER (CORRIGIDA) =====
@@ -10449,28 +10516,6 @@ async function declineChallenge(notificationId) {
     }
 }
 
-// ===== REMOVER NOTIFICAÇÃO =====
-function removeChallengeNotification(notificationId, reason = 'dismissed') {
-    const notification = activeNotifications.get(notificationId);
-    if (!notification) return;
-    
-    // Parar timer
-    clearInterval(notification.timer);
-    
-    // Animação de saída
-    notification.element.classList.remove('show');
-    notification.element.classList.add('hide');
-    
-    // Remover após animação
-    setTimeout(() => {
-        if (notification.element.parentNode) {
-            notification.element.parentNode.removeChild(notification.element);
-        }
-        activeNotifications.delete(notificationId);
-    }, 500);
-    
-    console.log(`Notificação ${notificationId} removida: ${reason}`);
-}
 
 async function createChallengeTable(notification) {
     try {
@@ -11962,25 +12007,6 @@ async function clearAllNotifications() {
     }
 }
 
-// ===== FORMATAR TEMPO =====
-function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Agora';
-    
-    const now = new Date();
-    const diff = now - new Date(timestamp);
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    
-    if (minutes < 1) return 'Agora';
-    if (minutes < 60) return `Há ${minutes} min`;
-    if (hours < 24) return `Há ${hours} h`;
-    if (days < 7) return `Há ${days} d`;
-    
-    return new Date(timestamp).toLocaleDateString('pt-BR');
-}
-
-
 
 
 // ===== VARIÁVEIS DO SISTEMA DE AMIGOS =====
@@ -12081,24 +12107,6 @@ async function loadFriendRequestsList() {
     }
 }
 
-// ===== FORMATAR TEMPO RELATIVO =====
-function formatTimeAgo(timestamp) {
-    if (!timestamp) return 'Agora';
-    
-    const now = new Date();
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    
-    if (minutes < 1) return 'Agora';
-    if (minutes < 60) return `Há ${minutes} min`;
-    if (hours < 24) return `Há ${hours} h`;
-    if (days < 7) return `Há ${days} d`;
-    
-    return date.toLocaleDateString('pt-BR');
-}
 // ===== CARREGAR AMIGOS (COMPATÍVEL COM HTML EXISTENTE) =====
 async function loadFriends() {
     const friendsContainer = document.getElementById('friends-container');
