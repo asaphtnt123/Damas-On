@@ -2881,239 +2881,8 @@ async function supportPlayer(playerColor) {
         console.error('Erro ao torcer:', error);
         showNotification('Erro ao torcer: ' + error.message, 'error');
     }
-}// ===== RENDER TABLE COM ESPECTADORES CORRIGIDA =====
-function renderTable(table, container) {
-    const tableEl = document.createElement('div');
-    tableEl.className = 'table-item';
-    tableEl.dataset.tableId = table.id;
-    
-    const playerCount = table.players ? table.players.length : 0;
-    const isPlaying = table.status === 'playing';
-    const isFinished = table.status === 'finished';
-    const isDraw = table.status === 'draw';
-    const isWaiting = table.status === 'waiting';
-    
-    // Obter nomes dos jogadores
-    let playersInfo = '';
-    if (table.players && table.players.length > 0) {
-        playersInfo = table.players.map(player => 
-            `<span class="player-name-tag ${player.color}">${player.displayName || 'Jogador'}</span>`
-        ).join(' vs ');
-    }
-    
-    let tableStatus = '';
-    let actionButton = '';
-    
-    if (isFinished || isDraw) {
-        const resultClass = isDraw ? 'draw-result' : 'win-result';
-        tableStatus = `
-            <div class="table-result ${resultClass}">${table.resultText || (isDraw ? 'Empate' : 'Jogo finalizado')}</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-        `;
-        actionButton = `<button class="btn btn-secondary btn-small" disabled>Finalizado</button>`;
-    } else if (isPlaying) {
-        tableStatus = `
-            <div class="table-status">Jogando</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-            <div class="spectators-count">
-                <i class="fas fa-eye"></i> ${table.spectatorsCount || 0} espectadores
-            </div>
-        `;
-        
-        const isUserInTable = table.players && table.players.some(p => p.uid === currentUser?.uid);
-        
-        if (isUserInTable) {
-            actionButton = `<button class="btn btn-warning btn-small" disabled>Jogando</button>`;
-        } else {
-            actionButton = `
-                <button class="btn btn-info btn-small watch-btn">
-                    <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
-                </button>
-            `;
-        }
-    } else if (isWaiting) {
-        tableStatus = `
-            <div class="table-status waiting">Aguardando jogador</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-        `;
-        actionButton = `<button class="btn btn-primary btn-small join-btn">Entrar</button>`;
-    }
-    
-    tableEl.innerHTML = `
-        <div class="table-info">
-            <div class="table-name">${table.name || `Mesa ${table.id.substring(0, 8)}`}</div>
-            <div class="table-details">
-                <span><i class="fas fa-users"></i> ${playerCount}/2</span>
-                <span><i class="fas fa-clock"></i> ${table.timeLimit || 0}s</span>
-                ${table.bet > 0 ? `<span><i class="fas fa-coins"></i> ${table.bet}</span>` : ''}
-            </div>
-            ${tableStatus}
-        </div>
-        <div class="table-actions">
-            ${actionButton}
-        </div>
-    `;
-    
-    if (isWaiting) {
-        const joinBtn = tableEl.querySelector('.join-btn');
-        if (joinBtn) {
-            joinBtn.addEventListener('click', () => joinTable(table.id));
-        }
-    } else if (isPlaying && !table.players.some(p => p.uid === currentUser?.uid)) {
-        const watchBtn = tableEl.querySelector('.watch-btn');
-        if (watchBtn) {
-            watchBtn.addEventListener('click', () => joinAsSpectator(table.id));
-        }
-    }
-    
-    if (isFinished || isDraw) {
-        tableEl.classList.add('table-finished');
-        if (isDraw) tableEl.classList.add('table-draw');
-    }
-    
-    container.appendChild(tableEl);
 }
 
-
-// ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
-function setupGameListener(tableId) {
-    console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
-    
-    // Remover listener anterior se existir
-    if (gameListener) {
-        console.log('🗑️ Removendo listener anterior');
-        gameListener();
-        gameListener = null;
-    }
-    
-    // Verificar se tableId é válido
-    if (!tableId) {
-        console.error('❌ ID da mesa inválido');
-        showNotification('Erro ao entrar na mesa', 'error');
-        return;
-    }
-    
-    currentGameRef = db.collection('tables').doc(tableId);
-    let lastProcessedStateHash = '';
-    let isProcessing = false;
-    
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
-        // Evitar processamento simultâneo
-        if (isProcessing) {
-            console.log('⏳ Já processando, ignorando chamada duplicada');
-            return;
-        }
-        
-        isProcessing = true;
-        
-        try {
-            // Verificar se a referência ainda é a mesma
-            if (!currentGameRef || currentGameRef.id !== tableId) {
-                console.log('🔀 Referência mudou, ignorando listener');
-                isProcessing = false;
-                return;
-            }
-            
-            if (!doc.exists) {
-                console.log('❌ Documento não existe mais');
-                showNotification('A mesa foi encerrada', 'info');
-                leaveGame();
-                isProcessing = false;
-                return;
-            }
-            
-            const newGameState = doc.data();
-            const newStateHash = JSON.stringify(newGameState);
-            
-            // Verificar se o estado realmente mudou
-            if (newStateHash === lastProcessedStateHash) {
-                console.log('⚡ Estado inalterado, ignorando update');
-                isProcessing = false;
-                return;
-            }
-            
-            lastProcessedStateHash = newStateHash;
-            const oldGameState = gameState;
-            gameState = newGameState;
-            
-            console.log('🔄 Novo estado do jogo recebido:', gameState.status);
-            
-            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
-            if (!gameState.players) gameState.players = [];
-            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
-            
-            // 2. CONVERSÃO DO TABULEIRO (se necessário)
-            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
-                gameState.board = convertFirestoreFormatToBoard(gameState.board);
-            }
-            
-            // 3. VERIFICAR SE JOGO TERMINOU
-            if (gameState.status === 'finished' || gameState.status === 'draw') {
-                console.log('🏁 Jogo finalizado, processando estado final');
-                await handleFinishedGame(oldGameState, gameState);
-                isProcessing = false;
-                return;
-            }
-            
-            // 4. DETECTAR MUDANÇAS IMPORTANTES
-            const boardChanged = !oldGameState || 
-                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
-            
-            const turnChanged = !oldGameState || 
-                              oldGameState.currentTurn !== gameState.currentTurn;
-            
-            const playersChanged = !oldGameState || 
-                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
-            
-            // 5. PROCESSAR EVENTOS ESPECÍFICOS
-            if (playersChanged && oldGameState) {
-                await handlePlayersChange(oldGameState, gameState);
-            }
-            
-            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
-                await handleDrawOffer(gameState.drawOffer);
-            }
-            
-           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-if (boardChanged || turnChanged || playersChanged) {
-    console.log('🎨 Atualizando interface');
-    updateGameInterface();
-}
-
-// 7. GERENCIAR TIMER
-manageGameTimer(oldGameState, gameState);
-
-// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-    console.log('🎮 Jogo iniciado, configurando sistemas');
-    setupChatListener();
-    setupSpectatorsListener(tableId);
-}
-
-// 9. VERIFICAR FIM DE JOGO
-if (boardChanged && gameState.status === 'playing') {
-    checkGameEnd(gameState.board, gameState.currentTurn);
-}
-            
-        } catch (error) {
-            console.error('💥 Erro crítico no listener:', error);
-            showNotification('Erro de conexão com o jogo', 'error');
-        } finally {
-            isProcessing = false;
-        }
-        
-    }, (error) => {
-        console.error('📡 Erro no listener:', error);
-        
-        if (error.code !== 'cancelled') {
-            showNotification('Erro de conexão com o jogo', 'error');
-            
-            if (error.code === 'permission-denied' || error.code === 'not-found') {
-                setTimeout(() => leaveGame(), 2000);
-            }
-        }
-    });
-}
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
@@ -9049,66 +8818,490 @@ async function joinTable(tableId) {
         showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
     }
 }
+// ===== FUNÇÃO RENDERTABLE ATUALIZADA =====
+function renderTable(table, container) {
+    const tableEl = document.createElement('div');
+    tableEl.className = 'table-item';
+    tableEl.dataset.tableId = table.id;
+    
+    const playerCount = table.players ? table.players.length : 0;
+    const isPlaying = table.status === 'playing';
+    const isFinished = table.status === 'finished';
+    const isDraw = table.status === 'draw';
+    const isWaiting = table.status === 'waiting';
+    
+    // Obter nomes dos jogadores
+    let playersInfo = '';
+    if (table.players && table.players.length > 0) {
+        playersInfo = table.players.map(player => 
+            `<span class="player-name-tag ${player.color}">${player.displayName || 'Jogador'}</span>`
+        ).join(' vs ');
+    }
+    
+    let tableStatus = '';
+    let actionButton = '';
+    
+    if (isFinished || isDraw) {
+        const resultClass = isDraw ? 'draw-result' : 'win-result';
+        tableStatus = `
+            <div class="table-result ${resultClass}">${table.resultText || (isDraw ? 'Empate' : 'Jogo finalizado')}</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+        `;
+        actionButton = `<button class="btn btn-secondary btn-small" disabled>Finalizado</button>`;
+    } else if (isPlaying) {
+        tableStatus = `
+            <div class="table-status">Jogando</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+            <div class="spectators-count">
+                <i class="fas fa-eye"></i> ${table.spectatorsCount || 0} espectadores
+            </div>
+        `;
+        
+        const isUserInTable = table.players && table.players.some(p => p.uid === currentUser?.uid);
+        
+        if (isUserInTable) {
+            actionButton = `
+                <button class="btn btn-warning btn-small" disabled>Jogando</button>
+                ${table.players.length === 2 ? '<div class="voice-available"><i class="fas fa-microphone"></i> Voz disponível</div>' : ''}
+            `;
+        } else {
+            actionButton = `
+                <button class="btn btn-info btn-small watch-btn">
+                    <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
+                </button>
+            `;
+        }
+    } else if (isWaiting) {
+        tableStatus = `
+            <div class="table-status waiting">Aguardando jogador</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+        `;
+        actionButton = `<button class="btn btn-primary btn-small join-btn">Entrar</button>`;
+    }
+    
+    tableEl.innerHTML = `
+        <div class="table-info">
+            <div class="table-name">${table.name || `Mesa ${table.id.substring(0, 8)}`}</div>
+            <div class="table-details">
+                <span><i class="fas fa-users"></i> ${playerCount}/2</span>
+                <span><i class="fas fa-clock"></i> ${table.timeLimit || 0}s</span>
+                ${table.bet > 0 ? `<span><i class="fas fa-coins"></i> ${table.bet}</span>` : ''}
+            </div>
+            ${tableStatus}
+        </div>
+        <div class="table-actions">
+            ${actionButton}
+        </div>
+    `;
+    
+    if (isWaiting) {
+        const joinBtn = tableEl.querySelector('.join-btn');
+        if (joinBtn) {
+            joinBtn.addEventListener('click', () => joinTable(table.id));
+        }
+    } else if (isPlaying && !table.players.some(p => p.uid === currentUser?.uid)) {
+        const watchBtn = tableEl.querySelector('.watch-btn');
+        if (watchBtn) {
+            watchBtn.addEventListener('click', () => joinAsSpectator(table.id));
+        }
+    }
+    
+    if (isFinished || isDraw) {
+        tableEl.classList.add('table-finished');
+        if (isDraw) tableEl.classList.add('table-draw');
+    }
+    
+    container.appendChild(tableEl);
+}
 
-// ===== BOTÃO PARA CHAMADA DE VOZ NA INTERFACE =====
+// ===== SETUP GAME LISTENER ATUALIZADO =====
+function setupGameListener(tableId) {
+    console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
+    
+    // Remover listener anterior se existir
+    if (gameListener) {
+        console.log('🗑️ Removendo listener anterior');
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Verificar se tableId é válido
+    if (!tableId) {
+        console.error('❌ ID da mesa inválido');
+        showNotification('Erro ao entrar na mesa', 'error');
+        return;
+    }
+    
+    currentGameRef = db.collection('tables').doc(tableId);
+    let lastProcessedStateHash = '';
+    let isProcessing = false;
+    
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
+        // Evitar processamento simultâneo
+        if (isProcessing) {
+            console.log('⏳ Já processando, ignorando chamada duplicada');
+            return;
+        }
+        
+        isProcessing = true;
+        
+        try {
+            // Verificar se a referência ainda é a mesma
+            if (!currentGameRef || currentGameRef.id !== tableId) {
+                console.log('🔀 Referência mudou, ignorando listener');
+                isProcessing = false;
+                return;
+            }
+            
+            if (!doc.exists) {
+                console.log('❌ Documento não existe mais');
+                showNotification('A mesa foi encerrada', 'info');
+                leaveGame();
+                isProcessing = false;
+                return;
+            }
+            
+            const newGameState = doc.data();
+            const newStateHash = JSON.stringify(newGameState);
+            
+            // Verificar se o estado realmente mudou
+            if (newStateHash === lastProcessedStateHash) {
+                console.log('⚡ Estado inalterado, ignorando update');
+                isProcessing = false;
+                return;
+            }
+            
+            lastProcessedStateHash = newStateHash;
+            const oldGameState = gameState;
+            gameState = newGameState;
+            
+            console.log('🔄 Novo estado do jogo recebido:', gameState.status);
+            
+            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
+            if (!gameState.players) gameState.players = [];
+            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
+            
+            // 2. CONVERSÃO DO TABULEIRO (se necessário)
+            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
+                gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // 3. VERIFICAR SE JOGO TERMINOU
+            if (gameState.status === 'finished' || gameState.status === 'draw') {
+                console.log('🏁 Jogo finalizado, processando estado final');
+                await handleFinishedGame(oldGameState, gameState);
+                isProcessing = false;
+                return;
+            }
+            
+            // 4. DETECTAR MUDANÇAS IMPORTANTES
+            const boardChanged = !oldGameState || 
+                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
+            
+            const turnChanged = !oldGameState || 
+                              oldGameState.currentTurn !== gameState.currentTurn;
+            
+            const playersChanged = !oldGameState || 
+                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
+            
+            // 5. PROCESSAR EVENTOS ESPECÍFICOS
+            if (playersChanged && oldGameState) {
+                await handlePlayersChange(oldGameState, gameState);
+            }
+            
+            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
+                await handleDrawOffer(gameState.drawOffer);
+            }
+            
+            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+            if (boardChanged || turnChanged || playersChanged) {
+                console.log('🎨 Atualizando interface');
+                updateGameInterface();
+                
+                // 🔥 ADICIONAR BOTÃO DE VOZ SE HOUVER DOIS JOGADORES
+                if (gameState.players && gameState.players.length === 2) {
+                    // Pequeno delay para garantir que a interface foi renderizada
+                    setTimeout(() => {
+                        addVoiceButtonToGameScreen();
+                    }, 500);
+                }
+            }
+            
+            // 7. GERENCIAR TIMER
+            manageGameTimer(oldGameState, gameState);
+            
+            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+                console.log('🎮 Jogo iniciado, configurando sistemas');
+                setupChatListener();
+                setupSpectatorsListener(tableId);
+                
+                // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER DOIS JOGADORES
+                if (gameState.players && gameState.players.length === 2) {
+                    setTimeout(() => {
+                        initializeVoiceSystem().then(voiceSys => {
+                            if (voiceSys) {
+                                voiceSystem = voiceSys;
+                                connectToOpponentVoice(gameState);
+                            }
+                        });
+                    }, 1000);
+                }
+            }
+            
+            // 9. VERIFICAR FIM DE JOGO
+            if (boardChanged && gameState.status === 'playing') {
+                checkGameEnd(gameState.board, gameState.currentTurn);
+            }
+            
+        } catch (error) {
+            console.error('💥 Erro crítico no listener:', error);
+            showNotification('Erro de conexão com o jogo', 'error');
+        } finally {
+            isProcessing = false;
+        }
+        
+    }, (error) => {
+        console.error('📡 Erro no listener:', error);
+        
+        if (error.code !== 'cancelled') {
+            showNotification('Erro de conexão com o jogo', 'error');
+            
+            if (error.code === 'permission-denied' || error.code === 'not-found') {
+                setTimeout(() => leaveGame(), 2000);
+            }
+        }
+    });
+}
+
+// ===== FUNÇÃO AUXILIAR: ADICIONAR BOTÃO DE VOZ =====
 function addVoiceButtonToGameScreen() {
+    // Verificar se já estamos na tela de jogo
+    const gameScreen = document.getElementById('game-screen');
+    if (!gameScreen || gameScreen.style.display === 'none') {
+        return;
+    }
+    
     // Verificar se o botão já existe
     if (document.getElementById('voice-call-btn')) {
         return;
     }
     
+    // Verificar se há dois jogadores na partida
+    if (!gameState || !gameState.players || gameState.players.length < 2) {
+        return;
+    }
+    
+    // Verificar se o usuário atual é um jogador (não espectador)
+    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
+    if (!isPlayer) {
+        return;
+    }
+    
+    // Criar botão de voz
     const voiceBtn = document.createElement('button');
     voiceBtn.id = 'voice-call-btn';
-    voiceBtn.innerHTML = '📞 Chamada de Voz';
+    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i> Voz';
+    voiceBtn.className = 'voice-control-btn';
+    
+    // Estilos do botão
     voiceBtn.style.cssText = `
         position: fixed;
         bottom: 20px;
         right: 20px;
-        padding: 10px 15px;
-        background: #1a2a6c;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
         color: white;
         border: none;
-        border-radius: 20px;
+        border-radius: 50%;
         cursor: pointer;
-        z-index: 999;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        z-index: 1000;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        font-size: 18px;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
     `;
     
+    // Efeito hover
+    voiceBtn.addEventListener('mouseenter', () => {
+        voiceBtn.style.transform = 'scale(1.1)';
+        voiceBtn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+    });
+    
+    voiceBtn.addEventListener('mouseleave', () => {
+        voiceBtn.style.transform = 'scale(1)';
+        voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    });
+    
+    // Clique no botão
     voiceBtn.addEventListener('click', () => {
-        if (!opponentPeerId) {
-            showNotification('Aguardando oponente conectar...', 'info');
+        if (!peer || !opponentPeerId) {
+            showNotification('Conectando com oponente...', 'info');
+            initializeVoiceSystem().then(voiceSys => {
+                if (voiceSys) {
+                    voiceSystem = voiceSys;
+                    connectToOpponentVoice(gameState);
+                    // Tentar novamente após conexão
+                    setTimeout(() => {
+                        if (opponentPeerId) {
+                            startVoiceCall();
+                        }
+                    }, 1000);
+                }
+            });
             return;
         }
         
-        // Iniciar chamada de voz
-        navigator.mediaDevices.getUserMedia({ video: false, audio: true })
-            .then((stream) => {
-                const call = peer.call(opponentPeerId, stream);
-                
-                call.on('stream', (remoteStream) => {
-                    const audio = document.createElement('audio');
-                    audio.srcObject = remoteStream;
-                    audio.autoplay = true;
-                    addVoiceControls(audio, call);
-                });
-            })
-            .catch((error) => {
-                console.error('Erro ao iniciar chamada:', error);
-                showNotification('Erro ao iniciar chamada de voz', 'error');
-            });
+        startVoiceCall();
     });
     
+    // Adicionar botão à interface
     document.body.appendChild(voiceBtn);
+    
+    console.log('✅ Botão de voz adicionado à interface');
 }
 
-// Adicionar botão quando a tela de jogo for mostrada
-const originalShowScreen = showScreen;
-showScreen = function(screenId) {
-    originalShowScreen.call(this, screenId);
-    
-    if (screenId === 'game-screen') {
-        setTimeout(addVoiceButtonToGameScreen, 1000);
+// ===== INICIAR CHAMADA DE VOZ =====
+function startVoiceCall() {
+    if (!opponentPeerId) {
+        showNotification('Oponente não disponível para voz', 'warning');
+        return;
     }
+    
+    navigator.mediaDevices.getUserMedia({ video: false, audio: true })
+        .then((stream) => {
+            const call = peer.call(opponentPeerId, stream);
+            
+            call.on('stream', (remoteStream) => {
+                // Criar elemento de áudio
+                const audio = document.createElement('audio');
+                audio.srcObject = remoteStream;
+                audio.autoplay = true;
+                audio.volume = 0.8;
+                
+                // Mostrar controles de voz
+                showVoiceControls(audio, call);
+                
+                showNotification('Chamada de voz conectada', 'success');
+            });
+            
+            call.on('close', () => {
+                showNotification('Chamada de voz encerrada', 'info');
+                hideVoiceControls();
+            });
+            
+            call.on('error', (error) => {
+                console.error('Erro na chamada:', error);
+                showNotification('Erro na chamada de voz', 'error');
+                hideVoiceControls();
+            });
+        })
+        .catch((error) => {
+            console.error('Erro ao acessar microfone:', error);
+            showNotification('Permissão de microfone negada', 'error');
+        });
+}
+
+// ===== MOSTRAR CONTROLES DE VOZ =====
+function showVoiceControls(audioElement, call) {
+    // Remover controles existentes
+    hideVoiceControls();
+    
+    const controls = document.createElement('div');
+    controls.id = 'voice-controls-panel';
+    controls.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        background: rgba(0,0,0,0.9);
+        padding: 15px;
+        border-radius: 15px;
+        color: white;
+        z-index: 1000;
+        border: 2px solid #fdbb2d;
+        min-width: 200px;
+    `;
+    
+    controls.innerHTML = `
+        <div style="margin-bottom: 10px; font-weight: bold;">
+            <i class="fas fa-microphone"></i> Chamada de Voz
+        </div>
+        <div style="margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                <i class="fas fa-volume-up" style="margin-right: 10px;"></i>
+                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.8" 
+                       style="flex: 1;">
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="mute-call" class="voice-control-btn">
+                    <i class="fas fa-microphone"></i> Mutar
+                </button>
+                <button id="end-call" class="voice-control-btn" style="background: #b21f1f;">
+                    <i class="fas fa-phone-slash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(controls);
+    
+    // Configurar eventos
+    document.getElementById('voice-volume').addEventListener('input', (e) => {
+        audioElement.volume = parseFloat(e.target.value);
+    });
+    
+    let isMuted = false;
+    document.getElementById('mute-call').addEventListener('click', () => {
+        isMuted = !isMuted;
+        audioElement.muted = isMuted;
+        this.innerHTML = isMuted ? 
+            '<i class="fas fa-microphone-slash"></i> Ativar' : 
+            '<i class="fas fa-microphone"></i> Mutar';
+    });
+    
+    document.getElementById('end-call').addEventListener('click', () => {
+        call.close();
+        hideVoiceControls();
+    });
+}
+
+// ===== OCULTAR CONTROLES DE VOZ =====
+function hideVoiceControls() {
+    const controls = document.getElementById('voice-controls-panel');
+    if (controls) {
+        controls.remove();
+    }
+}
+
+// ===== REMOVER BOTÃO DE VOZ AO SAIR DO JOGO =====
+function cleanupVoiceControls() {
+    const voiceBtn = document.getElementById('voice-call-btn');
+    if (voiceBtn) {
+        voiceBtn.remove();
+    }
+    
+    hideVoiceControls();
+    
+    // Fechar conexão PeerJS se existir
+    if (peer) {
+        peer.destroy();
+        peer = null;
+    }
+    
+    voiceSystem = null;
+    currentPeerId = null;
+    opponentPeerId = null;
+}
+
+// ===== ATUALIZAR FUNÇÃO leaveGame PARA LIMPAR CONTROLES DE VOZ =====
+const originalLeaveGame = leaveGame;
+leaveGame = function() {
+    cleanupVoiceControls();
+    return originalLeaveGame.apply(this, arguments);
 };
 
-console.log('✅ Sistema de voz integrado à função joinTable');
+console.log('✅ Sistema de voz integrado às funções de jogo');
