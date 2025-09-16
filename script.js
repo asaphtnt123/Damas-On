@@ -330,7 +330,8 @@ function initializeApp() {
      // 1. Inicializar sistema de som
     createSoundControls();
     initializeGameWithSound();
-
+ // Inicializar sistema de som do jogo
+        const soundSystem = initializeGameWithSound();
     
     // 1. Sistemas de autenticação e UI
     initializeAuth();
@@ -2571,138 +2572,11 @@ async function createNewTable() {
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
-// ===== JOIN TABLE (CORRIGIDA) =====
-async function joinTable(tableId) {
-const originalJoinTable = joinTable;
-joinTable = async function(tableId) {
-    audioManager.playGameStartSound();
-    return originalJoinTable.call(this, tableId);
-};
-
-    console.log('🎯 Entrando na mesa:', tableId);
-    
-    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
-    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
-        console.error('❌ TableId inválido:', tableId);
-        showNotification('Erro: ID da mesa inválido', 'error');
-        return;
-    }
-    
-    try {
-        userActiveTable = tableId;
-        
-        const tableRef = db.collection('tables').doc(tableId);
-        const tableDoc = await tableRef.get();
-        
-        if (!tableDoc.exists) {
-            console.error('❌ Mesa não encontrada:', tableId);
-            showNotification('Mesa não encontrada', 'error');
-            userActiveTable = null;
-            return;
-        }
-        
-        const table = tableDoc.data();
 
 
 
-        // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
-        if (table.isChallenge && table.status === 'waiting') {
-            console.log('✅ Entrando em mesa de desafio');
-            
-            // Atualizar mesa para status playing
-            await tableRef.update({
-                status: 'playing',
-                waitingForOpponent: false,
-                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        // Se usuário já está na mesa, apenas entrar
-        if (table.players.some(p => p.uid === currentUser.uid)) {
-            console.log('✅ Usuário já está na mesa, apenas entrando...');
-            setupGameListener(tableId);
-            showScreen('game-screen');
-            
-            if (table.players.length === 1) {
-                showNotification('Aguardando adversário...', 'info');
-            } else {
-                showNotification('Jogo em andamento', 'info');
-            }
-            
-            // 🔥 ATUALIZAR LISTENER
-            if (typeof setupActiveTableListener === 'function') {
-                setupActiveTableListener();
-            }
-            return;
-        }
-        
-        // Verificar se mesa está cheia
-        if (table.players.length >= 2) {
-            console.log('❌ Mesa cheia:', tableId);
-            showNotification('Esta mesa já está cheia', 'error');
-            userActiveTable = null;
-            return;
-        }
-        
-        
-        // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
-        if (table.bet > 0) {
-            // Carregar dados atualizados do usuário
-            await loadUserData(currentUser.uid);
-            
-            if (!userData || userData.coins < table.bet) {
-                showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
-                userActiveTable = null;
-                return;
-            }
-        }
-        
-        // Adicionar jogador à mesa
-        await tableRef.update({
-            players: firebase.firestore.FieldValue.arrayUnion({
-                uid: currentUser.uid,
-                displayName: userData.displayName,
-                rating: userData.rating,
-                color: 'red'
-            }),
-            status: 'playing',
-            waitingForOpponent: false,
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
-        });
 
-        console.log('✅ Jogador adicionado à mesa');
-        
-        // Deduzir aposta se houver
-        if (table.bet > 0) {
-            await db.collection('users').doc(currentUser.uid).update({
-                coins: firebase.firestore.FieldValue.increment(-table.bet)
-            });
-            userData.coins -= table.bet;
-        }
-        
-        // Entrar no jogo
-        setupGameListener(tableId);
-        showScreen('game-screen');
-        showNotification('Jogo iniciado! As peças pretas começam.', 'success');
-        
-        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
-        if (typeof setupActiveTableListener === 'function') {
-            setupActiveTableListener();
-        }
-        
-        // Atualizar lista de usuários online
-        setTimeout(() => {
-            if (typeof refreshOnlineUsersList === 'function') {
-                refreshOnlineUsersList();
-            }
-        }, 1000);
-        
-    } catch (error) {
-        console.error('❌ Erro ao entrar na mesa:', error);
-        userActiveTable = null;
-        showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
-    }
-}
+
 // ===== LIMPEZA DE MESAS ABANDONADAS =====
 async function cleanupAbandonedTables() {
     if (!currentUser) return;
@@ -8789,394 +8663,453 @@ function updateSoundButtons() {
 }
 
 
-// Sistema de Voz com PeerJS (WebRTC)
-document.addEventListener('DOMContentLoaded', function() {
-    // Elementos da UI
-    const voiceToggle = document.getElementById('voice-toggle');
-    const voiceContainer = document.getElementById('voice-chat-container');
-    const voiceClose = document.getElementById('voice-close');
-    const voiceTalk = document.getElementById('voice-talk');
-    const voiceMute = document.getElementById('voice-mute');
-    const voiceDeafen = document.getElementById('voice-deafen');
-    const voiceStatus = document.getElementById('voice-status');
-    const audioLevel = document.getElementById('voice-audio-level');
-    const connectionStatus = document.getElementById('connection-status');
-    const connectionText = document.getElementById('connection-text');
-    const playersContainer = document.getElementById('players-container');
-    
-    // Estados do sistema de voz
-    let isRecording = false;
-    let isMuted = false;
-    let isDeafened = false;
-    let mediaRecorder = null;
-    let audioContext = null;
-    let analyser = null;
-    let microphone = null;
-    let audioChunks = [];
-    
-    // Variáveis do PeerJS
-    let peer = null;
-    let myPeerId = null;
-    let currentCall = null;
-    let connections = {};
-    let mediaStream = null;
-    
-    // Inicializar PeerJS
-    function initializePeerJS() {
-        // Gerar um ID único para este jogador
-        const playerId = generatePlayerId();
+
+
+// ===== SISTEMA DE VOZ PARA PARTIDAS =====
+let voiceSystem = null;
+let peer = null;
+let currentPeerId = null;
+let opponentPeerId = null;
+
+// Inicializar sistema de voz
+async function initializeVoiceSystem() {
+    try {
+        // Verificar se PeerJS está disponível
+        if (typeof Peer === 'undefined') {
+            console.warn('PeerJS não carregado, sistema de voz desativado');
+            return null;
+        }
+
+        // Criar ID único baseado no UID do usuário
+        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Math.random().toString(36).substr(2, 4)}`;
         
-        // Inicializar Peer com servidor gratuito
-        peer = new Peer(playerId, {
+        peer = new Peer(peerId, {
             host: '0.peerjs.com',
             port: 443,
             path: '/',
-            debug: 3
+            debug: 2
         });
-        
-        peer.on('open', function(id) {
-            myPeerId = id;
-            updateConnectionStatus('connected', `Conectado como: ${id.substring(0, 8)}...`);
-            voiceStatus.textContent = 'Pronto para conversar!';
-            
-            // Adicionar este jogador à lista
-            addPlayerToList(id, 'Você', true);
+
+        return new Promise((resolve) => {
+            peer.on('open', (id) => {
+                console.log('✅ Sistema de voz conectado com ID:', id);
+                currentPeerId = id;
+                resolve(peer);
+            });
+
+            peer.on('error', (err) => {
+                console.warn('⚠️ Erro no PeerJS:', err);
+                // Não rejeitar a promise, apenas avisar
+                resolve(null);
+            });
+
+            // Configurar timeout
+            setTimeout(() => {
+                console.log('⚠️ Timeout na conexão do sistema de voz');
+                resolve(null);
+            }, 5000);
         });
-        
-        peer.on('connection', function(conn) {
-            setupDataConnection(conn);
-        });
-        
-        peer.on('call', function(call) {
-            // Aceitar a chamada de voz automaticamente
-            call.answer(mediaStream);
-            setupCall(call);
-        });
-        
-        peer.on('error', function(err) {
-            console.error('Erro no PeerJS:', err);
-            updateConnectionStatus('disconnected', 'Erro de conexão');
-            
-            // Tentar reconectar após 5 segundos
-            setTimeout(initializePeerJS, 5000);
-        });
-        
-        peer.on('disconnected', function() {
-            updateConnectionStatus('disconnected', 'Desconectado');
-            
-            // Tentar reconectar
-            peer.reconnect();
-        });
+    } catch (error) {
+        console.warn('⚠️ Erro ao inicializar sistema de voz:', error);
+        return null;
     }
-    
-    // Gerar ID de jogador
-    function generatePlayerId() {
-        return 'player-' + Math.random().toString(36).substr(2, 8);
+}
+
+// Conectar ao oponente via voz
+async function connectToOpponentVoice(tableData) {
+    if (!peer || !currentPeerId) {
+        console.warn('Sistema de voz não disponível');
+        return;
     }
-    
-    // Atualizar status da conexão
-    function updateConnectionStatus(status, text) {
-        connectionStatus.className = 'status-indicator';
-        
-        switch(status) {
-            case 'connected':
-                connectionStatus.classList.add('status-connected');
-                break;
-            case 'disconnected':
-                connectionStatus.classList.add('status-disconnected');
-                break;
-            case 'connecting':
-                connectionStatus.classList.add('status-connecting');
-                break;
+
+    try {
+        // Encontrar o UID do oponente
+        const opponent = tableData.players.find(p => p.uid !== currentUser.uid);
+        if (!opponent) {
+            console.log('Aguardando oponente para conectar voz...');
+            return;
         }
-        
-        connectionText.textContent = text;
+
+        // Obter ou criar o PeerID do oponente
+        const opponentUserDoc = await db.collection('users').doc(opponent.uid).get();
+        if (opponentUserDoc.exists) {
+            const opponentData = opponentUserDoc.data();
+            
+            if (opponentData.voicePeerId) {
+                opponentPeerId = opponentData.voicePeerId;
+                console.log('🔗 Conectando ao oponente via voz:', opponentPeerId);
+                
+                // Conectar ao oponente
+                const conn = peer.connect(opponentPeerId);
+                
+                conn.on('open', () => {
+                    console.log('✅ Conexão de voz estabelecida com oponente');
+                    // Enviar mensagem de saudação
+                    conn.send({
+                        type: 'voice-greeting',
+                        message: 'Conectado para conversa durante a partida',
+                        player: userData.displayName
+                    });
+                });
+                
+                conn.on('data', (data) => {
+                    handleVoiceData(data, opponent.displayName);
+                });
+                
+                conn.on('close', () => {
+                    console.log('❌ Conexão de voz fechada');
+                });
+            } else {
+                console.log('Oponente não tem sistema de voz configurado');
+            }
+        }
+    } catch (error) {
+        console.warn('Erro ao conectar com oponente via voz:', error);
     }
-    
-    // Configurar conexão de dados
-    function setupDataConnection(conn) {
-        connections[conn.peer] = conn;
-        
-        conn.on('data', function(data) {
-            handleReceivedData(data, conn.peer);
-        });
-        
-        conn.on('open', function() {
-            // Solicitar informações do jogador
+}
+
+// Manipular dados de voz recebidos
+function handleVoiceData(data, senderName) {
+    switch (data.type) {
+        case 'voice-greeting':
+            showNotification(`🔊 ${senderName}: ${data.message}`, 'info');
+            break;
+        case 'voice-message':
+            showNotification(`🔊 ${senderName}: ${data.message}`, 'info');
+            break;
+        case 'game-move':
+            // Mensagens relacionadas a jogadas
+            console.log('Mensagem de jogo:', data);
+            break;
+    }
+}
+
+// Enviar mensagem de voz para oponente
+function sendVoiceMessage(message) {
+    if (!peer || !opponentPeerId) {
+        showNotification('Sistema de voz não disponível', 'warning');
+        return;
+    }
+
+    try {
+        const conn = peer.connect(opponentPeerId);
+        conn.on('open', () => {
             conn.send({
-                type: 'player-info',
-                name: 'Jogador-' + myPeerId.substring(0, 5),
-                id: myPeerId
+                type: 'voice-message',
+                message: message,
+                timestamp: new Date(),
+                player: userData.displayName
             });
         });
+    } catch (error) {
+        console.warn('Erro ao enviar mensagem de voz:', error);
+    }
+}
+
+// Configurar chamadas de voz recebidas
+function setupVoiceCalls() {
+    if (!peer) return;
+
+    peer.on('call', (call) => {
+        console.log('📞 Recebendo chamada de voz de:', call.peer);
         
-        conn.on('close', function() {
-            removePlayerFromList(conn.peer);
-            delete connections[conn.peer];
-        });
+        // Aceitar a chamada automaticamente (poderia ter um botão para aceitar)
+        navigator.mediaDevices.getUserMedia({ video: false, audio: true })
+            .then((stream) => {
+                call.answer(stream);
+                
+                call.on('stream', (remoteStream) => {
+                    // Criar elemento de áudio para ouvir o oponente
+                    const audio = document.createElement('audio');
+                    audio.srcObject = remoteStream;
+                    audio.autoplay = true;
+                    audio.volume = 0.8;
+                    
+                    // Adicionar controles de áudio à interface
+                    addVoiceControls(audio, call);
+                });
+            })
+            .catch((error) => {
+                console.error('Erro ao aceitar chamada:', error);
+                call.close();
+            });
+    });
+}
+
+// Adicionar controles de voz à interface
+function addVoiceControls(audioElement, call) {
+    // Verificar se já existe controles de voz
+    if (document.getElementById('voice-controls')) {
+        return;
+    }
+
+    const voiceControls = document.createElement('div');
+    voiceControls.id = 'voice-controls';
+    voiceControls.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        background: rgba(0,0,0,0.8);
+        padding: 10px;
+        border-radius: 10px;
+        color: white;
+        z-index: 1000;
+        border: 2px solid #fdbb2d;
+    `;
+
+    voiceControls.innerHTML = `
+        <div style="margin-bottom: 10px;">
+            <strong>🔊 Chamada de Voz</strong>
+            <button id="mute-call" style="margin-left: 10px; padding: 5px;">Mutar</button>
+            <button id="end-call" style="margin-left: 5px; padding: 5px;">Encerrar</button>
+        </div>
+        <div>
+            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.8" 
+                   style="width: 100px;"> Volume
+        </div>
+    `;
+
+    document.body.appendChild(voiceControls);
+
+    // Configurar eventos
+    document.getElementById('mute-call').addEventListener('click', () => {
+        audioElement.muted = !audioElement.muted;
+        this.textContent = audioElement.muted ? 'Ativar Som' : 'Mutar';
+    });
+
+    document.getElementById('end-call').addEventListener('click', () => {
+        call.close();
+        voiceControls.remove();
+    });
+
+    document.getElementById('voice-volume').addEventListener('input', (e) => {
+        audioElement.volume = parseFloat(e.target.value);
+    });
+}
+
+// ===== FUNÇÃO joinTable ATUALIZADA =====
+async function joinTable(tableId) {
+    console.log('🎯 Entrando na mesa:', tableId);
+    
+    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
+    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
+        console.error('❌ TableId inválido:', tableId);
+        showNotification('Erro: ID da mesa inválido', 'error');
+        return;
     }
     
-    // Adicionar jogador à lista
-    function addPlayerToList(peerId, name, isLocal = false) {
-        // Verificar se o jogador já está na lista
-        if (document.getElementById(`player-${peerId}`)) {
+    try {
+        userActiveTable = tableId;
+        
+        const tableRef = db.collection('tables').doc(tableId);
+        const tableDoc = await tableRef.get();
+        
+        if (!tableDoc.exists) {
+            console.error('❌ Mesa não encontrada:', tableId);
+            showNotification('Mesa não encontrada', 'error');
+            userActiveTable = null;
             return;
         }
         
-        const playerElement = document.createElement('div');
-        playerElement.className = 'audio-message';
-        playerElement.id = `player-${peerId}`;
-        
-        playerElement.innerHTML = `
-            <i class="fas fa-user${isLocal ? '' : '-friends'}"></i>
-            <div>
-                <div><strong>${name}</strong> ${isLocal ? '(Você)' : ''}</div>
-                <div style="font-size:0.8em;opacity:0.7">ID: ${peerId.substring(0, 8)}...</div>
-            </div>
-            ${!isLocal ? `
-            <button class="voice-btn" style="padding:5px;font-size:0.8em" onclick="connectToPlayer('${peerId}')">
-                <i class="fas fa-phone"></i>
-            </button>
-            ` : ''}
-        `;
-        
-        playersContainer.appendChild(playerElement);
-    }
-    
-    // Remover jogador da lista
-    function removePlayerFromList(peerId) {
-        const playerElement = document.getElementById(`player-${peerId}`);
-        if (playerElement) {
-            playerElement.remove();
-        }
-    }
-    
-    // Conectar a outro jogador
-    window.connectToPlayer = function(peerId) {
-        // Estabelecer conexão de dados
-        const conn = peer.connect(peerId);
-        setupDataConnection(conn);
-        
-        // Fazer chamada de voz
-        if (mediaStream) {
-            const call = peer.call(peerId, mediaStream);
-            setupCall(call);
-        }
-    };
-    
-    // Configurar chamada de voz
-    function setupCall(call) {
-        currentCall = call;
-        
-        call.on('stream', function(remoteStream) {
-            // Reproduzir áudio remoto
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.play();
+        const table = tableDoc.data();
+
+        // 🔥 INICIALIZAR SISTEMA DE VOZ AO ENTRAR NA MESA
+        if (!voiceSystem) {
+            voiceSystem = await initializeVoiceSystem();
             
-            voiceStatus.textContent = `Conectado com ${call.peer.substring(0, 8)}...`;
-        });
-        
-        call.on('close', function() {
-            voiceStatus.textContent = 'Chamada encerrada';
-            currentCall = null;
-        });
-    }
-    
-    // Manipular dados recebidos
-    function handleReceivedData(data, peerId) {
-        switch(data.type) {
-            case 'player-info':
-                addPlayerToList(peerId, data.name);
-                break;
-            case 'chat-message':
-                console.log(`Mensagem de ${peerId}: ${data.message}`);
-                break;
+            if (voiceSystem) {
+                // Salvar nosso PeerID no perfil do usuário
+                await db.collection('users').doc(currentUser.uid).update({
+                    voicePeerId: currentPeerId
+                });
+                
+                // Configurar listener para chamadas de voz
+                setupVoiceCalls();
+                
+                showNotification('Sistema de voz ativado', 'success');
+            }
         }
-    }
-    
-    // Configurar áudio
-    async function setupAudio() {
-        try {
-            voiceStatus.textContent = "Solicitando acesso ao microfone...";
+
+        // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
+        if (table.isChallenge && table.status === 'waiting') {
+            console.log('✅ Entrando em mesa de desafio');
             
-            mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 44100
-                } 
+            // Atualizar mesa para status playing
+            await tableRef.update({
+                status: 'playing',
+                waitingForOpponent: false,
+                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
             });
-            
-            // Configurar AudioContext para análise de áudio
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            microphone = audioContext.createMediaStreamSource(mediaStream);
-            analyser = audioContext.createAnalyser();
-            
-            microphone.connect(analyser);
-            
-            // Configurar MediaRecorder para gravação
-            mediaRecorder = new MediaRecorder(mediaStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-            
-            mediaRecorder.ondataavailable = function(event) {
-                audioChunks.push(event.data);
-            };
-            
-            mediaRecorder.onstop = function() {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                sendAudioToPlayers(audioBlob);
-                audioChunks = [];
-            };
-            
-            // Iniciar análise de áudio para visualização
-            startAudioAnalysis();
-            
-            voiceStatus.textContent = 'Microfone conectado. Conectando...';
-            voiceTalk.disabled = false;
-            
-            // Inicializar PeerJS
-            initializePeerJS();
-            
-        } catch (error) {
-            console.error('Erro ao acessar microfone:', error);
-            voiceStatus.textContent = 'Erro ao acessar microfone. Verifique as permissões.';
-            voiceTalk.disabled = true;
         }
-    }
-    
-    // Iniciar análise de áudio para visualização
-    function startAudioAnalysis() {
-        if (!analyser) return;
         
-        analyser.fftSize = 256;
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
+        // Se usuário já está na mesa, apenas entrar
+        if (table.players.some(p => p.uid === currentUser.uid)) {
+            console.log('✅ Usuário já está na mesa, apenas entrando...');
+            setupGameListener(tableId);
+            showScreen('game-screen');
+            
+            // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR
+            if (table.players.length === 2) {
+                connectToOpponentVoice(table);
+            }
+            
+            if (table.players.length === 1) {
+                showNotification('Aguardando adversário...', 'info');
+            } else {
+                showNotification('Jogo em andamento', 'info');
+            }
+            
+            // 🔥 ATUALIZAR LISTENER
+            if (typeof setupActiveTableListener === 'function') {
+                setupActiveTableListener();
+            }
+            return;
+        }
         
-        function updateAudioLevel() {
-            if (!analyser || isMuted) {
-                audioLevel.style.width = '0%';
+        // Verificar se mesa está cheia
+        if (table.players.length >= 2) {
+            console.log('❌ Mesa cheia:', tableId);
+            showNotification('Esta mesa já está cheia', 'error');
+            userActiveTable = null;
+            return;
+        }
+        
+        // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
+        if (table.bet > 0) {
+            // Carregar dados atualizados do usuário
+            await loadUserData(currentUser.uid);
+            
+            if (!userData || userData.coins < table.bet) {
+                showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
+                userActiveTable = null;
                 return;
             }
-            
-            analyser.getByteFrequencyData(dataArray);
-            
-            let sum = 0;
-            for (let i = 0; i < bufferLength; i++) {
-                sum += dataArray[i];
-            }
-            
-            const average = sum / bufferLength;
-            const level = Math.min(100, average * 100 / 256);
-            
-            audioLevel.style.width = level + '%';
-            
-            requestAnimationFrame(updateAudioLevel);
         }
         
-        updateAudioLevel();
-    }
-    
-    // Enviar áudio para outros jogadores
-    function sendAudioToPlayers(audioBlob) {
-        // Em um sistema real, você enviaria o áudio via WebRTC DataChannel
-        // Para simplificar, vamos apenas mostrar o status
-        voiceStatus.textContent = 'Áudio enviado para jogadores conectados';
+        // Adicionar jogador à mesa
+        await tableRef.update({
+            players: firebase.firestore.FieldValue.arrayUnion({
+                uid: currentUser.uid,
+                displayName: userData.displayName,
+                rating: userData.rating,
+                color: 'red',
+                voicePeerId: currentPeerId // 🔥 ADICIONAR PEER ID DO JOGADOR
+            }),
+            status: 'playing',
+            waitingForOpponent: false,
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        console.log('✅ Jogador adicionado à mesa');
         
-        setTimeout(() => {
-            voiceStatus.textContent = 'Pronto para conversar';
-        }, 2000);
-    }
-    
-    // Alternar visibilidade do chat de voz
-    voiceToggle.addEventListener('click', function() {
-        if (voiceContainer.style.display === 'none') {
-            voiceContainer.style.display = 'block';
-            voiceToggle.innerHTML = '<i class="fas fa-times"></i>';
-        } else {
-            voiceContainer.style.display = 'none';
-            voiceToggle.innerHTML = '🎙️';
-        }
-    });
-    
-    // Fechar o chat de voz
-    voiceClose.addEventListener('click', function() {
-        voiceContainer.style.display = 'none';
-        voiceToggle.innerHTML = '🎙️';
-    });
-    
-    // Botão para falar (push-to-talk)
-    voiceTalk.addEventListener('mousedown', startRecording);
-    voiceTalk.addEventListener('mouseup', stopRecording);
-    voiceTalk.addEventListener('touchstart', function(e) {
-        e.preventDefault();
-        startRecording();
-    });
-    voiceTalk.addEventListener('touchend', function(e) {
-        e.preventDefault();
-        stopRecording();
-    });
-    
-    function startRecording() {
-        if (isMuted || isDeafened || !mediaRecorder) return;
-        
-        isRecording = true;
-        voiceTalk.classList.add('recording');
-        voiceTalk.innerHTML = '<i class="fas fa-microphone-slash"></i> Solte para enviar';
-        voiceStatus.textContent = 'Gravando... Fale agora';
-        
-        audioChunks = [];
-        mediaRecorder.start();
-    }
-    
-    function stopRecording() {
-        if (!isRecording) return;
-        
-        isRecording = false;
-        voiceTalk.classList.remove('recording');
-        voiceTalk.innerHTML = '<i class="fas fa-microphone"></i> Pressione para falar';
-        voiceStatus.textContent = 'Enviando áudio...';
-        
-        mediaRecorder.stop();
-    }
-    
-    // Botão de mutar
-    voiceMute.addEventListener('click', function() {
-        isMuted = !isMuted;
-        
-        if (mediaStream) {
-            mediaStream.getAudioTracks().forEach(track => {
-                track.enabled = !isMuted;
+        // Deduzir aposta se houver
+        if (table.bet > 0) {
+            await db.collection('users').doc(currentUser.uid).update({
+                coins: firebase.firestore.FieldValue.increment(-table.bet)
             });
+            userData.coins -= table.bet;
         }
         
-        if (isMuted) {
-            voiceMute.innerHTML = '<i class="fas fa-microphone-slash"></i> Microfone Desativado';
-            voiceStatus.textContent = 'Microfone desativado';
+        // Entrar no jogo
+        setupGameListener(tableId);
+        showScreen('game-screen');
+        showNotification('Jogo iniciado! As peças pretas começam.', 'success');
+        
+        // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR
+        if (table.players.length === 1) {
+            // Aguardar oponente entrar
+            const unsubscribe = db.collection('tables').doc(tableId)
+                .onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const updatedTable = doc.data();
+                        if (updatedTable.players.length === 2) {
+                            connectToOpponentVoice(updatedTable);
+                            unsubscribe(); // Parar de observar
+                        }
+                    }
+                });
         } else {
-            voiceMute.innerHTML = '<i class="fas fa-microphone"></i> Microfone Ativado';
-            voiceStatus.textContent = 'Microfone ativado';
+            connectToOpponentVoice(table);
         }
+        
+        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
+        if (typeof setupActiveTableListener === 'function') {
+            setupActiveTableListener();
+        }
+        
+        // Atualizar lista de usuários online
+        setTimeout(() => {
+            if (typeof refreshOnlineUsersList === 'function') {
+                refreshOnlineUsersList();
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('❌ Erro ao entrar na mesa:', error);
+        userActiveTable = null;
+        showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
+    }
+}
+
+// ===== BOTÃO PARA CHAMADA DE VOZ NA INTERFACE =====
+function addVoiceButtonToGameScreen() {
+    // Verificar se o botão já existe
+    if (document.getElementById('voice-call-btn')) {
+        return;
+    }
+    
+    const voiceBtn = document.createElement('button');
+    voiceBtn.id = 'voice-call-btn';
+    voiceBtn.innerHTML = '📞 Chamada de Voz';
+    voiceBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 10px 15px;
+        background: #1a2a6c;
+        color: white;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+        z-index: 999;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    `;
+    
+    voiceBtn.addEventListener('click', () => {
+        if (!opponentPeerId) {
+            showNotification('Aguardando oponente conectar...', 'info');
+            return;
+        }
+        
+        // Iniciar chamada de voz
+        navigator.mediaDevices.getUserMedia({ video: false, audio: true })
+            .then((stream) => {
+                const call = peer.call(opponentPeerId, stream);
+                
+                call.on('stream', (remoteStream) => {
+                    const audio = document.createElement('audio');
+                    audio.srcObject = remoteStream;
+                    audio.autoplay = true;
+                    addVoiceControls(audio, call);
+                });
+            })
+            .catch((error) => {
+                console.error('Erro ao iniciar chamada:', error);
+                showNotification('Erro ao iniciar chamada de voz', 'error');
+            });
     });
     
-    // Botão de silenciar áudio
-    voiceDeafen.addEventListener('click', function() {
-        isDeafened = !isDeafened;
-        
-        // Em um sistema real, você controlaria o volume dos áudios recebidos
-        
-        if (isDeafened) {
-            voiceDeafen.innerHTML = '<i class="fas fa-volume-mute"></i> Áudio Desativado';
-            voiceStatus.textContent = 'Áudio desativado';
-        } else {
-            voiceDeafen.innerHTML = '<i class="fas fa-volume-up"></i> Áudio Ativado';
-            voiceStatus.textContent = 'Áudio ativado';
-        }
-    });
+    document.body.appendChild(voiceBtn);
+}
+
+// Adicionar botão quando a tela de jogo for mostrada
+const originalShowScreen = showScreen;
+showScreen = function(screenId) {
+    originalShowScreen.call(this, screenId);
     
-    // Inicializar o sistema de voz quando a página carregar
-    setupAudio();
-    
-    console.log('Sistema de voz com PeerJS carregado com sucesso!');
-});
+    if (screenId === 'game-screen') {
+        setTimeout(addVoiceButtonToGameScreen, 1000);
+    }
+};
+
+console.log('✅ Sistema de voz integrado à função joinTable');
