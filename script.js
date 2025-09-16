@@ -9653,3 +9653,111 @@ function toggleDeafen() {
         showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
     }
 }
+
+// Adicionar estilos CSS para controles avançados
+const voiceStyles = `
+<style>
+.voice-controls-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #1a2a6c;
+    color: white;
+    border-radius: 10px 10px 0 0;
+    font-weight: bold;
+}
+
+.voice-controls-body {
+    padding: 15px;
+    background: #2c3e50;
+}
+
+.voice-control-group {
+    margin-bottom: 15px;
+}
+
+.voice-control-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #ecf0f1;
+    font-size: 12px;
+}
+
+.voice-control-group input,
+.voice-control-group select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #34495e;
+    background: #2c3e50;
+    color: white;
+}
+
+.voice-control-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.voice-btn {
+    padding: 10px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    background: #3498db;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.voice-btn-danger {
+    background: #e74c3c;
+}
+
+.voice-controls-footer {
+    padding: 10px 15px;
+    background: #34495e;
+    border-radius: 0 0 10px 10px;
+    text-align: center;
+}
+
+.voice-quality-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.quality-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2ecc71;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.voice-close-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 18px;
+}
+</style>
+`;
+
+// Adicionar estilos ao documento
+document.head.insertAdjacentHTML('beforeend', voiceStyles);
+
+console.log('✅ Sistema de voz aperfeiçoado carregado');
