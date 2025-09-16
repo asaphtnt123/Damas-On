@@ -8557,8 +8557,7 @@ function addVoiceControls(audioElement, call) {
         audioElement.volume = parseFloat(e.target.value);
     });
 }
-
-// ===== FUNÇÃO joinTable ATUALIZADA =====
+// ===== FUNÇÃO joinTable ATUALIZADA COM NOVO SISTEMA DE VOZ =====
 async function joinTable(tableId) {
     console.log('🎯 Entrando na mesa:', tableId);
     
@@ -8584,20 +8583,12 @@ async function joinTable(tableId) {
         
         const table = tableDoc.data();
 
-        // 🔥 INICIALIZAR SISTEMA DE VOZ AO ENTRAR NA MESA
+        // 🔥 INICIALIZAR SISTEMA DE VOZ OTIMIZADO AO ENTRAR NA MESA
         if (!voiceSystem) {
             voiceSystem = await initializeVoiceSystem();
             
             if (voiceSystem) {
-                // Salvar nosso PeerID no perfil do usuário
-                await db.collection('users').doc(currentUser.uid).update({
-                    voicePeerId: currentPeerId
-                });
-                
-                // Configurar listener para chamadas de voz
-                setupVoiceCalls();
-                
-                showNotification('Sistema de voz ativado', 'success');
+                showNotification('Sistema de voz de alta qualidade ativado', 'success');
             }
         }
 
@@ -8619,15 +8610,17 @@ async function joinTable(tableId) {
             setupGameListener(tableId);
             showScreen('game-screen');
             
-            // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR
+            // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR (AGORA OTIMIZADO)
             if (table.players.length === 2) {
-                connectToOpponentVoice(table);
+                setTimeout(() => {
+                    connectToOpponentVoice(table);
+                }, 1500); // Pequeno delay para garantir inicialização
             }
             
             if (table.players.length === 1) {
                 showNotification('Aguardando adversário...', 'info');
             } else {
-                showNotification('Jogo em andamento', 'info');
+                showNotification('Jogo em andamento - Voz disponível', 'info');
             }
             
             // 🔥 ATUALIZAR LISTENER
@@ -8664,7 +8657,8 @@ async function joinTable(tableId) {
                 displayName: userData.displayName,
                 rating: userData.rating,
                 color: 'red',
-                voicePeerId: currentPeerId // 🔥 ADICIONAR PEER ID DO JOGADOR
+                voicePeerId: currentPeerId, // 🔥 ADICIONAR PEER ID DO JOGADOR
+                voiceEnabled: true // 🔥 INDICAR QUE TEM VOZ ATIVADA
             }),
             status: 'playing',
             waitingForOpponent: false,
@@ -8686,7 +8680,7 @@ async function joinTable(tableId) {
         showScreen('game-screen');
         showNotification('Jogo iniciado! As peças pretas começam.', 'success');
         
-        // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR
+        // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR (AGORA OTIMIZADO)
         if (table.players.length === 1) {
             // Aguardar oponente entrar
             const unsubscribe = db.collection('tables').doc(tableId)
@@ -8694,13 +8688,19 @@ async function joinTable(tableId) {
                     if (doc.exists) {
                         const updatedTable = doc.data();
                         if (updatedTable.players.length === 2) {
-                            connectToOpponentVoice(updatedTable);
+                            // Delay para garantir estabilidade da conexão
+                            setTimeout(() => {
+                                connectToOpponentVoice(updatedTable);
+                            }, 2000);
                             unsubscribe(); // Parar de observar
                         }
                     }
                 });
         } else {
-            connectToOpponentVoice(table);
+            // Delay para garantir estabilidade da conexão
+            setTimeout(() => {
+                connectToOpponentVoice(table);
+            }, 1500);
         }
         
         // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
@@ -8718,10 +8718,17 @@ async function joinTable(tableId) {
     } catch (error) {
         console.error('❌ Erro ao entrar na mesa:', error);
         userActiveTable = null;
+        
+        // 🔥 LIMPAR RECURSOS DE VOZ EM CASO DE ERRO
+        if (voiceSystem) {
+            cleanupVoiceCall();
+        }
+        
         showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
     }
 }
-// ===== FUNÇÃO RENDERTABLE ATUALIZADA =====
+
+// ===== FUNÇÃO RENDERTABLE ATUALIZADA COM INDICADOR DE VOZ OTIMIZADO =====
 function renderTable(table, container) {
     const tableEl = document.createElement('div');
     tableEl.className = 'table-item';
@@ -8733,12 +8740,20 @@ function renderTable(table, container) {
     const isDraw = table.status === 'draw';
     const isWaiting = table.status === 'waiting';
     
+    // Verificar se os jogadores têm voz ativada
+    const voiceAvailable = table.players && table.players.length === 2 && 
+                          table.players.every(p => p.voiceEnabled !== false);
+    
     // Obter nomes dos jogadores
     let playersInfo = '';
     if (table.players && table.players.length > 0) {
-        playersInfo = table.players.map(player => 
-            `<span class="player-name-tag ${player.color}">${player.displayName || 'Jogador'}</span>`
-        ).join(' vs ');
+        playersInfo = table.players.map(player => {
+            const voiceStatus = player.voiceEnabled !== false ? 
+                '<i class="fas fa-microphone voice-enabled" title="Voz ativada"></i>' : 
+                '<i class="fas fa-microphone-slash voice-disabled" title="Voz desativada"></i>';
+            
+            return `<span class="player-name-tag ${player.color}">${voiceStatus} ${player.displayName || 'Jogador'}</span>`;
+        }).join(' vs ');
     }
     
     let tableStatus = '';
@@ -8765,13 +8780,20 @@ function renderTable(table, container) {
         if (isUserInTable) {
             actionButton = `
                 <button class="btn btn-warning btn-small" disabled>Jogando</button>
-                ${table.players.length === 2 ? '<div class="voice-available"><i class="fas fa-microphone"></i> Voz disponível</div>' : ''}
+                ${voiceAvailable ? 
+                    '<div class="voice-available optimized-voice"><i class="fas fa-microphone-alt"></i> Voz HD</div>' : 
+                    '<div class="voice-unavailable"><i class="fas fa-microphone-slash"></i> Sem voz</div>'
+                }
             `;
         } else {
             actionButton = `
                 <button class="btn btn-info btn-small watch-btn">
                     <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
                 </button>
+                ${voiceAvailable ? 
+                    '<div class="voice-available"><i class="fas fa-microphone"></i> Com voz</div>' : 
+                    ''
+                }
             `;
         }
     } else if (isWaiting) {
@@ -8817,7 +8839,7 @@ function renderTable(table, container) {
     container.appendChild(tableEl);
 }
 
-// ===== SETUP GAME LISTENER ATUALIZADO =====
+// ===== SETUP GAME LISTENER ATUALIZADO COM NOVO SISTEMA DE VOZ =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
     
@@ -8893,6 +8915,10 @@ function setupGameListener(tableId) {
             if (gameState.status === 'finished' || gameState.status === 'draw') {
                 console.log('🏁 Jogo finalizado, processando estado final');
                 await handleFinishedGame(oldGameState, gameState);
+                
+                // 🔥 LIMPAR RECURSOS DE VOZ AO FINALIZAR
+                cleanupVoiceCall();
+                
                 isProcessing = false;
                 return;
             }
@@ -8910,6 +8936,17 @@ function setupGameListener(tableId) {
             // 5. PROCESSAR EVENTOS ESPECÍFICOS
             if (playersChanged && oldGameState) {
                 await handlePlayersChange(oldGameState, gameState);
+                
+                // 🔥 VERIFICAR MUDANÇAS NO STATUS DE VOZ DOS JOGADORES
+                if (gameState.players && gameState.players.length === 2) {
+                    const voiceStatusChanged = checkVoiceStatusChange(oldGameState.players, gameState.players);
+                    if (voiceStatusChanged) {
+                        console.log('🔊 Status de voz alterado, reconectando...');
+                        setTimeout(() => {
+                            connectToOpponentVoice(gameState);
+                        }, 1000);
+                    }
+                }
             }
             
             if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
@@ -8921,12 +8958,12 @@ function setupGameListener(tableId) {
                 console.log('🎨 Atualizando interface');
                 updateGameInterface();
                 
-                // 🔥 ADICIONAR BOTÃO DE VOZ SE HOUVER DOIS JOGADORES
+                // 🔥 ADICIONAR BOTÃO DE VOZ OTIMIZADO SE HOUVER DOIS JOGADORES
                 if (gameState.players && gameState.players.length === 2) {
                     // Pequeno delay para garantir que a interface foi renderizada
                     setTimeout(() => {
                         addVoiceButtonToGameScreen();
-                    }, 500);
+                    }, 800);
                 }
             }
             
@@ -8939,16 +8976,20 @@ function setupGameListener(tableId) {
                 setupChatListener();
                 setupSpectatorsListener(tableId);
                 
-                // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER DOIS JOGADORES
+                // 🔥 INICIAR SISTEMA DE VOZ OTIMIZADO SE HOUVER DOIS JOGADORES
                 if (gameState.players && gameState.players.length === 2) {
                     setTimeout(() => {
                         initializeVoiceSystem().then(voiceSys => {
                             if (voiceSys) {
                                 voiceSystem = voiceSys;
-                                connectToOpponentVoice(gameState);
+                                
+                                // Delay adicional para melhor estabilidade
+                                setTimeout(() => {
+                                    connectToOpponentVoice(gameState);
+                                }, 2000);
                             }
                         });
-                    }, 1000);
+                    }, 1500);
                 }
             }
             
@@ -8977,6 +9018,24 @@ function setupGameListener(tableId) {
     });
 }
 
+// ===== FUNÇÃO AUXILIAR: VERIFICAR MUDANÇAS NO STATUS DE VOZ =====
+function checkVoiceStatusChange(oldPlayers, newPlayers) {
+    if (!oldPlayers || !newPlayers) return false;
+    
+    for (let i = 0; i < newPlayers.length; i++) {
+        const newPlayer = newPlayers[i];
+        const oldPlayer = oldPlayers.find(p => p.uid === newPlayer.uid);
+        
+        if (oldPlayer) {
+            if (oldPlayer.voiceEnabled !== newPlayer.voiceEnabled ||
+                oldPlayer.voicePeerId !== newPlayer.voicePeerId) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
 // ===== FUNÇÃO AUXILIAR: ADICIONAR BOTÃO DE VOZ =====
 function addVoiceButtonToGameScreen() {
     // Verificar se já estamos na tela de jogo
@@ -9761,3 +9820,57 @@ const voiceStyles = `
 document.head.insertAdjacentHTML('beforeend', voiceStyles);
 
 console.log('✅ Sistema de voz aperfeiçoado carregado');
+
+
+
+// ===== ADICIONAR ESTILOS PARA INDICADORES DE VOZ =====
+const voiceStatusStyles = `
+<style>
+.voice-enabled {
+    color: #2ecc71;
+    margin-right: 5px;
+}
+
+.voice-disabled {
+    color: #e74c3c;
+    margin-right: 5px;
+}
+
+.voice-available {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-top: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.optimized-voice {
+    background: linear-gradient(135deg, rgba(46, 204, 113, 0.3), rgba(52, 152, 219, 0.3));
+    border: 1px solid #2ecc71;
+}
+
+.voice-unavailable {
+    background: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-top: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.player-name-tag {
+    display: inline-flex;
+    align-items: center;
+}
+</style>
+`;
+
+// Adicionar estilos ao documento
+document.head.insertAdjacentHTML('beforeend', voiceStatusStyles);
