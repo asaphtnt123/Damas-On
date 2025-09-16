@@ -8789,284 +8789,394 @@ function updateSoundButtons() {
 }
 
 
-
-// ===== INTEGRAÇÃO DOS SONS NO JOGO =====
-
-// Sons de movimento
-function playMoveSound() {
-    audioManager.playSound('move');
-}
-
-function playCaptureSound(isMultiple = false) {
-    audioManager.playSound(isMultiple ? 'multipleCapture' : 'capture');
-}
-
-function playKingPromotionSound() {
-    audioManager.playSound('kingPromotion');
-}
-
-// Sons de jogo
-function playGameStartSound() {
-    audioManager.playSound('gameStart');
-    audioManager.playMusic('backgroundMusic');
-}
-
-function playGameEndSound(win = true) {
-    audioManager.playSound(win ? 'victory' : 'defeat');
-    audioManager.stopMusic();
-}
-
-function playIntenseMusic() {
-    audioManager.playMusic('intenseMusic');
-}
-
-// Sons de interface
-function playClickSound() {
-    audioManager.playSound('click');
-}
-
-function playNotificationSound() {
-    audioManager.playSound('notification');
-}
-
-function playChallengeSound() {
-    audioManager.playSound('challenge');
-}
-
-// ===== INTEGRAÇÃO SIMPLIFICADA =====
-function initializeGameWithSound() {
-    console.log('🔊 Inicializando sistema de som...');
+// Sistema de Voz com PeerJS (WebRTC)
+document.addEventListener('DOMContentLoaded', function() {
+    // Elementos da UI
+    const voiceToggle = document.getElementById('voice-toggle');
+    const voiceContainer = document.getElementById('voice-chat-container');
+    const voiceClose = document.getElementById('voice-close');
+    const voiceTalk = document.getElementById('voice-talk');
+    const voiceMute = document.getElementById('voice-mute');
+    const voiceDeafen = document.getElementById('voice-deafen');
+    const voiceStatus = document.getElementById('voice-status');
+    const audioLevel = document.getElementById('voice-audio-level');
+    const connectionStatus = document.getElementById('connection-status');
+    const connectionText = document.getElementById('connection-text');
+    const playersContainer = document.getElementById('players-container');
     
-    // Sons de movimento - modificar makeMove diretamente
-    const originalMakeMove = makeMove;
-    makeMove = async function(fromRow, fromCol, toRow, toCol, captures) {
-        const result = await originalMakeMove.call(this, fromRow, fromCol, toRow, toCol, captures);
+    // Estados do sistema de voz
+    let isRecording = false;
+    let isMuted = false;
+    let isDeafened = false;
+    let mediaRecorder = null;
+    let audioContext = null;
+    let analyser = null;
+    let microphone = null;
+    let audioChunks = [];
+    
+    // Variáveis do PeerJS
+    let peer = null;
+    let myPeerId = null;
+    let currentCall = null;
+    let connections = {};
+    let mediaStream = null;
+    
+    // Inicializar PeerJS
+    function initializePeerJS() {
+        // Gerar um ID único para este jogador
+        const playerId = generatePlayerId();
         
-        // Tocar som apropriado
-        if (captures && captures.length > 0) {
-            if (captures.length > 1) {
-                audioManager.playMultipleCaptureSound();
-            } else {
-                audioManager.playCaptureSound();
-            }
-        } else {
-            audioManager.playMoveSound();
-        }
+        // Inicializar Peer com servidor gratuito
+        peer = new Peer(playerId, {
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            debug: 3
+        });
         
-        return result;
-    };
-
-    // Verificar promoção a dama - adicionar à makeMove ou criar função separada
-    const gameStateHandler = {
-        set: function(target, property, value) {
-            target[property] = value;
+        peer.on('open', function(id) {
+            myPeerId = id;
+            updateConnectionStatus('connected', `Conectado como: ${id.substring(0, 8)}...`);
+            voiceStatus.textContent = 'Pronto para conversar!';
             
-            // Verificar se uma peça foi promovida a dama
-            if (property === 'board' && value) {
-                for (let row = 0; row < 8; row++) {
-                    for (let col = 0; col < 8; col++) {
-                        const piece = value[row] && value[row][col];
-                        if (piece && piece.king && 
-                            !(target[property][row] && target[property][row][col] && target[property][row][col].king)) {
-                            audioManager.playKingPromotionSound();
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-    };
-    
-    // Aplicar handler se gameState existir
-    if (gameState) {
-        gameState = new Proxy(gameState, gameStateHandler);
+            // Adicionar este jogador à lista
+            addPlayerToList(id, 'Você', true);
+        });
+        
+        peer.on('connection', function(conn) {
+            setupDataConnection(conn);
+        });
+        
+        peer.on('call', function(call) {
+            // Aceitar a chamada de voz automaticamente
+            call.answer(mediaStream);
+            setupCall(call);
+        });
+        
+        peer.on('error', function(err) {
+            console.error('Erro no PeerJS:', err);
+            updateConnectionStatus('disconnected', 'Erro de conexão');
+            
+            // Tentar reconectar após 5 segundos
+            setTimeout(initializePeerJS, 5000);
+        });
+        
+        peer.on('disconnected', function() {
+            updateConnectionStatus('disconnected', 'Desconectado');
+            
+            // Tentar reconectar
+            peer.reconnect();
+        });
     }
-}
-
-  // Sistema de Voz para Jogo de Damas
-        document.addEventListener('DOMContentLoaded', function() {
-            // Elementos da UI
-            const voiceToggle = document.getElementById('voice-toggle');
-            const voiceContainer = document.getElementById('voice-chat-container');
-            const voiceClose = document.getElementById('voice-close');
-            const voiceTalk = document.getElementById('voice-talk');
-            const voiceMute = document.getElementById('voice-mute');
-            const voiceDeafen = document.getElementById('voice-deafen');
-            const voiceStatus = document.getElementById('voice-status');
-            const audioLevel = document.getElementById('voice-audio-level');
+    
+    // Gerar ID de jogador
+    function generatePlayerId() {
+        return 'player-' + Math.random().toString(36).substr(2, 8);
+    }
+    
+    // Atualizar status da conexão
+    function updateConnectionStatus(status, text) {
+        connectionStatus.className = 'status-indicator';
+        
+        switch(status) {
+            case 'connected':
+                connectionStatus.classList.add('status-connected');
+                break;
+            case 'disconnected':
+                connectionStatus.classList.add('status-disconnected');
+                break;
+            case 'connecting':
+                connectionStatus.classList.add('status-connecting');
+                break;
+        }
+        
+        connectionText.textContent = text;
+    }
+    
+    // Configurar conexão de dados
+    function setupDataConnection(conn) {
+        connections[conn.peer] = conn;
+        
+        conn.on('data', function(data) {
+            handleReceivedData(data, conn.peer);
+        });
+        
+        conn.on('open', function() {
+            // Solicitar informações do jogador
+            conn.send({
+                type: 'player-info',
+                name: 'Jogador-' + myPeerId.substring(0, 5),
+                id: myPeerId
+            });
+        });
+        
+        conn.on('close', function() {
+            removePlayerFromList(conn.peer);
+            delete connections[conn.peer];
+        });
+    }
+    
+    // Adicionar jogador à lista
+    function addPlayerToList(peerId, name, isLocal = false) {
+        // Verificar se o jogador já está na lista
+        if (document.getElementById(`player-${peerId}`)) {
+            return;
+        }
+        
+        const playerElement = document.createElement('div');
+        playerElement.className = 'audio-message';
+        playerElement.id = `player-${peerId}`;
+        
+        playerElement.innerHTML = `
+            <i class="fas fa-user${isLocal ? '' : '-friends'}"></i>
+            <div>
+                <div><strong>${name}</strong> ${isLocal ? '(Você)' : ''}</div>
+                <div style="font-size:0.8em;opacity:0.7">ID: ${peerId.substring(0, 8)}...</div>
+            </div>
+            ${!isLocal ? `
+            <button class="voice-btn" style="padding:5px;font-size:0.8em" onclick="connectToPlayer('${peerId}')">
+                <i class="fas fa-phone"></i>
+            </button>
+            ` : ''}
+        `;
+        
+        playersContainer.appendChild(playerElement);
+    }
+    
+    // Remover jogador da lista
+    function removePlayerFromList(peerId) {
+        const playerElement = document.getElementById(`player-${peerId}`);
+        if (playerElement) {
+            playerElement.remove();
+        }
+    }
+    
+    // Conectar a outro jogador
+    window.connectToPlayer = function(peerId) {
+        // Estabelecer conexão de dados
+        const conn = peer.connect(peerId);
+        setupDataConnection(conn);
+        
+        // Fazer chamada de voz
+        if (mediaStream) {
+            const call = peer.call(peerId, mediaStream);
+            setupCall(call);
+        }
+    };
+    
+    // Configurar chamada de voz
+    function setupCall(call) {
+        currentCall = call;
+        
+        call.on('stream', function(remoteStream) {
+            // Reproduzir áudio remoto
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.play();
             
-            // Estados do sistema de voz
-            let isRecording = false;
-            let isMuted = false;
-            let isDeafened = false;
-            let mediaRecorder = null;
-            let audioContext = null;
-            let analyser = null;
-            let microphone = null;
-            let javascriptNode = null;
+            voiceStatus.textContent = `Conectado com ${call.peer.substring(0, 8)}...`;
+        });
+        
+        call.on('close', function() {
+            voiceStatus.textContent = 'Chamada encerrada';
+            currentCall = null;
+        });
+    }
+    
+    // Manipular dados recebidos
+    function handleReceivedData(data, peerId) {
+        switch(data.type) {
+            case 'player-info':
+                addPlayerToList(peerId, data.name);
+                break;
+            case 'chat-message':
+                console.log(`Mensagem de ${peerId}: ${data.message}`);
+                break;
+        }
+    }
+    
+    // Configurar áudio
+    async function setupAudio() {
+        try {
+            voiceStatus.textContent = "Solicitando acesso ao microfone...";
             
-            // Alternar visibilidade do chat de voz
-            voiceToggle.addEventListener('click', function() {
-                if (voiceContainer.style.display === 'none') {
-                    voiceContainer.style.display = 'block';
-                    voiceToggle.textContent = '🎙️';
-                } else {
-                    voiceContainer.style.display = 'none';
-                    voiceToggle.textContent = '🎙️';
-                }
+            mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 44100
+                } 
             });
             
-            // Fechar o chat de voz
-            voiceClose.addEventListener('click', function() {
-                voiceContainer.style.display = 'none';
+            // Configurar AudioContext para análise de áudio
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            microphone = audioContext.createMediaStreamSource(mediaStream);
+            analyser = audioContext.createAnalyser();
+            
+            microphone.connect(analyser);
+            
+            // Configurar MediaRecorder para gravação
+            mediaRecorder = new MediaRecorder(mediaStream, {
+                mimeType: 'audio/webm;codecs=opus'
             });
             
-            // Configurar áudio
-            async function setupAudio() {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    
-                    // Configurar AudioContext para análise de áudio
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    microphone = audioContext.createMediaStreamSource(stream);
-                    analyser = audioContext.createAnalyser();
-                    
-                    microphone.connect(analyser);
-                    
-                    // Configurar MediaRecorder para gravação
-                    mediaRecorder = new MediaRecorder(stream);
-                    
-                    const audioChunks = [];
-                    
-                    mediaRecorder.ondataavailable = function(event) {
-                        audioChunks.push(event.data);
-                    };
-                    
-                    mediaRecorder.onstop = function() {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        // Aqui você enviaria o áudio para o servidor/oponente
-                        sendAudioToOpponent(audioBlob);
-                    };
-                    
-                    // Iniciar análise de áudio para visualização
-                    startAudioAnalysis();
-                    
-                    voiceStatus.textContent = 'Microfone conectado';
-                    voiceTalk.disabled = false;
-                    
-                } catch (error) {
-                    console.error('Erro ao acessar microfone:', error);
-                    voiceStatus.textContent = 'Erro ao acessar microfone';
-                    voiceTalk.disabled = true;
-                }
-            }
+            mediaRecorder.ondataavailable = function(event) {
+                audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = function() {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                sendAudioToPlayers(audioBlob);
+                audioChunks = [];
+            };
             
             // Iniciar análise de áudio para visualização
-            function startAudioAnalysis() {
-                if (!analyser) return;
-                
-                analyser.fftSize = 256;
-                const bufferLength = analyser.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-                
-                function updateAudioLevel() {
-                    if (!analyser || isMuted) {
-                        audioLevel.style.width = '0%';
-                        return;
-                    }
-                    
-                    analyser.getByteFrequencyData(dataArray);
-                    
-                    let sum = 0;
-                    for (let i = 0; i < bufferLength; i++) {
-                        sum += dataArray[i];
-                    }
-                    
-                    const average = sum / bufferLength;
-                    const level = Math.min(100, average * 100 / 256);
-                    
-                    audioLevel.style.width = level + '%';
-                    
-                    requestAnimationFrame(updateAudioLevel);
-                }
-                
-                updateAudioLevel();
+            startAudioAnalysis();
+            
+            voiceStatus.textContent = 'Microfone conectado. Conectando...';
+            voiceTalk.disabled = false;
+            
+            // Inicializar PeerJS
+            initializePeerJS();
+            
+        } catch (error) {
+            console.error('Erro ao acessar microfone:', error);
+            voiceStatus.textContent = 'Erro ao acessar microfone. Verifique as permissões.';
+            voiceTalk.disabled = true;
+        }
+    }
+    
+    // Iniciar análise de áudio para visualização
+    function startAudioAnalysis() {
+        if (!analyser) return;
+        
+        analyser.fftSize = 256;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        function updateAudioLevel() {
+            if (!analyser || isMuted) {
+                audioLevel.style.width = '0%';
+                return;
             }
             
-            // Enviar áudio para o oponente (simulação)
-            function sendAudioToOpponent(audioBlob) {
-                // Aqui você implementaria o envio do áudio para o oponente
-                // via WebSockets, WebRTC ou seu backend
-                console.log('Áudio gravado, tamanho:', audioBlob.size, 'bytes');
-                
-                // Simulação de envio
-                voiceStatus.textContent = 'Enviando áudio...';
-                
-                setTimeout(() => {
-                    voiceStatus.textContent = 'Áudio enviado';
-                    setTimeout(() => {
-                        voiceStatus.textContent = 'Pronto para conversar';
-                    }, 2000);
-                }, 1000);
+            analyser.getByteFrequencyData(dataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
             }
             
-            // Botão para falar (push-to-talk)
-            voiceTalk.addEventListener('mousedown', startRecording);
-            voiceTalk.addEventListener('mouseup', stopRecording);
-            voiceTalk.addEventListener('touchstart', startRecording);
-            voiceTalk.addEventListener('touchend', stopRecording);
+            const average = sum / bufferLength;
+            const level = Math.min(100, average * 100 / 256);
             
-            function startRecording(e) {
-                if (e) e.preventDefault();
-                if (isMuted || isDeafened || !mediaRecorder) return;
-                
-                isRecording = true;
-                voiceTalk.classList.add('recording');
-                voiceStatus.textContent = 'Gravando...';
-                
-                mediaRecorder.start();
-            }
+            audioLevel.style.width = level + '%';
             
-            function stopRecording(e) {
-                if (e) e.preventDefault();
-                if (!isRecording) return;
-                
-                isRecording = false;
-                voiceTalk.classList.remove('recording');
-                voiceStatus.textContent = 'Enviando áudio...';
-                
-                mediaRecorder.stop();
-            }
-            
-            // Botão de mutar
-            voiceMute.addEventListener('click', function() {
-                isMuted = !isMuted;
-                
-                if (isMuted) {
-                    voiceMute.innerHTML = '<i>🔈</i> Ativar Som';
-                    voiceStatus.textContent = 'Microfone desativado';
-                } else {
-                    voiceMute.innerHTML = '<i>🔇</i> Silenciar';
-                    voiceStatus.textContent = 'Microfone ativado';
-                }
+            requestAnimationFrame(updateAudioLevel);
+        }
+        
+        updateAudioLevel();
+    }
+    
+    // Enviar áudio para outros jogadores
+    function sendAudioToPlayers(audioBlob) {
+        // Em um sistema real, você enviaria o áudio via WebRTC DataChannel
+        // Para simplificar, vamos apenas mostrar o status
+        voiceStatus.textContent = 'Áudio enviado para jogadores conectados';
+        
+        setTimeout(() => {
+            voiceStatus.textContent = 'Pronto para conversar';
+        }, 2000);
+    }
+    
+    // Alternar visibilidade do chat de voz
+    voiceToggle.addEventListener('click', function() {
+        if (voiceContainer.style.display === 'none') {
+            voiceContainer.style.display = 'block';
+            voiceToggle.innerHTML = '<i class="fas fa-times"></i>';
+        } else {
+            voiceContainer.style.display = 'none';
+            voiceToggle.innerHTML = '🎙️';
+        }
+    });
+    
+    // Fechar o chat de voz
+    voiceClose.addEventListener('click', function() {
+        voiceContainer.style.display = 'none';
+        voiceToggle.innerHTML = '🎙️';
+    });
+    
+    // Botão para falar (push-to-talk)
+    voiceTalk.addEventListener('mousedown', startRecording);
+    voiceTalk.addEventListener('mouseup', stopRecording);
+    voiceTalk.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        startRecording();
+    });
+    voiceTalk.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        stopRecording();
+    });
+    
+    function startRecording() {
+        if (isMuted || isDeafened || !mediaRecorder) return;
+        
+        isRecording = true;
+        voiceTalk.classList.add('recording');
+        voiceTalk.innerHTML = '<i class="fas fa-microphone-slash"></i> Solte para enviar';
+        voiceStatus.textContent = 'Gravando... Fale agora';
+        
+        audioChunks = [];
+        mediaRecorder.start();
+    }
+    
+    function stopRecording() {
+        if (!isRecording) return;
+        
+        isRecording = false;
+        voiceTalk.classList.remove('recording');
+        voiceTalk.innerHTML = '<i class="fas fa-microphone"></i> Pressione para falar';
+        voiceStatus.textContent = 'Enviando áudio...';
+        
+        mediaRecorder.stop();
+    }
+    
+    // Botão de mutar
+    voiceMute.addEventListener('click', function() {
+        isMuted = !isMuted;
+        
+        if (mediaStream) {
+            mediaStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
             });
-            
-            // Botão de silenciar todos
-            voiceDeafen.addEventListener('click', function() {
-                isDeafened = !isDeafened;
-                
-                if (isDeafened) {
-                    voiceDeafen.innerHTML = '<i>🔈</i> Ativar Áudio';
-                    voiceStatus.textContent = 'Áudio desativado';
-                } else {
-                    voiceDeafen.innerHTML = '<i>🔇</i> Silenciar Todos';
-                    voiceStatus.textContent = 'Áudio ativado';
-                }
-            });
-            
-            // Inicializar o sistema de voz quando a página carregar
-            setupAudio();
-            
-            // Adicionar este sistema ao seu jogo existente
-            console.log('Sistema de voz carregado com sucesso!');
-        });
+        }
+        
+        if (isMuted) {
+            voiceMute.innerHTML = '<i class="fas fa-microphone-slash"></i> Microfone Desativado';
+            voiceStatus.textContent = 'Microfone desativado';
+        } else {
+            voiceMute.innerHTML = '<i class="fas fa-microphone"></i> Microfone Ativado';
+            voiceStatus.textContent = 'Microfone ativado';
+        }
+    });
+    
+    // Botão de silenciar áudio
+    voiceDeafen.addEventListener('click', function() {
+        isDeafened = !isDeafened;
+        
+        // Em um sistema real, você controlaria o volume dos áudios recebidos
+        
+        if (isDeafened) {
+            voiceDeafen.innerHTML = '<i class="fas fa-volume-mute"></i> Áudio Desativado';
+            voiceStatus.textContent = 'Áudio desativado';
+        } else {
+            voiceDeafen.innerHTML = '<i class="fas fa-volume-up"></i> Áudio Ativado';
+            voiceStatus.textContent = 'Áudio ativado';
+        }
+    });
+    
+    // Inicializar o sistema de voz quando a página carregar
+    setupAudio();
+    
+    console.log('Sistema de voz com PeerJS carregado com sucesso!');
+});

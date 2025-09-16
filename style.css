@@ -5681,20 +5681,19 @@ input:checked + .slider:before {
 }
 
 
-
-  /* Estilos para o sistema de voz */
+     /* Estilos para o sistema de voz */
         .voice-chat-container {
             position: fixed;
             bottom: 20px;
             right: 20px;
             z-index: 1000;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9);
             border-radius: 15px;
             padding: 15px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(10px);
             border: 2px solid #fdbb2d;
-            width: 300px;
+            width: 320px;
             color: white;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
@@ -5712,6 +5711,9 @@ input:checked + .slider:before {
             font-size: 1.2rem;
             font-weight: bold;
             color: #fdbb2d;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         
         .voice-close {
@@ -5749,6 +5751,12 @@ input:checked + .slider:before {
         
         .voice-btn.active {
             background: #b21f1f;
+        }
+        
+        .voice-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
         
         .voice-status {
@@ -5799,6 +5807,49 @@ input:checked + .slider:before {
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
         }
         
+        .received-audio {
+            margin-top: 15px;
+            border-top: 1px solid #444;
+            padding-top: 15px;
+        }
+        
+        .audio-message {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .status-connected {
+            background-color: #4CAF50;
+        }
+        
+        .status-disconnected {
+            background-color: #F44336;
+        }
+        
+        .status-connecting {
+            background-color: #FFC107;
+        }
+        
         /* Animações */
         @keyframes pulse {
             0% { transform: scale(1); }
@@ -5813,7 +5864,7 @@ input:checked + .slider:before {
         /* Responsividade */
         @media (max-width: 768px) {
             .voice-chat-container {
-                width: 250px;
+                width: 280px;
                 right: 10px;
                 bottom: 10px;
             }

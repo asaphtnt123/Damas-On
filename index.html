@@ -33,39 +33,48 @@
 
         </div>
     </nav>
-      <!-- Container do chat de voz (inicialmente oculto) -->
+   <!-- Container do chat de voz (inicialmente oculto) -->
+    <!-- Container do chat de voz (inicialmente oculto) -->
     <div class="voice-chat-container" id="voice-chat-container" style="display: none;">
         <div class="voice-header">
-            <div class="voice-title">Chat de Voz</div>
+            <div class="voice-title"><i class="fas fa-microphone"></i> Chat de Voz</div>
             <button class="voice-close" id="voice-close">×</button>
+        </div>
+        
+        <div class="connection-status">
+            <span class="status-indicator" id="connection-status"></span>
+            <span id="connection-text">Conectando...</span>
         </div>
         
         <div class="voice-controls">
             <button class="voice-btn" id="voice-talk">
-                <i>🎤</i> Falar
+                <i class="fas fa-microphone"></i> Pressione para falar
             </button>
             
             <button class="voice-btn" id="voice-mute">
-                <i>🔇</i> Silenciar
+                <i class="fas fa-volume-up"></i> Som Ativado
             </button>
             
             <button class="voice-btn" id="voice-deafen">
-                <i>🔇</i> Silenciar Todos
+                <i class="fas fa-headphones"></i> Áudio Ativado
             </button>
         </div>
         
         <div class="voice-status" id="voice-status">
-            Pronto para conversar
+            Conectando ao sistema de voz...
         </div>
         
         <div class="voice-audio-indicator">
             <div class="voice-audio-level" id="voice-audio-level"></div>
         </div>
+        
+        <div class="received-audio">
+            <div class="voice-title"><i class="fas fa-users"></i> Jogadores Conectados</div>
+            <div id="players-container">
+                <!-- Lista de jogadores conectados -->
+            </div>
+        </div>
     </div>
-
-
-
-
     
 <div id="notifications-container"></div>
 
@@ -638,6 +647,7 @@
 <!-- Firebase Firestore -->
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore-compat.js"></script>
 
+<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
 
 </body>
 </html>
