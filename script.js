@@ -9101,8 +9101,10 @@ function addVoiceButtonToGameScreen() {
         voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
     });
     
-    // Clique no botão - 🔥 CORREÇÃO: Usar a função otimizada
+    // Clique no botão - 🔥 USAR FUNÇÃO ATUALIZADA
     voiceBtn.addEventListener('click', () => {
+        console.log('🎙️ Botão de voz clicado');
+        
         if (!peer || !opponentPeerId) {
             showNotification('Otimizando conexão de voz...', 'info');
             initializeVoiceSystem().then(voiceSys => {
@@ -9111,7 +9113,7 @@ function addVoiceButtonToGameScreen() {
                     connectToOpponentVoice(gameState);
                     setTimeout(() => {
                         if (opponentPeerId) {
-                            startOptimizedVoiceCall(); // 🔥 Usar função otimizada
+                            startOptimizedVoiceCall(); // 🔥 FUNÇÃO ATUALIZADA
                         }
                     }, 1000);
                 }
@@ -9119,8 +9121,9 @@ function addVoiceButtonToGameScreen() {
             return;
         }
         
-        startOptimizedVoiceCall(); // 🔥 Usar função otimizada
+        startOptimizedVoiceCall(); // 🔥 FUNÇÃO ATUALIZADA
     });
+    
     
     // Adicionar botão à interface
     document.body.appendChild(voiceBtn);
@@ -9169,84 +9172,209 @@ function startVoiceCall() {
             showNotification('Permissão de microfone negada', 'error');
         });
 }
-
-// ===== MOSTRAR CONTROLES DE VOZ =====
-function showVoiceControls(audioElement, call) {
-    // Remover controles existentes
+// ===== FUNÇÃO GLOBAL PARA MOSTRAR PAINEL DE VOZ =====
+function showVoiceControlPanel(audioElement, call) {
+    console.log('🎛️ Tentando mostrar painel de voz...');
+    
+    // Primeiro, garantir que qualquer painel existente seja removido
     hideVoiceControls();
     
-    const controls = document.createElement('div');
-    controls.id = 'voice-controls-panel';
-    controls.style.cssText = `
-        position: fixed;
-        bottom: 80px;
-        right: 20px;
-        background: rgba(0,0,0,0.9);
-        padding: 15px;
-        border-radius: 15px;
-        color: white;
-        z-index: 1000;
-        border: 2px solid #fdbb2d;
-        min-width: 200px;
-    `;
-    
-    controls.innerHTML = `
-        <div style="margin-bottom: 10px; font-weight: bold;">
-            <i class="fas fa-microphone"></i> Chamada de Voz
-        </div>
-        <div style="margin-bottom: 15px;">
-            <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                <i class="fas fa-volume-up" style="margin-right: 10px;"></i>
-                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.8" 
-                       style="flex: 1;">
+    // Pequeno delay para garantir que o DOM está pronto
+    setTimeout(() => {
+        // Criar o painel de controles
+        const panel = document.createElement('div');
+        panel.id = 'voice-control-panel';
+        panel.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            border: 2px solid #fdbb2d;
+            width: 300px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+        `;
+
+        panel.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #fdbb2d;">
+                <div style="display: flex; align-items: center; gap: 10px; font-weight: bold; font-size: 16px;">
+                    <i class="fas fa-microphone-alt" style="color: #fdbb2d;"></i>
+                    <span>Controles de Voz</span>
+                </div>
+                <button id="close-voice-panel" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px; padding: 5px;">×</button>
             </div>
-            <div style="display: flex; gap: 10px;">
-                <button id="mute-call" class="voice-control-btn">
+            
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <i class="fas fa-volume-up" style="margin-right: 10px; color: #ccc;"></i>
+                    <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
+                           style="flex: 1; height: 6px; border-radius: 3px; background: #34495e;">
+                    <span id="volume-value" style="margin-left: 10px; font-size: 12px; min-width: 30px;">70%</span>
+                </div>
+                
+                <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <i class="fas fa-bullseye" style="margin-right: 10px; color: #ccc;"></i>
+                    <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="0.05" 
+                           style="flex: 1; height: 6px; border-radius: 3px; background: #34495e;">
+                    <span id="sensitivity-value" style="margin-left: 10px; font-size: 12px; min-width: 30px;">Média</span>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                <button id="mute-toggle" style="padding: 10px; border: none; border-radius: 8px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
                     <i class="fas fa-microphone"></i> Mutar
                 </button>
-                <button id="end-call" class="voice-control-btn" style="background: #b21f1f;">
-                    <i class="fas fa-phone-slash"></i>
+                <button id="deafen-toggle" style="padding: 10px; border: none; border-radius: 8px; background: #9b59b6; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <i class="fas fa-volume-up"></i> Silenciar
                 </button>
             </div>
-        </div>
-    `;
-    
-    document.body.appendChild(controls);
-    
-    // Configurar eventos
-    document.getElementById('voice-volume').addEventListener('input', (e) => {
-        audioElement.volume = parseFloat(e.target.value);
-    });
-    
-    let isMuted = false;
-    document.getElementById('mute-call').addEventListener('click', () => {
-        isMuted = !isMuted;
-        audioElement.muted = isMuted;
-        this.innerHTML = isMuted ? 
-            '<i class="fas fa-microphone-slash"></i> Ativar' : 
-            '<i class="fas fa-microphone"></i> Mutar';
-    });
-    
-    document.getElementById('end-call').addEventListener('click', () => {
-        call.close();
-        hideVoiceControls();
-    });
+            
+            <button id="end-call-btn" style="width: 100%; padding: 12px; border: none; border-radius: 8px; background: #e74c3c; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                <i class="fas fa-phone-slash"></i> Encerrar Chamada
+            </button>
+            
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #444; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: #2ecc71;">
+                    <div style="width: 10px; height: 10px; border-radius: 50%; background: #2ecc71; animation: pulse 1.5s infinite;"></div>
+                    <span>Conexão Estável</span>
+                </div>
+            </div>
+        `;
+
+        // Adicionar ao documento
+        document.body.appendChild(panel);
+        
+        console.log('✅ Painel de voz adicionado ao DOM');
+        
+        // Configurar eventos
+        setupVoicePanelEvents(audioElement, call);
+        
+    }, 100);
 }
 
-// ===== FUNÇÃO hideVoiceControls ATUALIZADA =====
+
+
+// ===== CONFIGURAR EVENTOS DO PAINEL =====
+function setupVoicePanelEvents(audioElement, call) {
+    console.log('⚙️ Configurando eventos do painel de voz...');
+    
+    // Volume
+    const volumeSlider = document.getElementById('voice-volume');
+    const volumeValue = document.getElementById('volume-value');
+    
+    if (volumeSlider && volumeValue && audioElement) {
+        volumeSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            audioElement.volume = value;
+            volumeValue.textContent = Math.round(value * 100) + '%';
+        });
+    }
+    
+    // Sensibilidade
+    const sensitivitySlider = document.getElementById('voice-sensitivity');
+    const sensitivityValue = document.getElementById('sensitivity-value');
+    
+    if (sensitivitySlider && sensitivityValue) {
+        sensitivitySlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            VOICE_SETTINGS.noiseThreshold = value;
+            
+            let sensitivityText = 'Baixa';
+            if (value > 0.1) sensitivityText = 'Alta';
+            else if (value > 0.05) sensitivityText = 'Média';
+            
+            sensitivityValue.textContent = sensitivityText;
+        });
+    }
+    
+    // Botão de mutar
+    const muteButton = document.getElementById('mute-toggle');
+    if (muteButton && localStream) {
+        let isMuted = false;
+        muteButton.addEventListener('click', () => {
+            const audioTracks = localStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                isMuted = !isMuted;
+                audioTracks[0].enabled = !isMuted;
+                
+                muteButton.innerHTML = isMuted ? 
+                    '<i class="fas fa-microphone-slash"></i> Ativar' : 
+                    '<i class="fas fa-microphone"></i> Mutar';
+                
+                muteButton.style.background = isMuted ? '#e74c3c' : '#3498db';
+                
+                showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
+            }
+        });
+    }
+    
+    // Botão de silenciar
+    const deafenButton = document.getElementById('deafen-toggle');
+    if (deafenButton && audioElement) {
+        let isDeafened = false;
+        deafenButton.addEventListener('click', () => {
+            isDeafened = !isDeafened;
+            audioElement.volume = isDeafened ? 0 : parseFloat(volumeSlider.value);
+            
+            deafenButton.innerHTML = isDeafened ? 
+                '<i class="fas fa-volume-mute"></i> Ouvir' : 
+                '<i class="fas fa-volume-up"></i> Silenciar';
+            
+            deafenButton.style.background = isDeafened ? '#e74c3c' : '#9b59b6';
+            
+            showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
+        });
+    }
+    
+    // Botão de encerrar
+    const endCallButton = document.getElementById('end-call-btn');
+    if (endCallButton) {
+        endCallButton.addEventListener('click', () => {
+            if (call) {
+                call.close();
+            }
+            hideVoiceControls();
+            showNotification('Chamada de voz encerrada', 'info');
+        });
+    }
+    
+    // Botão de fechar
+    const closeButton = document.getElementById('close-voice-panel');
+    if (closeButton) {
+        closeButton.addEventListener('click', hideVoiceControls);
+    }
+    
+    console.log('✅ Eventos do painel de voz configurados');
+}
+
+
+
+// ===== FUNÇÃO SIMPLIFICADA PARA ESCONDER CONTROLES =====
 function hideVoiceControls() {
-    const controls = document.getElementById('advanced-voice-controls');
-    if (controls) {
-        controls.remove();
+    const panel = document.getElementById('voice-control-panel');
+    if (panel) {
+        panel.style.animation = 'slideOut 0.3s ease-in';
+        setTimeout(() => {
+            if (panel.parentNode) {
+                panel.parentNode.removeChild(panel);
+            }
+        }, 300);
     }
     
-    // 🔥 CORREÇÃO: Também remover controles antigos se existirem
-    const oldControls = document.getElementById('voice-controls-panel');
-    if (oldControls) {
-        oldControls.remove();
-    }
+    // Também remover qualquer outro painel de voz existente
+    const oldPanels = document.querySelectorAll('[id*="voice"], [id*="Voice"]');
+    oldPanels.forEach(panel => {
+        if (panel.parentNode && panel.id !== 'voice-toggle') {
+            panel.parentNode.removeChild(panel);
+        }
+    });
 }
-
 
 
 // ===== ADICIONAR ESTILOS DE ANIMAÇÃO =====
@@ -9573,7 +9701,7 @@ function setupNoiseGate(source, gainNode) {
     checkVolume();
 }
 
-// ===== FUNÇÃO startOptimizedVoiceCall ATUALIZADA =====
+// ===== ATUALIZAR FUNÇÃO startOptimizedVoiceCall =====
 async function startOptimizedVoiceCall() {
     if (!opponentPeerId) {
         showNotification('Oponente não disponível', 'warning');
@@ -9581,6 +9709,8 @@ async function startOptimizedVoiceCall() {
     }
 
     try {
+        console.log('🎯 Iniciando chamada de voz otimizada...');
+        
         // Processar áudio antes de iniciar chamada
         const processedStream = await setupAudioProcessing();
         
@@ -9593,21 +9723,36 @@ async function startOptimizedVoiceCall() {
         });
 
         activeCall.on('stream', (remoteStream) => {
+            console.log('📞 Stream de voz recebido, criando elemento de áudio...');
             const audio = createOptimizedAudioElement(remoteStream);
-            // 🔥 CORREÇÃO: Garantir que o elemento de áudio seja armazenado globalmente
+            
+            // 🔥 CORREÇÃO CRÍTICA: Garantir que o elemento seja armazenado
             window.voiceAudioElement = audio;
-            showAdvancedVoiceControls(audio, activeCall);
-            showNotification('Chamada de voz conectada com qualidade otimizada', 'success');
+            
+            // 🔥 MOSTRAR PAINEL DE CONTROLE
+            showVoiceControlPanel(audio, activeCall);
+            
+            showNotification('Chamada de voz conectada!', 'success');
         });
 
-        activeCall.on('close', cleanupVoiceCall);
-        activeCall.on('error', cleanupVoiceCall);
+        activeCall.on('close', () => {
+            console.log('📞 Chamada de voz encerrada');
+            cleanupVoiceCall();
+        });
+        
+        activeCall.on('error', (error) => {
+            console.error('❌ Erro na chamada:', error);
+            cleanupVoiceCall();
+        });
 
     } catch (error) {
-        console.error('Erro na chamada otimizada:', error);
+        console.error('❌ Erro na chamada otimizada:', error);
         showNotification('Erro ao iniciar chamada', 'error');
     }
 }
+
+
+
 // Criar elemento de áudio otimizado
 function createOptimizedAudioElement(stream) {
     const audio = new Audio();
@@ -9951,54 +10096,70 @@ console.log('✅ Sistema de voz aperfeiçoado carregado');
 
 
 
-// ===== ADICIONAR ESTILOS PARA INDICADORES DE VOZ =====
-const voiceStatusStyles = `
+// ===== ADICIONAR ANIMAÇÕES CSS =====
+const voicePanelStyles = `
 <style>
-.voice-enabled {
-    color: #2ecc71;
-    margin-right: 5px;
-}
-
-.voice-disabled {
-    color: #e74c3c;
-    margin-right: 5px;
-}
-
-.voice-available {
-    background: rgba(46, 204, 113, 0.2);
-    color: #2ecc71;
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 12px;
-    margin-top: 5px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.optimized-voice {
-    background: linear-gradient(135deg, rgba(46, 204, 113, 0.3), rgba(52, 152, 219, 0.3));
-    border: 1px solid #2ecc71;
-}
-
-.voice-unavailable {
-    background: rgba(231, 76, 60, 0.2);
-    color: #e74c3c;
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 12px;
-    margin-top: 5px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.player-name-tag {
-    display: inline-flex;
-    align-items: center;
-}
+    @keyframes slideIn {
+        from {
+            transform: translateX(100px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100px);
+            opacity: 0;
+        }
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    #voice-control-panel {
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    #voice-control-panel input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 3px;
+        background: #34495e;
+        outline: none;
+    }
+    
+    #voice-control-panel input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fdbb2d;
+        cursor: pointer;
+    }
+    
+    #voice-control-panel button {
+        transition: all 0.2s ease;
+    }
+    
+    #voice-control-panel button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
 </style>
 `;
 
 // Adicionar estilos ao documento
-document.head.insertAdjacentHTML('beforeend', voiceStatusStyles);
+document.head.insertAdjacentHTML('beforeend', voicePanelStyles);
