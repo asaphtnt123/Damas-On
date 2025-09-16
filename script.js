@@ -8439,103 +8439,6 @@ let peer = null;
 let currentPeerId = null;
 let opponentPeerId = null;
 
-// Inicializar sistema de voz
-async function initializeVoiceSystem() {
-    try {
-        // Verificar se PeerJS está disponível
-        if (typeof Peer === 'undefined') {
-            console.warn('PeerJS não carregado, sistema de voz desativado');
-            return null;
-        }
-
-        // Criar ID único baseado no UID do usuário
-        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Math.random().toString(36).substr(2, 4)}`;
-        
-        peer = new Peer(peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            debug: 2
-        });
-
-        return new Promise((resolve) => {
-            peer.on('open', (id) => {
-                console.log('✅ Sistema de voz conectado com ID:', id);
-                currentPeerId = id;
-                resolve(peer);
-            });
-
-            peer.on('error', (err) => {
-                console.warn('⚠️ Erro no PeerJS:', err);
-                // Não rejeitar a promise, apenas avisar
-                resolve(null);
-            });
-
-            // Configurar timeout
-            setTimeout(() => {
-                console.log('⚠️ Timeout na conexão do sistema de voz');
-                resolve(null);
-            }, 5000);
-        });
-    } catch (error) {
-        console.warn('⚠️ Erro ao inicializar sistema de voz:', error);
-        return null;
-    }
-}
-
-// Conectar ao oponente via voz
-async function connectToOpponentVoice(tableData) {
-    if (!peer || !currentPeerId) {
-        console.warn('Sistema de voz não disponível');
-        return;
-    }
-
-    try {
-        // Encontrar o UID do oponente
-        const opponent = tableData.players.find(p => p.uid !== currentUser.uid);
-        if (!opponent) {
-            console.log('Aguardando oponente para conectar voz...');
-            return;
-        }
-
-        // Obter ou criar o PeerID do oponente
-        const opponentUserDoc = await db.collection('users').doc(opponent.uid).get();
-        if (opponentUserDoc.exists) {
-            const opponentData = opponentUserDoc.data();
-            
-            if (opponentData.voicePeerId) {
-                opponentPeerId = opponentData.voicePeerId;
-                console.log('🔗 Conectando ao oponente via voz:', opponentPeerId);
-                
-                // Conectar ao oponente
-                const conn = peer.connect(opponentPeerId);
-                
-                conn.on('open', () => {
-                    console.log('✅ Conexão de voz estabelecida com oponente');
-                    // Enviar mensagem de saudação
-                    conn.send({
-                        type: 'voice-greeting',
-                        message: 'Conectado para conversa durante a partida',
-                        player: userData.displayName
-                    });
-                });
-                
-                conn.on('data', (data) => {
-                    handleVoiceData(data, opponent.displayName);
-                });
-                
-                conn.on('close', () => {
-                    console.log('❌ Conexão de voz fechada');
-                });
-            } else {
-                console.log('Oponente não tem sistema de voz configurado');
-            }
-        }
-    } catch (error) {
-        console.warn('Erro ao conectar com oponente via voz:', error);
-    }
-}
-
 // Manipular dados de voz recebidos
 function handleVoiceData(data, senderName) {
     switch (data.type) {
@@ -9137,18 +9040,16 @@ function addVoiceButtonToGameScreen() {
         voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
     });
     
-    // Clique no botão
-    voiceBtn.addEventListener('click', () => {
+     voiceBtn.addEventListener('click', () => {
         if (!peer || !opponentPeerId) {
-            showNotification('Conectando com oponente...', 'info');
+            showNotification('Otimizando conexão de voz...', 'info');
             initializeVoiceSystem().then(voiceSys => {
                 if (voiceSys) {
                     voiceSystem = voiceSys;
                     connectToOpponentVoice(gameState);
-                    // Tentar novamente após conexão
                     setTimeout(() => {
                         if (opponentPeerId) {
-                            startVoiceCall();
+                            startOptimizedVoiceCall();
                         }
                     }, 1000);
                 }
@@ -9156,7 +9057,7 @@ function addVoiceButtonToGameScreen() {
             return;
         }
         
-        startVoiceCall();
+        startOptimizedVoiceCall();
     });
     
     // Adicionar botão à interface
@@ -9305,3 +9206,450 @@ leaveGame = function() {
 };
 
 console.log('✅ Sistema de voz integrado às funções de jogo');
+
+// Limpar chamada de voz
+function cleanupVoiceCall() {
+    if (activeCall) {
+        activeCall.close();
+        activeCall = null;
+    }
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+    
+    hideVoiceControls();
+    showNotification('Chamada de voz encerrada', 'info');
+}
+
+
+
+// Conectar ao oponente via voz com configurações otimizadas
+async function connectToOpponentVoice(tableData) {
+    if (!peer || !currentPeerId) {
+        console.warn('Sistema de voz não disponível');
+        return;
+    }
+
+    try {
+        const opponent = tableData.players.find(p => p.uid !== currentUser.uid);
+        if (!opponent) return;
+
+        const opponentUserDoc = await db.collection('users').doc(opponent.uid).get();
+        if (opponentUserDoc.exists) {
+            const opponentData = opponentUserDoc.data();
+            
+            if (opponentData.voicePeerId && opponentData.voiceEnabled !== false) {
+                opponentPeerId = opponentData.voicePeerId;
+                console.log('🔗 Conectando ao oponente via voz:', opponentPeerId);
+                
+                // Aguardar processamento de áudio antes de conectar
+                const processedStream = await setupAudioProcessing();
+                
+                // Conectar com configurações otimizadas
+                const conn = peer.connect(opponentPeerId, {
+                    reliable: true,
+                    serialization: 'json'
+                });
+                
+                conn.on('open', () => {
+                    console.log('✅ Conexão de voz estabelecida');
+                    sendVoiceMessage('Conectado para conversa durante a partida');
+                });
+                
+                conn.on('data', (data) => {
+                    handleVoiceData(data, opponent.displayName);
+                });
+            }
+        }
+    } catch (error) {
+        console.warn('Erro ao conectar com oponente:', error);
+    }
+}
+
+
+// ===== SISTEMA DE VOZ APERFEIÇOADO =====
+
+let activeCall = null;
+let localStream = null;
+let audioContext = null;
+let voiceProcessor = null;
+
+// Configurações avançadas de áudio
+const VOICE_SETTINGS = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    sampleRate: 48000,
+    channelCount: 1,
+    volume: 0.7,
+    noiseThreshold: 0.05,
+    echoCancellationType: 'system' // 'system' ou 'software'
+};
+
+// Inicializar sistema de voz com configurações avançadas
+async function initializeVoiceSystem() {
+    try {
+        if (typeof Peer === 'undefined') {
+            console.warn('PeerJS não carregado, sistema de voz desativado');
+            return null;
+        }
+
+        // Criar ID único
+        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Date.now().toString(36)}`;
+        
+        peer = new Peer(peerId, {
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            debug: 1,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            }
+        });
+
+        return new Promise((resolve) => {
+            peer.on('open', (id) => {
+                console.log('✅ Sistema de voz conectado com ID:', id);
+                currentPeerId = id;
+                
+                // Salvar PeerID no perfil
+                db.collection('users').doc(currentUser.uid).update({
+                    voicePeerId: currentPeerId,
+                    voiceEnabled: true
+                });
+                
+                resolve(peer);
+            });
+
+            peer.on('error', (err) => {
+                console.warn('⚠️ Erro no PeerJS:', err);
+                resolve(null);
+            });
+
+            // Configurar timeout
+            setTimeout(() => resolve(null), 5000);
+        });
+    } catch (error) {
+        console.warn('⚠️ Erro ao inicializar sistema de voz:', error);
+        return null;
+    }
+}
+
+
+
+// Configurar processamento de áudio avançado
+async function setupAudioProcessing() {
+    try {
+        // Obter stream de áudio com configurações otimizadas
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: VOICE_SETTINGS.echoCancellation,
+                noiseSuppression: VOICE_SETTINGS.noiseSuppression,
+                autoGainControl: VOICE_SETTINGS.autoGainControl,
+                sampleRate: VOICE_SETTINGS.sampleRate,
+                channelCount: VOICE_SETTINGS.channelCount
+            },
+            video: false
+        });
+
+        // Configurar AudioContext para processamento avançado
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: VOICE_SETTINGS.sampleRate
+        });
+
+        // Criar nós de processamento
+        const source = audioContext.createMediaStreamSource(localStream);
+        const destination = audioContext.createMediaStreamDestination();
+        
+        // Aplicar filtros para reduzir eco e ruído
+        const filters = setupAudioFilters(source, destination);
+        
+        // Conectar todos os filtros em série
+        source.connect(filters.lowPass);
+        filters.lowPass.connect(filters.highPass);
+        filters.highPass.connect(filters.noiseSuppress);
+        filters.noiseSuppress.connect(destination);
+        
+        // Substituir stream original pela processada
+        const processedStream = destination.stream;
+        
+        return processedStream;
+
+    } catch (error) {
+        console.error('Erro no processamento de áudio:', error);
+        return localStream; // Fallback para stream não processado
+    }
+}
+
+
+// Configurar filtros de áudio
+function setupAudioFilters(source, destination) {
+    // Filtro passa-baixa (reduz agudos que causam eco)
+    const lowPass = audioContext.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 4000; // Corta frequências acima de 4kHz
+    lowPass.Q.value = 0.5;
+
+    // Filtro passa-alta (reduz ruídos graves)
+    const highPass = audioContext.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 80; // Corta frequências abaixo de 80Hz
+    highPass.Q.value = 0.5;
+
+    // Compressor para normalizar volume
+    const compressor = audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 30;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+
+    // Noise gate (reduz ruído de fundo)
+    const noiseSuppress = audioContext.createGain();
+    noiseSuppress.gain.value = 1;
+
+    // Configurar noise gate automático
+    setupNoiseGate(source, noiseSuppress);
+
+    return {
+        lowPass,
+        highPass,
+        compressor,
+        noiseSuppress
+    };
+}
+
+
+// Configurar noise gate automático
+function setupNoiseGate(source, gainNode) {
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let silenceStart = Date.now();
+
+    function checkVolume() {
+        analyser.getByteFrequencyData(dataArray);
+        
+        let sum = 0;
+        for (const value of dataArray) {
+            sum += value;
+        }
+        
+        const average = sum / dataArray.length;
+        const normalized = average / 256;
+        
+        // Aplicar noise gate
+        if (normalized < VOICE_SETTINGS.noiseThreshold) {
+            const silenceDuration = Date.now() - silenceStart;
+            if (silenceDuration > 300) { // 300ms de silêncio
+                gainNode.gain.setTargetAtTime(0.01, audioContext.currentTime, 0.1);
+            }
+        } else {
+            silenceStart = Date.now();
+            gainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.05);
+        }
+
+        requestAnimationFrame(checkVolume);
+    }
+
+    checkVolume();
+}
+
+// Iniciar chamada de voz com qualidade otimizada
+async function startOptimizedVoiceCall() {
+    if (!opponentPeerId) {
+        showNotification('Oponente não disponível', 'warning');
+        return;
+    }
+
+    try {
+        // Processar áudio antes de iniciar chamada
+        const processedStream = await setupAudioProcessing();
+        
+        activeCall = peer.call(opponentPeerId, processedStream, {
+            metadata: {
+                player: userData.displayName,
+                quality: 'high',
+                timestamp: new Date().toISOString()
+            }
+        });
+
+        activeCall.on('stream', (remoteStream) => {
+            const audio = createOptimizedAudioElement(remoteStream);
+            showVoiceControls(audio, activeCall);
+            showNotification('Chamada de voz conectada com qualidade otimizada', 'success');
+        });
+
+        activeCall.on('close', cleanupVoiceCall);
+        activeCall.on('error', cleanupVoiceCall);
+
+    } catch (error) {
+        console.error('Erro na chamada otimizada:', error);
+        showNotification('Erro ao iniciar chamada', 'error');
+    }
+}
+
+// Criar elemento de áudio otimizado
+function createOptimizedAudioElement(stream) {
+    const audio = new Audio();
+    audio.srcObject = stream;
+    audio.autoplay = true;
+    audio.volume = VOICE_SETTINGS.volume;
+    
+    // Configurações para reduzir eco
+    audio.mozPreservesPitch = false;
+    audio.webkitPreservesPitch = false;
+    audio.preservesPitch = false;
+    
+    // Configurar equalização
+    if (audioContext && audio.setSinkId) {
+        try {
+            // Tentar usar fones de ouvido para reduzir eco
+            audio.setSinkId('').catch(() => {});
+        } catch (e) {}
+    }
+    
+    return audio;
+}
+
+
+
+// Configurações de voz na UI
+function showAdvancedVoiceControls() {
+    hideVoiceControls(); // Limpar controles existentes
+
+    const controls = document.createElement('div');
+    controls.id = 'advanced-voice-controls';
+    controls.innerHTML = `
+        <div class="voice-controls-header">
+            <i class="fas fa-microphone-alt"></i>
+            <span>Controles de Voz</span>
+            <button id="close-voice-controls" class="voice-close-btn">×</button>
+        </div>
+        
+        <div class="voice-controls-body">
+            <div class="voice-control-group">
+                <label>Volume</label>
+                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="${VOICE_SETTINGS.volume}">
+            </div>
+            
+            <div class="voice-control-group">
+                <label>Redução de Eco</label>
+                <select id="echo-cancellation">
+                    <option value="auto" selected>Automático</option>
+                    <option value="aggressive">Agressivo</option>
+                    <option value="moderate">Moderado</option>
+                </select>
+            </div>
+            
+            <div class="voice-control-group">
+                <label>Redução de Ruído</label>
+                <select id="noise-reduction">
+                    <option value="high">Alta</option>
+                    <option value="medium" selected>Média</option>
+                    <option value="low">Baixa</option>
+                </select>
+            </div>
+            
+            <div class="voice-control-group">
+                <label>Sensibilidade</label>
+                <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="${VOICE_SETTINGS.noiseThreshold}">
+            </div>
+            
+            <div class="voice-control-buttons">
+                <button id="mute-call" class="voice-btn">
+                    <i class="fas fa-microphone"></i> Mutar
+                </button>
+                <button id="deafen-call" class="voice-btn">
+                    <i class="fas fa-volume-mute"></i> Silenciar
+                </button>
+                <button id="end-call" class="voice-btn voice-btn-danger">
+                    <i class="fas fa-phone-slash"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="voice-controls-footer">
+            <div class="voice-quality-indicator">
+                <span class="quality-dot"></span>
+                <span>Qualidade: Boa</span>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(controls);
+    setupAdvancedControlEvents();
+}
+
+
+// Configurar eventos dos controles avançados
+function setupAdvancedControlEvents() {
+    // Volume
+    document.getElementById('voice-volume').addEventListener('input', (e) => {
+        VOICE_SETTINGS.volume = parseFloat(e.target.value);
+        if (window.voiceAudioElement) {
+            window.voiceAudioElement.volume = VOICE_SETTINGS.volume;
+        }
+    });
+
+    // Sensibilidade
+    document.getElementById('voice-sensitivity').addEventListener('input', (e) => {
+        VOICE_SETTINGS.noiseThreshold = parseFloat(e.target.value);
+    });
+
+    // Fechar controles
+    document.getElementById('close-voice-controls').addEventListener('click', hideVoiceControls);
+
+    // Mutar
+    document.getElementById('mute-call').addEventListener('click', toggleMute);
+
+    // Silenciar
+    document.getElementById('deafen-call').addEventListener('click', toggleDeafen);
+
+    // Encerrar chamada
+    document.getElementById('end-call').addEventListener('click', cleanupVoiceCall);
+}
+
+// Alternar mute
+function toggleMute() {
+    if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        const isMuted = audioTracks[0].enabled;
+        
+        audioTracks[0].enabled = !isMuted;
+        
+        const button = document.getElementById('mute-call');
+        button.innerHTML = isMuted ? 
+            '<i class="fas fa-microphone-slash"></i> Ativar' : 
+            '<i class="fas fa-microphone"></i> Mutar';
+        
+        showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
+    }
+}
+
+// Alternar silenciar
+function toggleDeafen() {
+    if (window.voiceAudioElement) {
+        const isDeafened = window.voiceAudioElement.volume === 0;
+        window.voiceAudioElement.volume = isDeafened ? VOICE_SETTINGS.volume : 0;
+        
+        const button = document.getElementById('deafen-call');
+        button.innerHTML = isDeafened ? 
+            '<i class="fas fa-volume-up"></i> Ouvir' : 
+            '<i class="fas fa-volume-mute"></i> Silenciar';
+        
+        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
+    }
+}
