@@ -329,9 +329,8 @@ function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
      // 1. Inicializar sistema de som
     createSoundControls();
-    initializeGameWithSound();
- // Inicializar sistema de som do jogo
-        const soundSystem = initializeGameWithSound();
+   
+
     
     // 1. Sistemas de autenticação e UI
     initializeAuth();
