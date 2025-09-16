@@ -9036,7 +9036,9 @@ function checkVoiceStatusChange(oldPlayers, newPlayers) {
     
     return false;
 }
-// ===== FUNÇÃO AUXILIAR: ADICIONAR BOTÃO DE VOZ =====
+
+
+// ===== FUNÇÃO addVoiceButtonToGameScreen ATUALIZADA =====
 function addVoiceButtonToGameScreen() {
     // Verificar se já estamos na tela de jogo
     const gameScreen = document.getElementById('game-screen');
@@ -9071,17 +9073,17 @@ function addVoiceButtonToGameScreen() {
         position: fixed;
         bottom: 20px;
         right: 20px;
-        padding: 12px 16px;
+        padding: 15px;
         background: linear-gradient(135deg, #1a2a6c, #b21f1f);
         color: white;
         border: none;
         border-radius: 50%;
         cursor: pointer;
-        z-index: 1000;
+        z-index: 9999;
         box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         font-size: 18px;
-        width: 50px;
-        height: 50px;
+        width: 60px;
+        height: 60px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -9099,7 +9101,8 @@ function addVoiceButtonToGameScreen() {
         voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
     });
     
-     voiceBtn.addEventListener('click', () => {
+    // Clique no botão - 🔥 CORREÇÃO: Usar a função otimizada
+    voiceBtn.addEventListener('click', () => {
         if (!peer || !opponentPeerId) {
             showNotification('Otimizando conexão de voz...', 'info');
             initializeVoiceSystem().then(voiceSys => {
@@ -9108,7 +9111,7 @@ function addVoiceButtonToGameScreen() {
                     connectToOpponentVoice(gameState);
                     setTimeout(() => {
                         if (opponentPeerId) {
-                            startOptimizedVoiceCall();
+                            startOptimizedVoiceCall(); // 🔥 Usar função otimizada
                         }
                     }, 1000);
                 }
@@ -9116,7 +9119,7 @@ function addVoiceButtonToGameScreen() {
             return;
         }
         
-        startOptimizedVoiceCall();
+        startOptimizedVoiceCall(); // 🔥 Usar função otimizada
     });
     
     // Adicionar botão à interface
@@ -9124,6 +9127,7 @@ function addVoiceButtonToGameScreen() {
     
     console.log('✅ Botão de voz adicionado à interface');
 }
+
 
 // ===== INICIAR CHAMADA DE VOZ =====
 function startVoiceCall() {
@@ -9229,13 +9233,50 @@ function showVoiceControls(audioElement, call) {
     });
 }
 
-// ===== OCULTAR CONTROLES DE VOZ =====
+// ===== FUNÇÃO hideVoiceControls ATUALIZADA =====
 function hideVoiceControls() {
-    const controls = document.getElementById('voice-controls-panel');
+    const controls = document.getElementById('advanced-voice-controls');
     if (controls) {
         controls.remove();
     }
+    
+    // 🔥 CORREÇÃO: Também remover controles antigos se existirem
+    const oldControls = document.getElementById('voice-controls-panel');
+    if (oldControls) {
+        oldControls.remove();
+    }
 }
+
+
+
+// ===== ADICIONAR ESTILOS DE ANIMAÇÃO =====
+const voiceAnimationStyles = `
+<style>
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.quality-dot {
+    animation: pulse 2s infinite;
+}
+
+#voice-call-btn {
+    animation: pulse 2s infinite;
+}
+
+#voice-call-btn:hover {
+    animation: none;
+}
+</style>
+`;
+
+// Adicionar estilos de animação
+document.head.insertAdjacentHTML('beforeend', voiceAnimationStyles);
+
+console.log('✅ Funções de voz corrigidas - Painel deve aparecer agora');
+
 
 // ===== REMOVER BOTÃO DE VOZ AO SAIR DO JOGO =====
 function cleanupVoiceControls() {
@@ -9288,8 +9329,7 @@ function cleanupVoiceCall() {
 }
 
 
-
-// Conectar ao oponente via voz com configurações otimizadas
+// ===== FUNÇÃO connectToOpponentVoice ATUALIZADA =====
 async function connectToOpponentVoice(tableData) {
     if (!peer || !currentPeerId) {
         console.warn('Sistema de voz não disponível');
@@ -9308,22 +9348,29 @@ async function connectToOpponentVoice(tableData) {
                 opponentPeerId = opponentData.voicePeerId;
                 console.log('🔗 Conectando ao oponente via voz:', opponentPeerId);
                 
-                // Aguardar processamento de áudio antes de conectar
-                const processedStream = await setupAudioProcessing();
-                
-                // Conectar com configurações otimizadas
+                // 🔥 CORREÇÃO: Configurar conexão de dados primeiro
                 const conn = peer.connect(opponentPeerId, {
                     reliable: true,
                     serialization: 'json'
                 });
                 
                 conn.on('open', () => {
-                    console.log('✅ Conexão de voz estabelecida');
-                    sendVoiceMessage('Conectado para conversa durante a partida');
+                    console.log('✅ Conexão de dados estabelecida com oponente');
+                    
+                    // 🔥 CORREÇÃO: Só iniciar chamada de voz após conexão de dados
+                    setTimeout(() => {
+                        if (!activeCall) {
+                            startOptimizedVoiceCall();
+                        }
+                    }, 500);
                 });
                 
                 conn.on('data', (data) => {
-                    handleVoiceData(data, opponent.displayName);
+                    handleVoiceData(data, opponent.displayName || 'Oponente');
+                });
+                
+                conn.on('error', (error) => {
+                    console.warn('Erro na conexão de dados:', error);
                 });
             }
         }
@@ -9526,7 +9573,7 @@ function setupNoiseGate(source, gainNode) {
     checkVolume();
 }
 
-// Iniciar chamada de voz com qualidade otimizada
+// ===== FUNÇÃO startOptimizedVoiceCall ATUALIZADA =====
 async function startOptimizedVoiceCall() {
     if (!opponentPeerId) {
         showNotification('Oponente não disponível', 'warning');
@@ -9547,7 +9594,9 @@ async function startOptimizedVoiceCall() {
 
         activeCall.on('stream', (remoteStream) => {
             const audio = createOptimizedAudioElement(remoteStream);
-            showVoiceControls(audio, activeCall);
+            // 🔥 CORREÇÃO: Garantir que o elemento de áudio seja armazenado globalmente
+            window.voiceAudioElement = audio;
+            showAdvancedVoiceControls(audio, activeCall);
             showNotification('Chamada de voz conectada com qualidade otimizada', 'success');
         });
 
@@ -9559,7 +9608,6 @@ async function startOptimizedVoiceCall() {
         showNotification('Erro ao iniciar chamada', 'error');
     }
 }
-
 // Criar elemento de áudio otimizado
 function createOptimizedAudioElement(stream) {
     const audio = new Audio();
@@ -9585,101 +9633,181 @@ function createOptimizedAudioElement(stream) {
 
 
 
-// Configurações de voz na UI
-function showAdvancedVoiceControls() {
-    hideVoiceControls(); // Limpar controles existentes
-
+// ===== FUNÇÃO showAdvancedVoiceControls ATUALIZADA =====
+function showAdvancedVoiceControls(audioElement, call) {
+    // 🔥 CORREÇÃO: Remover controles existentes primeiro
+    hideVoiceControls();
+    
     const controls = document.createElement('div');
     controls.id = 'advanced-voice-controls';
+    controls.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.95);
+        border-radius: 15px;
+        padding: 15px;
+        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(10px);
+        border: 2px solid #fdbb2d;
+        width: 280px;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 10000;
+    `;
+
     controls.innerHTML = `
-        <div class="voice-controls-header">
-            <i class="fas fa-microphone-alt"></i>
-            <span>Controles de Voz</span>
-            <button id="close-voice-controls" class="voice-close-btn">×</button>
+        <div class="voice-controls-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #fdbb2d;">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: bold;">
+                <i class="fas fa-microphone-alt"></i>
+                <span>Controles de Voz</span>
+            </div>
+            <button id="close-voice-controls" style="background: none; border: none; color: white; cursor: pointer; font-size: 18px;">×</button>
         </div>
         
         <div class="voice-controls-body">
-            <div class="voice-control-group">
-                <label>Volume</label>
-                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="${VOICE_SETTINGS.volume}">
+            <div class="voice-control-group" style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Volume</label>
+                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="${VOICE_SETTINGS.volume}" 
+                       style="width: 100%; padding: 5px;">
             </div>
             
-            <div class="voice-control-group">
-                <label>Redução de Eco</label>
-                <select id="echo-cancellation">
+            <div class="voice-control-group" style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Redução de Eco</label>
+                <select id="echo-cancellation" style="width: 100%; padding: 8px; border-radius: 5px; background: #2c3e50; color: white; border: 1px solid #34495e;">
                     <option value="auto" selected>Automático</option>
                     <option value="aggressive">Agressivo</option>
                     <option value="moderate">Moderado</option>
                 </select>
             </div>
             
-            <div class="voice-control-group">
-                <label>Redução de Ruído</label>
-                <select id="noise-reduction">
+            <div class="voice-control-group" style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Redução de Ruído</label>
+                <select id="noise-reduction" style="width: 100%; padding: 8px; border-radius: 5px; background: #2c3e50; color: white; border: 1px solid #34495e;">
                     <option value="high">Alta</option>
                     <option value="medium" selected>Média</option>
                     <option value="low">Baixa</option>
                 </select>
             </div>
             
-            <div class="voice-control-group">
-                <label>Sensibilidade</label>
-                <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="${VOICE_SETTINGS.noiseThreshold}">
+            <div class="voice-control-group" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Sensibilidade</label>
+                <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="${VOICE_SETTINGS.noiseThreshold}" 
+                       style="width: 100%; padding: 5px;">
             </div>
             
-            <div class="voice-control-buttons">
-                <button id="mute-call" class="voice-btn">
+            <div class="voice-control-buttons" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                <button id="mute-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
                     <i class="fas fa-microphone"></i> Mutar
                 </button>
-                <button id="deafen-call" class="voice-btn">
+                <button id="deafen-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
                     <i class="fas fa-volume-mute"></i> Silenciar
                 </button>
-                <button id="end-call" class="voice-btn voice-btn-danger">
+                <button id="end-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center;">
                     <i class="fas fa-phone-slash"></i>
                 </button>
             </div>
         </div>
         
-        <div class="voice-controls-footer">
-            <div class="voice-quality-indicator">
-                <span class="quality-dot"></span>
+        <div class="voice-controls-footer" style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #444; text-align: center;">
+            <div class="voice-quality-indicator" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px;">
+                <span class="quality-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; animation: pulse 2s infinite;"></span>
                 <span>Qualidade: Boa</span>
             </div>
         </div>
     `;
 
     document.body.appendChild(controls);
-    setupAdvancedControlEvents();
+    
+    // 🔥 CORREÇÃO: Garantir que o elemento de áudio está acessível
+    if (audioElement) {
+        window.voiceAudioElement = audioElement;
+    }
+    
+    // 🔥 CORREÇÃO: Configurar eventos após o elemento ser adicionado ao DOM
+    setTimeout(() => {
+        setupAdvancedControlEvents(audioElement, call);
+    }, 100);
 }
+// ===== FUNÇÃO setupAdvancedControlEvents ATUALIZADA =====
+function setupAdvancedControlEvents(audioElement, call) {
+    if (!audioElement) {
+        console.warn('Elemento de áudio não disponível para configuração de controles');
+        return;
+    }
 
-
-// Configurar eventos dos controles avançados
-function setupAdvancedControlEvents() {
     // Volume
-    document.getElementById('voice-volume').addEventListener('input', (e) => {
-        VOICE_SETTINGS.volume = parseFloat(e.target.value);
-        if (window.voiceAudioElement) {
-            window.voiceAudioElement.volume = VOICE_SETTINGS.volume;
-        }
-    });
+    const volumeSlider = document.getElementById('voice-volume');
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', (e) => {
+            VOICE_SETTINGS.volume = parseFloat(e.target.value);
+            audioElement.volume = VOICE_SETTINGS.volume;
+        });
+    }
 
     // Sensibilidade
-    document.getElementById('voice-sensitivity').addEventListener('input', (e) => {
-        VOICE_SETTINGS.noiseThreshold = parseFloat(e.target.value);
-    });
+    const sensitivitySlider = document.getElementById('voice-sensitivity');
+    if (sensitivitySlider) {
+        sensitivitySlider.addEventListener('input', (e) => {
+            VOICE_SETTINGS.noiseThreshold = parseFloat(e.target.value);
+        });
+    }
 
     // Fechar controles
-    document.getElementById('close-voice-controls').addEventListener('click', hideVoiceControls);
+    const closeButton = document.getElementById('close-voice-controls');
+    if (closeButton) {
+        closeButton.addEventListener('click', hideVoiceControls);
+    }
 
     // Mutar
-    document.getElementById('mute-call').addEventListener('click', toggleMute);
+    const muteButton = document.getElementById('mute-call');
+    if (muteButton && localStream) {
+        let isMuted = false;
+        muteButton.addEventListener('click', () => {
+            const audioTracks = localStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                isMuted = !isMuted;
+                audioTracks[0].enabled = !isMuted;
+                
+                muteButton.innerHTML = isMuted ? 
+                    '<i class="fas fa-microphone-slash"></i> Ativar' : 
+                    '<i class="fas fa-microphone"></i> Mutar';
+                
+                showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
+            }
+        });
+    }
 
     // Silenciar
-    document.getElementById('deafen-call').addEventListener('click', toggleDeafen);
+    const deafenButton = document.getElementById('deafen-call');
+    if (deafenButton && audioElement) {
+        let isDeafened = false;
+        deafenButton.addEventListener('click', () => {
+            isDeafened = !isDeafened;
+            audioElement.volume = isDeafened ? 0 : VOICE_SETTINGS.volume;
+            
+            deafenButton.innerHTML = isDeafened ? 
+                '<i class="fas fa-volume-up"></i> Ouvir' : 
+                '<i class="fas fa-volume-mute"></i> Silenciar';
+            
+            showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
+        });
+    }
 
     // Encerrar chamada
-    document.getElementById('end-call').addEventListener('click', cleanupVoiceCall);
+    const endCallButton = document.getElementById('end-call');
+    if (endCallButton) {
+        endCallButton.addEventListener('click', () => {
+            if (call) {
+                call.close();
+            }
+            hideVoiceControls();
+            showNotification('Chamada de voz encerrada', 'info');
+        });
+    }
 }
+
+
 
 // Alternar mute
 function toggleMute() {
