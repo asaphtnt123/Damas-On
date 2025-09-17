@@ -3256,6 +3256,7 @@ function renderTable(table, container) {
     container.appendChild(tableEl);
 }
 
+
 // ===== FUNÇÃO setupGameListener CORRIGIDA =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
@@ -3291,7 +3292,7 @@ function setupGameListener(tableId) {
     let lastProcessedStateHash = '';
     let isProcessing = false;
     
-    // ✅ FUNÇÃO DE SEGURANça PARA O listener
+    // ✅ FUNÇÃO DE SEGURANÇA PARA O listener
     const safeOnSnapshot = async (doc) => {
         // Evitar processamento simultâneo
         if (isProcessing) {
@@ -3340,7 +3341,83 @@ function setupGameListener(tableId) {
             
             console.log('🔄 Novo estado do jogo recebido:', gameState.status);
             
-            // ... (resto do código do listener) ...
+            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
+            if (!gameState.players) gameState.players = [];
+            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
+            
+            // 2. CONVERSÃO DO TABULEIRO (se necessário)
+            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
+                gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // 3. VERIFICAR SE JOGO TERMINOU
+            if (gameState.status === 'finished' || gameState.status === 'draw') {
+                console.log('🏁 Jogo finalizado, processando estado final');
+                await handleFinishedGame(oldGameState, gameState);
+                isProcessing = false;
+                return;
+            }
+            
+            // 4. DETECTAR MUDANÇAS IMPORTANTES (COM VERIFICAÇÃO DE SEGURANÇA)
+            const boardChanged = !oldGameState || 
+                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
+            
+            const turnChanged = !oldGameState || 
+                              oldGameState.currentTurn !== gameState.currentTurn;
+            
+            // ✅ CORREÇÃO: VERIFICAR SE oldGameState EXISTE ANTES DE USAR
+            const playersChanged = !oldGameState || 
+                                 (oldGameState.players && JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players));
+            
+            // 5. PROCESSAR EVENTOS ESPECÍFICOS
+            if (playersChanged && oldGameState) {
+                await handlePlayersChange(oldGameState, gameState);
+            }
+            
+            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
+                await handleDrawOffer(gameState.drawOffer);
+            }
+            
+            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+            if (boardChanged || turnChanged || playersChanged) {
+                console.log('🎨 Atualizando interface');
+                updateGameInterface();
+                
+                // 🔥 ADICIONAR BOTÃO DE VOZ SE HOUVER DOIS JOGADORES
+                if (gameState.players && gameState.players.length === 2) {
+                    // Pequeno delay para garantir que a interface foi renderizada
+                    setTimeout(() => {
+                        addVoiceButtonToGameScreen();
+                    }, 500);
+                }
+            }
+            
+            // 7. GERENCIAR TIMER
+            manageGameTimer(oldGameState, gameState);
+            
+            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+                console.log('🎮 Jogo iniciado, configurando sistemas');
+                setupChatListener();
+                setupSpectatorsListener(tableId);
+                
+                // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER DOIS JOGADORES
+                if (gameState.players && gameState.players.length === 2) {
+                    setTimeout(() => {
+                        initializeVoiceSystem().then(voiceSys => {
+                            if (voiceSys) {
+                                voiceSystem = voiceSys;
+                                connectToOpponentVoice(gameState);
+                            }
+                        });
+                    }, 1000);
+                }
+            }
+            
+            // 9. VERIFICAR FIM DE JOGO
+            if (boardChanged && gameState.status === 'playing') {
+                checkGameEnd(gameState.board, gameState.currentTurn);
+            }
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
@@ -3389,6 +3466,84 @@ function setupGameListener(tableId) {
     }
 }
 
+// ===== FUNÇÃO handlePlayersChange (SE NECESSÁRIO) =====
+async function handlePlayersChange(oldGameState, newGameState) {
+    console.log('👥 Mudança detectada nos jogadores');
+    
+    try {
+        // Verificar se jogadores saíram ou entraram
+        const oldPlayers = oldGameState.players || [];
+        const newPlayers = newGameState.players || [];
+        
+        // Encontrar jogadores que saíram
+        const leftPlayers = oldPlayers.filter(oldPlayer => 
+            !newPlayers.some(newPlayer => newPlayer.uid === oldPlayer.uid)
+        );
+        
+        // Encontrar jogadores que entraram
+        const joinedPlayers = newPlayers.filter(newPlayer => 
+            !oldPlayers.some(oldPlayer => oldPlayer.uid === newPlayer.uid)
+        );
+        
+        // Processar jogadores que saíram
+        if (leftPlayers.length > 0) {
+            leftPlayers.forEach(player => {
+                console.log('👋 Jogador saiu:', player.displayName);
+                showNotification(`${player.displayName} saiu do jogo`, 'info');
+            });
+        }
+        
+        // Processar jogadores que entraram
+        if (joinedPlayers.length > 0) {
+            joinedPlayers.forEach(player => {
+                console.log('🎉 Novo jogador entrou:', player.displayName);
+                showNotification(`${player.displayName} entrou no jogo`, 'info');
+                
+                // Atualizar dados do jogador se necessário
+                updatePlayerInfo(player.uid);
+            });
+        }
+        
+        // Atualizar header do jogo
+        const currentPlayer = newPlayers.find(p => p.uid === currentUser?.uid);
+        const opponent = newPlayers.find(p => p.uid !== currentUser?.uid);
+        
+        if (currentPlayer && opponent) {
+            updateGameHeader(currentPlayer, opponent);
+        }
+        
+    } catch (error) {
+        console.error('❌ Erro ao processar mudança de jogadores:', error);
+    }
+}
+
+// ===== FUNÇÃO updatePlayerInfo (SE NECESSÁRIO) =====
+async function updatePlayerInfo(playerId) {
+    try {
+        const playerDoc = await db.collection('users').doc(playerId).get();
+        if (playerDoc.exists) {
+            const playerData = playerDoc.data();
+            console.log('📊 Dados do jogador atualizados:', playerData.displayName);
+        }
+    } catch (error) {
+        console.warn('⚠️ Erro ao atualizar dados do jogador:', error);
+    }
+}
+
+// ===== FUNÇÃO handleDrawOffer (SE NECESSÁRIO) =====
+async function handleDrawOffer(drawOffer) {
+    console.log('🤝 Oferta de empate recebida:', drawOffer);
+    
+    if (drawOffer.from !== currentUser.uid) {
+        showNotification('Oponente ofereceu empate!', 'info');
+        
+        // Mostrar diálogo para aceitar/recusar empate
+        showDrawOfferDialog(drawOffer);
+    }
+}
+
+console.log('✅ Erro de playersChanged resolvido - Listener corrigido');
+
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
     if (!oldPlayers && !newPlayers) return { added: [], removed: [], changed: [] };
@@ -3413,71 +3568,6 @@ function comparePlayers(oldPlayers, newPlayers) {
 }
 
 
-// ===== FUNÇÃO HANDLE PLAYERS CHANGE =====
-async function handlePlayersChange(oldGameState, newGameState) {
-    console.log('👥 Mudança detectada nos jogadores');
-    
-    if (!oldGameState || !newGameState || !newGameState.players) return;
-    
-    const oldPlayers = oldGameState.players || [];
-    const newPlayers = newGameState.players || [];
-    
-    // Verificar se um jogador entrou na mesa
-    if (newPlayers.length > oldPlayers.length) {
-        const newPlayer = newPlayers.find(player => 
-            !oldPlayers.some(oldPlayer => oldPlayer.uid === player.uid)
-        );
-        
-        if (newPlayer) {
-            console.log('🎉 Novo jogador entrou:', newPlayer.displayName);
-            
-            // Se o jogo estava esperando e agora tem 2 jogadores, iniciar
-            if (oldGameState.status === 'waiting' && newGameState.status === 'playing') {
-                showNotification(`Jogo iniciado! ${newPlayer.displayName} entrou na mesa.`, 'success');
-                
-                // Notificar ambos os jogadores
-                await notifyBothPlayers('O jogo começou! Boa sorte!', 'info');
-            }
-        }
-    }
-    
-    // Verificar se um jogador saiu da mesa
-    if (newPlayers.length < oldPlayers.length) {
-        const leftPlayer = oldPlayers.find(player => 
-            !newPlayers.some(newPlayer => newPlayer.uid === player.uid)
-        );
-        
-        if (leftPlayer) {
-            console.log('🚪 Jogador saiu:', leftPlayer.displayName);
-            
-            // Se era um jogo em andamento e alguém saiu
-            if (oldGameState.status === 'playing') {
-                showNotification(`${leftPlayer.displayName} saiu do jogo.`, 'warning');
-                
-                // Se o usuário atual ainda está no jogo, notificar
-                const currentPlayer = newPlayers.find(p => p.uid === currentUser.uid);
-                if (currentPlayer) {
-                    await db.collection('notifications').add({
-                        type: 'player_left',
-                        userId: currentUser.uid,
-                        message: `${leftPlayer.displayName} abandonou o jogo.`,
-                        tableId: currentGameRef.id,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        read: false
-                    });
-                }
-            }
-        }
-    }
-    
-    // Verificar mudanças nos dados dos jogadores (rating, nome, etc.)
-    newPlayers.forEach(newPlayer => {
-        const oldPlayer = oldPlayers.find(p => p.uid === newPlayer.uid);
-        if (oldPlayer && JSON.stringify(oldPlayer) !== JSON.stringify(newPlayer)) {
-            console.log('📊 Dados do jogador atualizados:', newPlayer.displayName);
-        }
-    });
-}
 
 // ===== FUNÇÃO HANDLE DRAW OFFER =====
 async function handleDrawOffer(drawOffer) {
@@ -4147,23 +4237,6 @@ function isValidMove(fromRow, fromCol, toRow, toCol) {
   
   return true;
 }
-// ===== FUNÇÃO UPDATE PLAYER INFO (COMPLETA) =====
-function updatePlayerInfo() {
-    if (!gameState || !gameState.players) return;
-    
-    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
-    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-    
-    // Atualizar header com nomes dos jogadores
-    updateGameHeader(currentPlayer, opponent);
-    
-    // Atualizar cartas dos jogadores se existirem
-    updatePlayerCards(currentPlayer, opponent);
-    
-    // Atualizar informações de rating e estatísticas
-    updatePlayerStats(currentPlayer, opponent);
-}
-
 // ===== FUNÇÃO AUXILIAR PARA UPDATE PLAYER CARDS =====
 function updatePlayerCards(currentPlayer, isMyTurn) {
     // Esta função parece estar sendo chamada com parâmetros diferentes
