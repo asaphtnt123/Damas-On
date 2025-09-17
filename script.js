@@ -9268,27 +9268,6 @@ function setupVoicePanelEvents(audioElement, call) {
 
 
 
-// ===== FUNÇÃO SIMPLIFICADA PARA ESCONDER CONTROLES =====
-function hideVoiceControls() {
-    const panel = document.getElementById('voice-control-panel');
-    if (panel) {
-        panel.style.animation = 'slideOut 0.3s ease-in';
-        setTimeout(() => {
-            if (panel.parentNode) {
-                panel.parentNode.removeChild(panel);
-            }
-        }, 300);
-    }
-    
-    // Também remover qualquer outro painel de voz existente
-    const oldPanels = document.querySelectorAll('[id*="voice"], [id*="Voice"]');
-    oldPanels.forEach(panel => {
-        if (panel.parentNode && panel.id !== 'voice-toggle') {
-            panel.parentNode.removeChild(panel);
-        }
-    });
-}
-
 
 // ===== ADICIONAR ESTILOS DE ANIMAÇÃO =====
 const voiceAnimationStyles = `
@@ -9347,27 +9326,6 @@ leaveGame = function() {
 };
 
 console.log('✅ Sistema de voz integrado às funções de jogo');
-
-// Limpar chamada de voz
-function cleanupVoiceCall() {
-    if (activeCall) {
-        activeCall.close();
-        activeCall = null;
-    }
-    
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-    
-    hideVoiceControls();
-    showNotification('Chamada de voz encerrada', 'info');
-}
 
 
 // ===== FUNÇÃO connectToOpponentVoice ATUALIZADA =====
@@ -9891,62 +9849,6 @@ document.head.insertAdjacentHTML('beforeend', voicePanelStyles);
 
 
 
-// ===== FUNÇÕES SIMPLIFICADAS DE CONTROLE =====
-function updateVolume(value) {
-    const volumeValue = document.getElementById('volume-value');
-    if (volumeValue) {
-        volumeValue.textContent = Math.round(value * 100) + '%';
-    }
-    if (window.voiceAudioElement) {
-        window.voiceAudioElement.volume = parseFloat(value);
-    }
-}
-
-function toggleMute() {
-    if (localStream) {
-        const audioTracks = localStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-            const isMuted = !audioTracks[0].enabled;
-            audioTracks[0].enabled = isMuted;
-            
-            const muteBtn = document.getElementById('mute-btn');
-            if (muteBtn) {
-                muteBtn.innerHTML = isMuted ? 
-                    '<i class="fas fa-microphone"></i> Ativar' : 
-                    '<i class="fas fa-microphone-slash"></i> Mutar';
-                muteBtn.style.background = isMuted ? '#2ecc71' : '#3498db';
-            }
-            
-            showNotification(isMuted ? 'Microfone ativado' : 'Microfone desativado', 'info');
-        }
-    }
-}
-
-function toggleDeafen() {
-    if (window.voiceAudioElement) {
-        const isDeafened = window.voiceAudioElement.volume === 0;
-        window.voiceAudioElement.volume = isDeafened ? 0.7 : 0;
-        
-        const deafenBtn = document.getElementById('deafen-btn');
-        if (deafenBtn) {
-            deafenBtn.innerHTML = isDeafened ? 
-                '<i class="fas fa-volume-up"></i> Ouvir' : 
-                '<i class="fas fa-volume-mute"></i> Silenciar';
-            deafenBtn.style.background = isDeafened ? '#2ecc71' : '#9b59b6';
-        }
-        
-        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
-    }
-}
-
-function endVoiceCall() {
-    if (activeCall) {
-        activeCall.close();
-    }
-    hideVoiceControls();
-    showNotification('Chamada de voz encerrada', 'info');
-}
-
 // ===== VERIFICAR SE O PAINEL JÁ EXISTE =====
 function isVoicePanelVisible() {
     return document.getElementById('voice-control-panel') !== null;
@@ -10005,96 +9907,6 @@ setTimeout(() => { showVoicePanelImmediately(); }, 3000);
 
 
 
-
-
-// ===== VERIFICAR E ADICIONAR BOTÃO DE VOZ =====
-function checkAndAddVoiceButton() {
-    console.log('🔍 Verificando se deve adicionar botão de voz...');
-    
-    // Verificar se estamos na tela de jogo
-    const gameScreen = document.getElementById('game-screen');
-    if (!gameScreen || gameScreen.style.display === 'none') {
-        console.log('❌ Não está na tela de jogo');
-        return false;
-    }
-    
-    // Verificar se há um jogo ativo com dois jogadores
-    if (!gameState || !gameState.players || gameState.players.length < 2) {
-        console.log('❌ Não há jogadores suficientes');
-        return false;
-    }
-    
-    // Verificar se o usuário atual é um jogador
-    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
-    if (!isPlayer) {
-        console.log('❌ Usuário não é jogador');
-        return false;
-    }
-    
-    // Verificar se o botão já existe
-    if (document.getElementById('voice-call-btn')) {
-        console.log('✅ Botão de voz já existe');
-        return true;
-    }
-    
-    // Adicionar botão de voz
-    addVoiceButtonToGameScreen();
-    return true;
-}
-// ===== FUNÇÃO addVoiceButtonToGameScreen ATUALIZADA =====
-function addVoiceButtonToGameScreen() {
-    console.log('🎨 Adicionando botão de voz à interface...');
-    
-    // Criar botão de voz
-    const voiceBtn = document.createElement('button');
-    voiceBtn.id = 'voice-call-btn';
-    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-    voiceBtn.title = 'Chamada de Voz';
-    
-    // Estilos do botão
-    voiceBtn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 15px;
-        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 9999;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        font-size: 18px;
-        width: 50px;
-        height: 50px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
-    
-    // Efeitos de hover
-    voiceBtn.addEventListener('mouseenter', () => {
-        voiceBtn.style.transform = 'scale(1.1)';
-        voiceBtn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
-    });
-    
-    voiceBtn.addEventListener('mouseleave', () => {
-        voiceBtn.style.transform = 'scale(1)';
-        voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
-    });
-    
-    // Clique no botão
-    voiceBtn.addEventListener('click', () => {
-        console.log('🎙️ Botão de voz clicado');
-        startOptimizedVoiceCall();
-    });
-    
-    // Adicionar botão à interface
-    document.body.appendChild(voiceBtn);
-    
-    console.log('✅ Botão de voz adicionado com sucesso');
-}
-
 // ===== MONITORAR MUDANÇAS NA TELA =====
 let lastScreen = '';
 
@@ -10132,7 +9944,259 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 3000);
 });
 
-// ===== FUNÇÃO startOptimizedVoiceCall GARANTIDA =====
+
+console.log('✅ Sistema de voz melhorado carregado!');
+
+
+
+// ===== REMOVER ESTILOS CONFLITANTES E CRIAR ESTILOS OTIMIZADOS =====
+function setupVoiceStyles() {
+    // Remover estilos antigos se existirem
+    const oldStyles = document.getElementById('voice-styles');
+    if (oldStyles) {
+        oldStyles.remove();
+    }
+    
+    // Adicionar novos estilos otimizados
+    const styles = `
+    <style id="voice-styles">
+        /* BOTÃO DE VOZ PRINCIPAL */
+        #voice-call-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 9999;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            font-size: 18px;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        
+        #voice-call-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        }
+        
+        /* PAINEL DE CONTROLE DE VOZ */
+        #voice-control-panel {
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+            border: 2px solid #fdbb2d;
+            width: 280px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        #voice-control-panel h3 {
+            margin: 0 0 15px 0;
+            color: #fdbb2d;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        #voice-control-panel label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+            font-size: 14px;
+        }
+        
+        #voice-control-panel input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #34495e;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        
+        #voice-control-panel input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fdbb2d;
+            cursor: pointer;
+        }
+        
+        #voice-control-panel button {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        
+        #voice-control-panel button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        
+        #mute-btn {
+            background: #3498db;
+        }
+        
+        #deafen-btn {
+            background: #9b59b6;
+        }
+        
+        #end-call-btn {
+            background: #e74c3c;
+            width: 100%;
+            padding: 12px;
+        }
+        
+        /* REMOVER ESTILOS ANTIGOS CONFLITANTES */
+        .voice-chat-container {
+            display: none !important;
+        }
+        
+        .voice-toggle {
+            display: none !important;
+        }
+    </style>
+    `;
+    
+    document.head.insertAdjacentHTML('beforeend', styles);
+    console.log('✅ Estilos de voz otimizados carregados');
+}
+
+
+// ===== FUNÇÃO checkAndAddVoiceButton ATUALIZADA =====
+function checkAndAddVoiceButton() {
+    // Verificar se estamos na tela de jogo
+    const gameScreen = document.getElementById('game-screen');
+    if (!gameScreen || gameScreen.style.display === 'none') {
+        return;
+    }
+    
+    // Verificar se há um jogo ativo
+    if (!gameState || !gameState.players) {
+        return;
+    }
+    
+    // Verificar se o usuário é um jogador
+    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
+    if (!isPlayer) {
+        return;
+    }
+    
+    // Adicionar botão se não existir
+    if (!document.getElementById('voice-call-btn')) {
+        addVoiceButtonToGameScreen();
+    }
+}
+
+
+// ===== VERIFICAR E CORRIGIR CONFLITOS =====
+function fixVoiceUIConflicts() {
+    console.log('🔍 Verificando conflitos de UI...');
+    
+    // Remover elementos antigos que podem estar causando conflitos
+    const oldContainers = document.querySelectorAll('.voice-chat-container, .voice-toggle');
+    oldContainers.forEach(element => {
+        if (element.parentNode) {
+            element.remove();
+            console.log('🗑️ Elemento antigo removido:', element.className);
+        }
+    });
+    
+    // Garantir que o botão atual esteja visível
+    const voiceBtn = document.getElementById('voice-call-btn');
+    if (voiceBtn) {
+        voiceBtn.style.display = 'flex';
+        voiceBtn.style.zIndex = '9999';
+    }
+    
+    // Garantir que o painel tenha a prioridade máxima
+    const voicePanel = document.getElementById('voice-control-panel');
+    if (voicePanel) {
+        voicePanel.style.zIndex = '10000';
+    }
+}
+
+// ===== ATUALIZAR addVoiceButtonToGameScreen =====
+function addVoiceButtonToGameScreen() {
+    console.log('🎨 Adicionando botão de voz...');
+    
+    // Primeiro, corrigir possíveis conflitos
+    fixVoiceUIConflicts();
+    
+    // Verificar se o botão já existe
+    if (document.getElementById('voice-call-btn')) {
+        console.log('✅ Botão já existe');
+        return;
+    }
+    
+    // Criar botão
+    const voiceBtn = document.createElement('button');
+    voiceBtn.id = 'voice-call-btn';
+    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    voiceBtn.title = 'Chamada de Voz';
+    
+    // Estilos do botão
+    voiceBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 15px;
+        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        z-index: 9999;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        font-size: 18px;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    // Adicionar ao documento
+    document.body.appendChild(voiceBtn);
+    
+    // Configurar evento de clique
+    voiceBtn.addEventListener('click', () => {
+        console.log('🎙️ Botão de voz clicado');
+        startOptimizedVoiceCall();
+    });
+    
+    console.log('✅ Botão de voz adicionado');
+}
+
+// ===== FUNÇÃO startOptimizedVoiceCall =====
 async function startOptimizedVoiceCall() {
     console.log('🎯 Iniciando chamada de voz...');
     
@@ -10188,7 +10252,7 @@ async function startOptimizedVoiceCall() {
     }
 }
 
-// ===== FUNÇÃO showVoicePanelImmediately CONFIRMADA =====
+// ===== FUNÇÃO showVoicePanelImmediately =====
 function showVoicePanelImmediately() {
     console.log('🚀 Exibindo painel de voz...');
     
@@ -10250,6 +10314,89 @@ function showVoicePanelImmediately() {
     console.log('✅ Painel de voz exibido com sucesso!');
 }
 
+// ===== FUNÇÕES AUXILIARES =====
+function updateVolume(value) {
+    const volumeValue = document.getElementById('volume-value');
+    if (volumeValue) {
+        volumeValue.textContent = Math.round(value * 100) + '%';
+    }
+    if (window.voiceAudioElement) {
+        window.voiceAudioElement.volume = parseFloat(value);
+    }
+}
 
+function toggleMute() {
+    if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            const isMuted = !audioTracks[0].enabled;
+            audioTracks[0].enabled = isMuted;
+            
+            const muteBtn = document.getElementById('mute-btn');
+            if (muteBtn) {
+                muteBtn.innerHTML = isMuted ? 
+                    '<i class="fas fa-microphone"></i> Ativar' : 
+                    '<i class="fas fa-microphone-slash"></i> Mutar';
+                muteBtn.style.background = isMuted ? '#2ecc71' : '#3498db';
+            }
+            
+            showNotification(isMuted ? 'Microfone ativado' : 'Microfone desativado', 'info');
+        }
+    }
+}
 
-console.log('✅ Sistema de voz melhorado carregado!');
+function toggleDeafen() {
+    if (window.voiceAudioElement) {
+        const isDeafened = window.voiceAudioElement.volume === 0;
+        window.voiceAudioElement.volume = isDeafened ? 0.7 : 0;
+        
+        const deafenBtn = document.getElementById('deafen-btn');
+        if (deafenBtn) {
+            deafenBtn.innerHTML = isDeafened ? 
+                '<i class="fas fa-volume-up"></i> Ouvir' : 
+                '<i class="fas fa-volume-mute"></i> Silenciar';
+            deafenBtn.style.background = isDeafened ? '#2ecc71' : '#9b59b6';
+        }
+        
+        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
+    }
+}
+
+function endVoiceCall() {
+    if (activeCall) {
+        activeCall.close();
+    }
+    hideVoiceControls();
+    showNotification('Chamada de voz encerrada', 'info');
+}
+
+function hideVoiceControls() {
+    const panel = document.getElementById('voice-control-panel');
+    if (panel && panel.parentNode) {
+        panel.parentNode.removeChild(panel);
+    }
+}
+
+function cleanupVoiceCall() {
+    if (activeCall) {
+        activeCall.close();
+    }
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    hideVoiceControls();
+}
+
+// ===== INICIALIZAR =====
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ Sistema de voz corrigido carregado');
+    
+    // Verificar periodicamente se precisa adicionar o botão
+    setInterval(() => {
+        const gameScreen = document.getElementById('game-screen');
+        if (gameScreen && gameScreen.style.display !== 'none') {
+            addVoiceButtonToGameScreen();
+        }
+    }, 3000);
+});
