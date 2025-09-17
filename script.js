@@ -900,7 +900,9 @@ async function sendChallenge(targetUserId, targetUserName) {
     console.log('👤 De:', currentUser.uid, userData.displayName);
     console.log('🎯 Para:', targetUserId, targetUserName);
     
- const { timeLimit, betAmount, tableName } = getFormValues();
+    const timeLimit = parseInt(document.getElementById('challenge-time').value);
+    const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
+    const message = document.getElementById('challenge-message').value;
     
     console.log('⚙️ Detalhes:', { timeLimit, betAmount, message });
     
@@ -2222,90 +2224,6 @@ async function loadUserData(uid) {
     }
 }
 
-
-// ===== VERIFICAÇÃO DE ELEMENTOS DO FORMULÁRIO =====
-function checkFormElements() {
-    const requiredElements = [
-        'time-limit',
-        'bet-amount', 
-        'table-name',
-        'create-table-modal'
-    ];
-    
-    const missingElements = [];
-    
-    requiredElements.forEach(id => {
-        if (!document.getElementById(id)) {
-            missingElements.push(id);
-        }
-    });
-    
-    if (missingElements.length > 0) {
-        console.warn('⚠️ Elementos faltando no DOM:', missingElements);
-        return false;
-    }
-    
-    return true;
-}
-
-// ===== INICIALIZAÇÃO SEGURA =====
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('✅ Verificando elementos do formulário...');
-    
-    // Verificar após um pequeno delay para garantir que o DOM esteja carregado
-    setTimeout(() => {
-        if (!checkFormElements()) {
-            console.error('❌ Elementos do formulário de criação de mesa não encontrados');
-            // Podemos recriar os elementos necessários se faltarem
-            createMissingFormElements();
-        }
-    }, 1000);
-});
-
-// ===== CRIAR ELEMENTOS FALTANTES (FALLBACK) =====
-function createMissingFormElements() {
-    console.log('🛠️ Criando elementos faltantes...');
-    
-    // Verificar e criar se necessário
-    if (!document.getElementById('time-limit')) {
-        const input = document.createElement('input');
-        input.id = 'time-limit';
-        input.type = 'number';
-        input.value = '120';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-    }
-    
-    if (!document.getElementById('bet-amount')) {
-        const input = document.createElement('input');
-        input.id = 'bet-amount';
-        input.type = 'number';
-        input.value = '0';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-    }
-    
-    if (!document.getElementById('table-name')) {
-        const input = document.createElement('input');
-        input.id = 'table-name';
-        input.type = 'text';
-        input.value = '';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-    }
-}
-
-// ===== ALTERNATIVA SEGURA PARA ACESSAR VALORES =====
-function getFormValues() {
-    return {
-        timeLimit: parseInt(document.getElementById('time-limit')?.value || '120'),
-        betAmount: parseInt(document.getElementById('bet-amount')?.value || '0'),
-        tableName: document.getElementById('table-name')?.value || `Mesa de ${userData?.displayName || 'Jogador'}`
-    };
-}
-
-console.log('✅ Função createNewTable corrigida e segura');
-
 function updateUI() {
     // Atualizar saldo exibido
     const balanceElement = document.getElementById('current-coins-balance');
@@ -2562,133 +2480,104 @@ function initializeBrazilianCheckersBoard() {
 }
 
 
-// ===== FUNÇÃO createNewTable CORRIGIDA =====
+// ===== CREATE NEW TABLE (CORRIGIDA) =====
 async function createNewTable() {
     console.log('🎯 Criando nova mesa...');
     
+    // Verificar se já tem mesa ativa
+    const activeTableInfo = await checkUserActiveTable();
+    if (activeTableInfo.hasActiveTable) {
+        showNotification('Você já tem uma mesa ativa! Finalize-a antes de criar outra.', 'error');
+        
+        if (activeTableInfo.tableId) {
+            setTimeout(() => {
+                joinTable(activeTableInfo.tableId);
+            }, 2000);
+        }
+        
+        return;
+    }
+    
+    const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
+    const timeLimit = parseInt(document.getElementById('table-time').value);
+    const bet = parseInt(document.getElementById('table-bet').value) || 0;
+    
+    // 🔥 CORREÇÃO: Verificar se o usuário tem saldo suficiente ANTES de criar a mesa
+    if (bet > 0) {
+        // Carregar dados atualizados do usuário para verificar saldo
+        await loadUserData(currentUser.uid);
+        
+        if (!userData || userData.coins < bet) {
+            showNotification(`Você não tem moedas suficientes para esta aposta! Saldo: ${userData?.coins || 0} moedas`, 'error');
+            return;
+        }
+    }
+    
     try {
-        // ✅ VERIFICAR SE O USUÁRIO ESTÁ LOGADO
-        if (!currentUser) {
-            showNotification('Você precisa estar logado para criar uma mesa', 'error');
-            return;
-        }
-        
-        // ✅ VERIFICAR SE OS ELEMENTOS EXISTEM NO DOM
-        const timeLimitInput = document.getElementById('time-limit');
-        const betAmountInput = document.getElementById('bet-amount');
-        const tableNameInput = document.getElementById('table-name');
-        
-        if (!timeLimitInput || !betAmountInput || !tableNameInput) {
-            console.error('❌ Elementos do formulário não encontrados');
-            showNotification('Erro: Formulário não carregado corretamente', 'error');
-            return;
-        }
-        
-        // ✅ OBTER VALORES COM VALIDAÇÃO
-        const timeLimit = parseInt(timeLimitInput.value) || 0;
-        const betAmount = parseInt(betAmountInput.value) || 0;
-        const tableName = tableNameInput.value.trim() || `Mesa de ${userData?.displayName || 'Jogador'}`;
-        
-        // ✅ VALIDAR VALORES
-        if (timeLimit < 0) {
-            showNotification('Tempo por jogada não pode ser negativo', 'error');
-            return;
-        }
-        
-        if (betAmount < 0) {
-            showNotification('Aposta não pode ser negativa', 'error');
-            return;
-        }
-        
-        // ✅ VALIDAR APOSTA SE NECESSÁRIO
-        if (betAmount > 0) {
-            // Garantir que userData está carregado
-            if (!userData) {
-                await loadUserData(currentUser.uid);
-            }
-            
-            if (!userData || userData.coins < betAmount) {
-                showNotification(`Você não tem moedas suficientes! Saldo: ${userData?.coins || 0}`, 'error');
-                return;
-            }
-        }
-        
-        // ✅ CRIAR DADOS DA MESA
         const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
         
-        const tableData = {
+        const tableRef = await db.collection('tables').add({
             name: tableName,
             timeLimit: timeLimit,
-            bet: betAmount,
+            bet: bet,
             status: 'waiting',
             players: [{
                 uid: currentUser.uid,
                 displayName: userData.displayName,
-                rating: userData.rating || 1000,
-                color: 'black',
-                voicePeerId: null,
-                voiceEnabled: true
+                rating: userData.rating,
+                color: 'black'
             }],
             createdBy: currentUser.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             currentTurn: 'black',
             board: boardData,
             waitingForOpponent: true,
-            platformFee: calculatePlatformFee(betAmount),
-            isChallenge: false,
-            spectatorsCount: 0,
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
-        };
+            platformFee: calculatePlatformFee(bet)
+        });
         
-        console.log('📦 Dados da mesa:', tableData);
-        
-        // ✅ CRIAR MESA NO FIRESTORE
-        const tableRef = await db.collection('tables').add(tableData);
-        
-        console.log('✅ Mesa criada com ID:', tableRef.id);
-        
-        // ✅ DEDUZIR APOSTA SE HOUVER
-        if (betAmount > 0) {
-            await db.collection('users').doc(currentUser.uid).update({
-                coins: firebase.firestore.FieldValue.increment(-betAmount)
-            });
-            // Atualizar userData localmente
-            userData.coins -= betAmount;
-        }
-        
-        // ✅ ENTRAR NA MESA
+        // ✅ SALVAR tableId CORRETAMENTE
         userActiveTable = tableRef.id;
+        console.log('✅ Mesa criada com ID:', userActiveTable);
         
-        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO
-        currentGameRef = db.collection('tables').doc(tableRef.id);
-        
-        // ✅ CONFIGURAR LISTENER
-        setupGameListener(tableRef.id);
-        
-        // ✅ MOSTRAR TELA DE JOGO
-        showScreen('game-screen');
-        
-        showNotification('Mesa criada! Aguardando oponente...', 'success');
-        
-        // ✅ FECHAR MODAL COM VERIFICAÇÃO
-        const modal = document.getElementById('create-table-modal');
-        if (modal) {
-            modal.style.display = 'none';
+        // 🔥 CORREÇÃO: Deduzir aposta apenas se for maior que 0
+        if (bet > 0) {
+            await db.collection('users').doc(currentUser.uid).update({
+                coins: firebase.firestore.FieldValue.increment(-bet)
+            });
+            // Atualizar dados locais do usuário
+            userData.coins -= bet;
         }
+        
+        closeAllModals();
+        showNotification('Mesa criada com sucesso! Aguardando oponente...', 'success');
+        
+        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
+        if (typeof setupActiveTableListener === 'function') {
+            setupActiveTableListener();
+        }
+        
+        // Atualizar lista de usuários online após um breve delay
+        setTimeout(() => {
+            if (typeof refreshOnlineUsersList === 'function') {
+                refreshOnlineUsersList();
+            }
+        }, 1000);
+        
+        setupGameListener(tableRef.id);
+        showScreen('game-screen');
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa:', error);
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
-
-
+// ===== JOIN TABLE (CORRIGIDA) =====
 async function joinTable(tableId) {
-    const originalJoinTable = joinTable;
-    joinTable = async function(tableId) {
-        audioManager.playGameStartSound();
-        return originalJoinTable.call(this, tableId);
-    };
+const originalJoinTable = joinTable;
+joinTable = async function(tableId) {
+    audioManager.playGameStartSound();
+    return originalJoinTable.call(this, tableId);
+};
 
     console.log('🎯 Entrando na mesa:', tableId);
     
@@ -2702,26 +2591,26 @@ async function joinTable(tableId) {
     try {
         userActiveTable = tableId;
         
-        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO PRIMEIRO
-        currentGameRef = db.collection('tables').doc(tableId);
-        const tableDoc = await currentGameRef.get();
+        const tableRef = db.collection('tables').doc(tableId);
+        const tableDoc = await tableRef.get();
         
         if (!tableDoc.exists) {
             console.error('❌ Mesa não encontrada:', tableId);
             showNotification('Mesa não encontrada', 'error');
             userActiveTable = null;
-            currentGameRef = null;
             return;
         }
         
         const table = tableDoc.data();
+
+
 
         // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
         if (table.isChallenge && table.status === 'waiting') {
             console.log('✅ Entrando em mesa de desafio');
             
             // Atualizar mesa para status playing
-            await currentGameRef.update({
+            await tableRef.update({
                 status: 'playing',
                 waitingForOpponent: false,
                 lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
@@ -2731,8 +2620,6 @@ async function joinTable(tableId) {
         // Se usuário já está na mesa, apenas entrar
         if (table.players.some(p => p.uid === currentUser.uid)) {
             console.log('✅ Usuário já está na mesa, apenas entrando...');
-            
-            // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
             setupGameListener(tableId);
             showScreen('game-screen');
             
@@ -2740,13 +2627,6 @@ async function joinTable(tableId) {
                 showNotification('Aguardando adversário...', 'info');
             } else {
                 showNotification('Jogo em andamento', 'info');
-                
-                // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO SE HOUVER 2 JOGADORES
-                setTimeout(() => {
-                    if (!window.voiceSystemInitialized) {
-                        initializeAutoVoiceSystem();
-                    }
-                }, 2000);
             }
             
             // 🔥 ATUALIZAR LISTENER
@@ -2761,9 +2641,9 @@ async function joinTable(tableId) {
             console.log('❌ Mesa cheia:', tableId);
             showNotification('Esta mesa já está cheia', 'error');
             userActiveTable = null;
-            currentGameRef = null;
             return;
         }
+        
         
         // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
         if (table.bet > 0) {
@@ -2773,20 +2653,17 @@ async function joinTable(tableId) {
             if (!userData || userData.coins < table.bet) {
                 showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
                 userActiveTable = null;
-                currentGameRef = null;
                 return;
             }
         }
         
         // Adicionar jogador à mesa
-        await currentGameRef.update({
+        await tableRef.update({
             players: firebase.firestore.FieldValue.arrayUnion({
                 uid: currentUser.uid,
                 displayName: userData.displayName,
                 rating: userData.rating,
-                color: 'red',
-                voicePeerId: null, // Será preenchido pelo sistema de voz
-                voiceEnabled: true
+                color: 'red'
             }),
             status: 'playing',
             waitingForOpponent: false,
@@ -2803,41 +2680,10 @@ async function joinTable(tableId) {
             userData.coins -= table.bet;
         }
         
-        // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
+        // Entrar no jogo
         setupGameListener(tableId);
         showScreen('game-screen');
         showNotification('Jogo iniciado! As peças pretas começam.', 'success');
-        
-        // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER OUTRO JOGADOR
-        if (table.players.length === 1) {
-            // Aguardar oponente entrar
-            const unsubscribe = db.collection('tables').doc(tableId)
-                .onSnapshot((doc) => {
-                    if (doc.exists) {
-                        const updatedTable = doc.data();
-                        if (updatedTable.players.length === 2) {
-                            console.log('✅ Segundo jogador entrou, iniciando voz...');
-                            
-                            // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO
-                            if (!window.voiceSystemInitialized) {
-                                setTimeout(() => {
-                                    initializeAutoVoiceSystem();
-                                }, 1500);
-                            }
-                            
-                            unsubscribe(); // Parar de observar
-                        }
-                    }
-                });
-        } else {
-            // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO IMEDIATAMENTE
-            console.log('✅ Dois jogadores presentes, iniciando voz...');
-            setTimeout(() => {
-                if (!window.voiceSystemInitialized) {
-                    initializeAutoVoiceSystem();
-                }
-            }, 1500);
-        }
         
         // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
         if (typeof setupActiveTableListener === 'function') {
@@ -2854,7 +2700,6 @@ async function joinTable(tableId) {
     } catch (error) {
         console.error('❌ Erro ao entrar na mesa:', error);
         userActiveTable = null;
-        currentGameRef = null;
         showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
     }
 }
@@ -3257,16 +3102,9 @@ function renderTable(table, container) {
 }
 
 
-// ===== FUNÇÃO setupGameListener CORRIGIDA =====
+// ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
-    
-    // ✅ VALIDAÇÃO CRÍTICA: Garantir que tableId é válido
-    if (!tableId || typeof tableId !== 'string') {
-        console.error('❌ ID da mesa inválido:', tableId);
-        showNotification('Erro: ID da mesa inválido', 'error');
-        return;
-    }
     
     // Remover listener anterior se existir
     if (gameListener) {
@@ -3275,25 +3113,18 @@ function setupGameListener(tableId) {
         gameListener = null;
     }
     
-    // ✅ GARANTIR QUE currentGameRef É VÁLIDO
-    try {
-        currentGameRef = db.collection('tables').doc(tableId);
-        
-        // Verificar se a referência é válida
-        if (!currentGameRef) {
-            throw new Error('Não foi possível criar referência para a mesa');
-        }
-    } catch (error) {
-        console.error('❌ Erro ao criar referência da mesa:', error);
-        showNotification('Erro ao acessar mesa', 'error');
+    // Verificar se tableId é válido
+    if (!tableId) {
+        console.error('❌ ID da mesa inválido');
+        showNotification('Erro ao entrar na mesa', 'error');
         return;
     }
     
+    currentGameRef = db.collection('tables').doc(tableId);
     let lastProcessedStateHash = '';
     let isProcessing = false;
     
-    // ✅ FUNÇÃO DE SEGURANÇA PARA O listener
-    const safeOnSnapshot = async (doc) => {
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
         // Evitar processamento simultâneo
         if (isProcessing) {
             console.log('⏳ Já processando, ignorando chamada duplicada');
@@ -3303,15 +3134,8 @@ function setupGameListener(tableId) {
         isProcessing = true;
         
         try {
-            // ✅ VERIFICAR SE A REFERÊNCIA AINDA É VÁLIDA
-            if (!currentGameRef) {
-                console.log('⚠️ Referência da mesa não existe mais');
-                isProcessing = false;
-                return;
-            }
-            
-            // ✅ VERIFICAR SE A REFERÊNCIA CORRESPONDE À MESA ATUAL
-            if (currentGameRef.id !== tableId) {
+            // Verificar se a referência ainda é a mesma
+            if (!currentGameRef || currentGameRef.id !== tableId) {
                 console.log('🔀 Referência mudou, ignorando listener');
                 isProcessing = false;
                 return;
@@ -3358,16 +3182,15 @@ function setupGameListener(tableId) {
                 return;
             }
             
-            // 4. DETECTAR MUDANÇAS IMPORTANTES (COM VERIFICAÇÃO DE SEGURANÇA)
+            // 4. DETECTAR MUDANÇAS IMPORTANTES
             const boardChanged = !oldGameState || 
                                JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
             
             const turnChanged = !oldGameState || 
                               oldGameState.currentTurn !== gameState.currentTurn;
             
-            // ✅ CORREÇÃO: VERIFICAR SE oldGameState EXISTE ANTES DE USAR
             const playersChanged = !oldGameState || 
-                                 (oldGameState.players && JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players));
+                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
             
             // 5. PROCESSAR EVENTOS ESPECÍFICOS
             if (playersChanged && oldGameState) {
@@ -3378,46 +3201,26 @@ function setupGameListener(tableId) {
                 await handleDrawOffer(gameState.drawOffer);
             }
             
-            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-            if (boardChanged || turnChanged || playersChanged) {
-                console.log('🎨 Atualizando interface');
-                updateGameInterface();
-                
-                // 🔥 ADICIONAR BOTÃO DE VOZ SE HOUVER DOIS JOGADORES
-                if (gameState.players && gameState.players.length === 2) {
-                    // Pequeno delay para garantir que a interface foi renderizada
-                    setTimeout(() => {
-                        addVoiceButtonToGameScreen();
-                    }, 500);
-                }
-            }
-            
-            // 7. GERENCIAR TIMER
-            manageGameTimer(oldGameState, gameState);
-            
-            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-                console.log('🎮 Jogo iniciado, configurando sistemas');
-                setupChatListener();
-                setupSpectatorsListener(tableId);
-                
-                // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER DOIS JOGADORES
-                if (gameState.players && gameState.players.length === 2) {
-                    setTimeout(() => {
-                        initializeVoiceSystem().then(voiceSys => {
-                            if (voiceSys) {
-                                voiceSystem = voiceSys;
-                                connectToOpponentVoice(gameState);
-                            }
-                        });
-                    }, 1000);
-                }
-            }
-            
-            // 9. VERIFICAR FIM DE JOGO
-            if (boardChanged && gameState.status === 'playing') {
-                checkGameEnd(gameState.board, gameState.currentTurn);
-            }
+           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+if (boardChanged || turnChanged || playersChanged) {
+    console.log('🎨 Atualizando interface');
+    updateGameInterface();
+}
+
+// 7. GERENCIAR TIMER
+manageGameTimer(oldGameState, gameState);
+
+// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+    console.log('🎮 Jogo iniciado, configurando sistemas');
+    setupChatListener();
+    setupSpectatorsListener(tableId);
+}
+
+// 9. VERIFICAR FIM DE JOGO
+if (boardChanged && gameState.status === 'playing') {
+    checkGameEnd(gameState.board, gameState.currentTurn);
+}
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
@@ -3425,124 +3228,19 @@ function setupGameListener(tableId) {
         } finally {
             isProcessing = false;
         }
-    };
-    
-    // ✅ CONFIGURAR LISTENER COM TRATAMENTO DE ERROS
-    try {
-        gameListener = currentGameRef.onSnapshot(
-            (doc) => {
-                safeOnSnapshot(doc).catch(error => {
-                    console.error('❌ Erro no processamento do snapshot:', error);
-                });
-            },
-            (error) => {
-                console.error('📡 Erro no listener:', error);
-                
-                if (error.code !== 'cancelled') {
-                    showNotification('Erro de conexão com o jogo', 'error');
-                    
-                    if (error.code === 'permission-denied' || error.code === 'not-found') {
-                        setTimeout(() => leaveGame(), 2000);
-                    }
-                    
-                    // ✅ TENTAR RECONECTAR EM CASO DE ERRO
-                    if (error.code !== 'permission-denied') {
-                        setTimeout(() => {
-                            if (userActiveTable === tableId) {
-                                console.log('🔄 Tentando reconectar ao jogo...');
-                                setupGameListener(tableId);
-                            }
-                        }, 3000);
-                    }
-                }
+        
+    }, (error) => {
+        console.error('📡 Erro no listener:', error);
+        
+        if (error.code !== 'cancelled') {
+            showNotification('Erro de conexão com o jogo', 'error');
+            
+            if (error.code === 'permission-denied' || error.code === 'not-found') {
+                setTimeout(() => leaveGame(), 2000);
             }
-        );
-        
-        console.log('✅ Listener do jogo configurado com sucesso');
-        
-    } catch (error) {
-        console.error('❌ Erro ao configurar listener:', error);
-        showNotification('Erro ao conectar com o jogo', 'error');
-    }
-}
-
-// ===== FUNÇÃO handlePlayersChange (SE NECESSÁRIO) =====
-async function handlePlayersChange(oldGameState, newGameState) {
-    console.log('👥 Mudança detectada nos jogadores');
-    
-    try {
-        // Verificar se jogadores saíram ou entraram
-        const oldPlayers = oldGameState.players || [];
-        const newPlayers = newGameState.players || [];
-        
-        // Encontrar jogadores que saíram
-        const leftPlayers = oldPlayers.filter(oldPlayer => 
-            !newPlayers.some(newPlayer => newPlayer.uid === oldPlayer.uid)
-        );
-        
-        // Encontrar jogadores que entraram
-        const joinedPlayers = newPlayers.filter(newPlayer => 
-            !oldPlayers.some(oldPlayer => oldPlayer.uid === newPlayer.uid)
-        );
-        
-        // Processar jogadores que saíram
-        if (leftPlayers.length > 0) {
-            leftPlayers.forEach(player => {
-                console.log('👋 Jogador saiu:', player.displayName);
-                showNotification(`${player.displayName} saiu do jogo`, 'info');
-            });
         }
-        
-        // Processar jogadores que entraram
-        if (joinedPlayers.length > 0) {
-            joinedPlayers.forEach(player => {
-                console.log('🎉 Novo jogador entrou:', player.displayName);
-                showNotification(`${player.displayName} entrou no jogo`, 'info');
-                
-                // Atualizar dados do jogador se necessário
-                updatePlayerInfo(player.uid);
-            });
-        }
-        
-        // Atualizar header do jogo
-        const currentPlayer = newPlayers.find(p => p.uid === currentUser?.uid);
-        const opponent = newPlayers.find(p => p.uid !== currentUser?.uid);
-        
-        if (currentPlayer && opponent) {
-            updateGameHeader(currentPlayer, opponent);
-        }
-        
-    } catch (error) {
-        console.error('❌ Erro ao processar mudança de jogadores:', error);
-    }
+    });
 }
-
-// ===== FUNÇÃO updatePlayerInfo (SE NECESSÁRIO) =====
-async function updatePlayerInfo(playerId) {
-    try {
-        const playerDoc = await db.collection('users').doc(playerId).get();
-        if (playerDoc.exists) {
-            const playerData = playerDoc.data();
-            console.log('📊 Dados do jogador atualizados:', playerData.displayName);
-        }
-    } catch (error) {
-        console.warn('⚠️ Erro ao atualizar dados do jogador:', error);
-    }
-}
-
-// ===== FUNÇÃO handleDrawOffer (SE NECESSÁRIO) =====
-async function handleDrawOffer(drawOffer) {
-    console.log('🤝 Oferta de empate recebida:', drawOffer);
-    
-    if (drawOffer.from !== currentUser.uid) {
-        showNotification('Oponente ofereceu empate!', 'info');
-        
-        // Mostrar diálogo para aceitar/recusar empate
-        showDrawOfferDialog(drawOffer);
-    }
-}
-
-console.log('✅ Erro de playersChanged resolvido - Listener corrigido');
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
@@ -3568,6 +3266,71 @@ function comparePlayers(oldPlayers, newPlayers) {
 }
 
 
+// ===== FUNÇÃO HANDLE PLAYERS CHANGE =====
+async function handlePlayersChange(oldGameState, newGameState) {
+    console.log('👥 Mudança detectada nos jogadores');
+    
+    if (!oldGameState || !newGameState || !newGameState.players) return;
+    
+    const oldPlayers = oldGameState.players || [];
+    const newPlayers = newGameState.players || [];
+    
+    // Verificar se um jogador entrou na mesa
+    if (newPlayers.length > oldPlayers.length) {
+        const newPlayer = newPlayers.find(player => 
+            !oldPlayers.some(oldPlayer => oldPlayer.uid === player.uid)
+        );
+        
+        if (newPlayer) {
+            console.log('🎉 Novo jogador entrou:', newPlayer.displayName);
+            
+            // Se o jogo estava esperando e agora tem 2 jogadores, iniciar
+            if (oldGameState.status === 'waiting' && newGameState.status === 'playing') {
+                showNotification(`Jogo iniciado! ${newPlayer.displayName} entrou na mesa.`, 'success');
+                
+                // Notificar ambos os jogadores
+                await notifyBothPlayers('O jogo começou! Boa sorte!', 'info');
+            }
+        }
+    }
+    
+    // Verificar se um jogador saiu da mesa
+    if (newPlayers.length < oldPlayers.length) {
+        const leftPlayer = oldPlayers.find(player => 
+            !newPlayers.some(newPlayer => newPlayer.uid === player.uid)
+        );
+        
+        if (leftPlayer) {
+            console.log('🚪 Jogador saiu:', leftPlayer.displayName);
+            
+            // Se era um jogo em andamento e alguém saiu
+            if (oldGameState.status === 'playing') {
+                showNotification(`${leftPlayer.displayName} saiu do jogo.`, 'warning');
+                
+                // Se o usuário atual ainda está no jogo, notificar
+                const currentPlayer = newPlayers.find(p => p.uid === currentUser.uid);
+                if (currentPlayer) {
+                    await db.collection('notifications').add({
+                        type: 'player_left',
+                        userId: currentUser.uid,
+                        message: `${leftPlayer.displayName} abandonou o jogo.`,
+                        tableId: currentGameRef.id,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        read: false
+                    });
+                }
+            }
+        }
+    }
+    
+    // Verificar mudanças nos dados dos jogadores (rating, nome, etc.)
+    newPlayers.forEach(newPlayer => {
+        const oldPlayer = oldPlayers.find(p => p.uid === newPlayer.uid);
+        if (oldPlayer && JSON.stringify(oldPlayer) !== JSON.stringify(newPlayer)) {
+            console.log('📊 Dados do jogador atualizados:', newPlayer.displayName);
+        }
+    });
+}
 
 // ===== FUNÇÃO HANDLE DRAW OFFER =====
 async function handleDrawOffer(drawOffer) {
@@ -3718,8 +3481,6 @@ function updateGameInterface() {
         console.error('Erro em updateGameInterface:', error);
     }
 }
-
-
 // ===== FUNÇÃO UPDATE GAME STATUS INFO =====
 function updateGameStatusInfo() {
     if (!gameState) return;
@@ -4237,6 +3998,23 @@ function isValidMove(fromRow, fromCol, toRow, toCol) {
   
   return true;
 }
+// ===== FUNÇÃO UPDATE PLAYER INFO (COMPLETA) =====
+function updatePlayerInfo() {
+    if (!gameState || !gameState.players) return;
+    
+    const currentPlayer = gameState.players.find(p => p.uid === currentUser.uid);
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    
+    // Atualizar header com nomes dos jogadores
+    updateGameHeader(currentPlayer, opponent);
+    
+    // Atualizar cartas dos jogadores se existirem
+    updatePlayerCards(currentPlayer, opponent);
+    
+    // Atualizar informações de rating e estatísticas
+    updatePlayerStats(currentPlayer, opponent);
+}
+
 // ===== FUNÇÃO AUXILIAR PARA UPDATE PLAYER CARDS =====
 function updatePlayerCards(currentPlayer, isMyTurn) {
     // Esta função parece estar sendo chamada com parâmetros diferentes
@@ -4295,6 +4073,42 @@ function updatePlayerStats(currentPlayer, opponent) {
             el.textContent = `${blackPieces} peça${blackPieces !== 1 ? 's' : ''}`;
         }
     });
+}
+
+// ===== FUNÇÃO UPDATE GAME HEADER =====
+function updateGameHeader(currentPlayer, opponent) {
+    const gameHeader = document.querySelector('.game-header');
+    if (!gameHeader) return;
+    
+    // Criar ou atualizar a seção de nomes dos jogadores
+    let playersSection = document.querySelector('.players-names');
+    if (!playersSection) {
+        playersSection = document.createElement('div');
+        playersSection.className = 'players-names';
+        gameHeader.insertBefore(playersSection, document.querySelector('.header-actions'));
+    }
+    
+    playersSection.innerHTML = `
+        <div class="player-vs-player">
+            <span class="player-name ${currentPlayer?.color || 'black'}">
+                ${currentPlayer?.displayName || 'Você'}
+            </span>
+            <span class="vs">VS</span>
+            <span class="player-name ${opponent?.color || 'red'}">
+                ${opponent?.displayName || 'Oponente'}
+            </span>
+        </div>
+    `;
+    
+    // Atualizar também a versão mobile se existir
+    const mobileScore = document.querySelector('.mobile-score');
+    if (mobileScore) {
+        mobileScore.innerHTML = `
+            <span class="player-badge red">${opponent?.displayName?.substring(0, 10) || 'Oponente'}</span>
+            <span class="vs">VS</span>
+            <span class="player-badge black">${currentPlayer?.displayName?.substring(0, 10) || 'Você'}</span>
+        `;
+    }
 }
 
 // ===== FUNÇÃO SURRENDER FROM GAME (CORRIGIDA) =====
@@ -9066,574 +8880,3 @@ function initializeGameWithSound() {
         gameState = new Proxy(gameState, gameStateHandler);
     }
 }
-
-  // Sistema de Voz para Jogo de Damas
-        document.addEventListener('DOMContentLoaded', function() {
-            // Elementos da UI
-            const voiceToggle = document.getElementById('voice-toggle');
-            const voiceContainer = document.getElementById('voice-chat-container');
-            const voiceClose = document.getElementById('voice-close');
-            const voiceTalk = document.getElementById('voice-talk');
-            const voiceMute = document.getElementById('voice-mute');
-            const voiceDeafen = document.getElementById('voice-deafen');
-            const voiceStatus = document.getElementById('voice-status');
-            const audioLevel = document.getElementById('voice-audio-level');
-            
-            // Estados do sistema de voz
-            let isRecording = false;
-            let isMuted = false;
-            let isDeafened = false;
-            let mediaRecorder = null;
-            let audioContext = null;
-            let analyser = null;
-            let microphone = null;
-            let javascriptNode = null;
-            
-            // Alternar visibilidade do chat de voz
-            voiceToggle.addEventListener('click', function() {
-                if (voiceContainer.style.display === 'none') {
-                    voiceContainer.style.display = 'block';
-                    voiceToggle.textContent = '🎙️';
-                } else {
-                    voiceContainer.style.display = 'none';
-                    voiceToggle.textContent = '🎙️';
-                }
-            });
-            
-            // Fechar o chat de voz
-            voiceClose.addEventListener('click', function() {
-                voiceContainer.style.display = 'none';
-            });
-            
-            // Configurar áudio
-            async function setupAudio() {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    
-                    // Configurar AudioContext para análise de áudio
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    microphone = audioContext.createMediaStreamSource(stream);
-                    analyser = audioContext.createAnalyser();
-                    
-                    microphone.connect(analyser);
-                    
-                    // Configurar MediaRecorder para gravação
-                    mediaRecorder = new MediaRecorder(stream);
-                    
-                    const audioChunks = [];
-                    
-                    mediaRecorder.ondataavailable = function(event) {
-                        audioChunks.push(event.data);
-                    };
-                    
-                    mediaRecorder.onstop = function() {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        // Aqui você enviaria o áudio para o servidor/oponente
-                        sendAudioToOpponent(audioBlob);
-                    };
-                    
-                    // Iniciar análise de áudio para visualização
-                    startAudioAnalysis();
-                    
-                    voiceStatus.textContent = 'Microfone conectado';
-                    voiceTalk.disabled = false;
-                    
-                } catch (error) {
-                    console.error('Erro ao acessar microfone:', error);
-                    voiceStatus.textContent = 'Erro ao acessar microfone';
-                    voiceTalk.disabled = true;
-                }
-            }
-            
-            // Iniciar análise de áudio para visualização
-            function startAudioAnalysis() {
-                if (!analyser) return;
-                
-                analyser.fftSize = 256;
-                const bufferLength = analyser.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-                
-                function updateAudioLevel() {
-                    if (!analyser || isMuted) {
-                        audioLevel.style.width = '0%';
-                        return;
-                    }
-                    
-                    analyser.getByteFrequencyData(dataArray);
-                    
-                    let sum = 0;
-                    for (let i = 0; i < bufferLength; i++) {
-                        sum += dataArray[i];
-                    }
-                    
-                    const average = sum / bufferLength;
-                    const level = Math.min(100, average * 100 / 256);
-                    
-                    audioLevel.style.width = level + '%';
-                    
-                    requestAnimationFrame(updateAudioLevel);
-                }
-                
-                updateAudioLevel();
-            }
-            
-            // Enviar áudio para o oponente (simulação)
-            function sendAudioToOpponent(audioBlob) {
-                // Aqui você implementaria o envio do áudio para o oponente
-                // via WebSockets, WebRTC ou seu backend
-                console.log('Áudio gravado, tamanho:', audioBlob.size, 'bytes');
-                
-                // Simulação de envio
-                voiceStatus.textContent = 'Enviando áudio...';
-                
-                setTimeout(() => {
-                    voiceStatus.textContent = 'Áudio enviado';
-                    setTimeout(() => {
-                        voiceStatus.textContent = 'Pronto para conversar';
-                    }, 2000);
-                }, 1000);
-            }
-            
-            // Botão para falar (push-to-talk)
-            voiceTalk.addEventListener('mousedown', startRecording);
-            voiceTalk.addEventListener('mouseup', stopRecording);
-            voiceTalk.addEventListener('touchstart', startRecording);
-            voiceTalk.addEventListener('touchend', stopRecording);
-            
-            function startRecording(e) {
-                if (e) e.preventDefault();
-                if (isMuted || isDeafened || !mediaRecorder) return;
-                
-                isRecording = true;
-                voiceTalk.classList.add('recording');
-                voiceStatus.textContent = 'Gravando...';
-                
-                mediaRecorder.start();
-            }
-            
-            function stopRecording(e) {
-                if (e) e.preventDefault();
-                if (!isRecording) return;
-                
-                isRecording = false;
-                voiceTalk.classList.remove('recording');
-                voiceStatus.textContent = 'Enviando áudio...';
-                
-                mediaRecorder.stop();
-            }
-            
-            // Botão de mutar
-            voiceMute.addEventListener('click', function() {
-                isMuted = !isMuted;
-                
-                if (isMuted) {
-                    voiceMute.innerHTML = '<i>🔈</i> Ativar Som';
-                    voiceStatus.textContent = 'Microfone desativado';
-                } else {
-                    voiceMute.innerHTML = '<i>🔇</i> Silenciar';
-                    voiceStatus.textContent = 'Microfone ativado';
-                }
-            });
-            
-            // Botão de silenciar todos
-            voiceDeafen.addEventListener('click', function() {
-                isDeafened = !isDeafened;
-                
-                if (isDeafened) {
-                    voiceDeafen.innerHTML = '<i>🔈</i> Ativar Áudio';
-                    voiceStatus.textContent = 'Áudio desativado';
-                } else {
-                    voiceDeafen.innerHTML = '<i>🔇</i> Silenciar Todos';
-                    voiceStatus.textContent = 'Áudio ativado';
-                }
-            });
-            
-            // Inicializar o sistema de voz quando a página carregar
-            setupAudio();
-            
-            // Adicionar este sistema ao seu jogo existente
-            console.log('Sistema de voz carregado com sucesso!');
-        });
-
-
-
-        // ===== FUNÇÃO updateGameHeader (SE NÃO EXISTIR) =====
-function updateGameHeader(currentPlayer, opponent) {
-    const gameHeader = document.querySelector('.game-header');
-    if (!gameHeader) return;
-    
-    // Buscar elementos existentes ou criar novos
-    let playersSection = document.querySelector('.players-names');
-    if (!playersSection) {
-        playersSection = document.createElement('div');
-        playersSection.className = 'players-names';
-        gameHeader.appendChild(playersSection);
-    }
-    
-    // Atualizar conteúdo
-    playersSection.innerHTML = `
-        <div class="player-vs-player">
-            <span class="player-name ${currentPlayer?.color || 'black'}">
-                ${currentPlayer?.displayName || 'Você'}
-            </span>
-            <span class="vs">VS</span>
-            <span class="player-name ${opponent?.color || 'red'}">
-                ${opponent?.displayName || 'Oponente'}
-            </span>
-        </div>
-    `;
-}
-
-// ===== CORREÇÃO DO SISTEMA DE VOZ - PROBLEMA DE RECEBIMENTO =====
-
-// 1. CONFIGURAR PEERJS PARA RECEBER CHAMADAS CORRETAMENTE
-function setupVoiceReceiver() {
-    if (!peer) return;
-    
-    console.log('🎧 Configurando receptor de voz...');
-    
-    peer.on('call', async (call) => {
-        console.log('📞 Chamada recebida de:', call.peer);
-        
-        try {
-            // Obter stream de áudio local
-            const localStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    channelCount: 1,
-                    sampleRate: 48000
-                },
-                video: false
-            });
-            
-            // Responder à chamada com o stream local
-            call.answer(localStream);
-            
-            call.on('stream', (remoteStream) => {
-                console.log('🔊 Stream de áudio remoto recebido');
-                
-                // Criar e configurar elemento de áudio
-                const audio = new Audio();
-                audio.srcObject = remoteStream;
-                audio.autoplay = true;
-                audio.volume = 0.7;
-                
-                // Configurar para evitar eco
-                audio.mozPreservesPitch = false;
-                audio.webkitPreservesPitch = false;
-                audio.preservesPitch = false;
-                
-                window.voiceAudioElement = audio;
-                autoVoiceEnabled = true;
-                
-                updateVoiceStatus(true);
-                showNotification('Voz conectada', 'success');
-                
-                // Configurar tratamento de erro
-                audio.addEventListener('error', (e) => {
-                    console.error('Erro no elemento de áudio:', e);
-                    showNotification('Erro de áudio', 'error');
-                });
-            });
-            
-            call.on('close', () => {
-                console.log('📞 Chamada encerrada');
-                autoVoiceEnabled = false;
-                updateVoiceStatus(false);
-                
-                // Parar tracks locais
-                localStream.getTracks().forEach(track => track.stop());
-            });
-            
-            call.on('error', (error) => {
-                console.error('❌ Erro na chamada:', error);
-                autoVoiceEnabled = false;
-                updateVoiceStatus(false);
-                
-                // Parar tracks locais em caso de erro
-                localStream.getTracks().forEach(track => track.stop());
-            });
-            
-        } catch (error) {
-            console.error('❌ Erro ao atender chamada:', error);
-            showNotification('Erro ao conectar voz', 'error');
-        }
-    });
-}
-
-// 2. MELHORAR CONEXÃO COM OPONENTE
-async function connectToOpponentAuto() {
-    if (!gameState || !gameState.players) {
-        console.log('⚠️ GameState ou players não disponíveis');
-        return;
-    }
-    
-    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-    if (!opponent) {
-        console.log('⚠️ Oponente não encontrado');
-        return;
-    }
-    
-    console.log('🔍 Buscando dados do oponente:', opponent.uid);
-    
-    try {
-        const opponentDoc = await db.collection('users').doc(opponent.uid).get();
-        if (opponentDoc.exists) {
-            const opponentData = opponentDoc.data();
-            
-            if (opponentData.voicePeerId) {
-                opponentPeerId = opponentData.voicePeerId;
-                console.log('✅ PeerID do oponente encontrado:', opponentPeerId);
-                
-                // Pequeno delay antes de iniciar chamada
-                setTimeout(() => {
-                    startAutoVoiceCall();
-                }, 1500);
-                
-            } else {
-                console.log('⚠️ Oponente não tem voicePeerId');
-            }
-        } else {
-            console.log('⚠️ Documento do oponente não existe');
-        }
-    } catch (error) {
-        console.error('❌ Erro ao buscar dados do oponente:', error);
-    }
-}
-
-// 3. START AUTO VOICE CALL MELHORADO
-async function startAutoVoiceCall() {
-    console.log('🎯 Iniciando chamada automática para:', opponentPeerId);
-    
-    if (!opponentPeerId) {
-        console.log('⚠️ opponentPeerId não disponível');
-        return;
-    }
-    
-    if (!peer) {
-        console.log('⚠️ Peer não inicializado');
-        return;
-    }
-    
-    try {
-        // Configurar stream de áudio com melhores parâmetros
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                channelCount: 1,
-                sampleRate: 48000,
-                latency: 0.01
-            },
-            video: false
-        });
-        
-        localStream = stream;
-        
-        console.log('🎤 Microfone acessado, iniciando chamada...');
-        
-        // Fazer a chamada
-        activeCall = peer.call(opponentPeerId, stream, {
-            metadata: {
-                type: 'voice-chat',
-                player: currentUser.uid,
-                timestamp: new Date().toISOString()
-            }
-        });
-        
-        activeCall.on('stream', (remoteStream) => {
-            console.log('🔊 Áudio do oponente recebido com sucesso');
-            
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            audio.volume = 0.7;
-            
-            // Configurações para melhor qualidade
-            audio.mozPreservesPitch = false;
-            audio.webkitPreservesPitch = false;
-            audio.preservesPitch = false;
-            
-            window.voiceAudioElement = audio;
-            autoVoiceEnabled = true;
-            
-            updateVoiceStatus(true);
-            showNotification('Voz conectada com ' + (gameState.players.find(p => p.uid !== currentUser.uid)?.displayName || 'oponente'), 'success');
-        });
-        
-        activeCall.on('close', () => {
-            console.log('📞 Chamada fechada');
-            autoVoiceEnabled = false;
-            updateVoiceStatus(false);
-            
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-        });
-        
-        activeCall.on('error', (error) => {
-            console.error('❌ Erro na chamada:', error);
-            autoVoiceEnabled = false;
-            updateVoiceStatus(false);
-            showNotification('Erro na conexão de voz', 'error');
-            
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-        });
-        
-        // Timeout para evitar chamadas pendentes
-        setTimeout(() => {
-            if (!autoVoiceEnabled && activeCall) {
-                console.log('⏰ Timeout na chamada, encerrando...');
-                activeCall.close();
-            }
-        }, 10000);
-        
-    } catch (error) {
-        console.error('❌ Erro ao acessar microfone:', error);
-        
-        if (error.name === 'NotAllowedError') {
-            showNotification('Permissão de microfone negada', 'error');
-        } else {
-            showNotification('Erro ao acessar microfone: ' + error.message, 'error');
-        }
-    }
-}
-
-// 4. INICIALIZAÇÃO MELHORADA
-async function initializeAutoVoiceSystem() {
-    if (voiceSystemInitialized) {
-        console.log('✅ Sistema de voz já inicializado');
-        return;
-    }
-    
-    console.log('🎵 Iniciando sistema de voz automático...');
-    
-    try {
-        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Date.now().toString(36)}`;
-        
-        peer = new Peer(peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ]
-            },
-            debug: 2
-        });
-        
-        peer.on('open', (id) => {
-            console.log('✅ PeerJS conectado com ID:', id);
-            currentPeerId = id;
-            voiceSystemInitialized = true;
-            
-            // Salvar no perfil do usuário
-            db.collection('users').doc(currentUser.uid).update({
-                voicePeerId: currentPeerId,
-                voiceEnabled: true,
-                lastVoiceUpdate: new Date()
-            }).catch(error => {
-                console.warn('⚠️ Não foi possível salvar voicePeerId:', error);
-            });
-            
-            // Configurar receptor de chamadas
-            setupVoiceReceiver();
-            
-            // Tentar conectar com oponente
-            setTimeout(() => {
-                connectToOpponentAuto();
-            }, 2000);
-        });
-        
-        peer.on('error', (err) => {
-            console.error('❌ Erro no PeerJS:', err);
-            
-            // Tentar reconectar em caso de erro
-            if (err.type !== 'peer-destroyed') {
-                setTimeout(() => {
-                    voiceSystemInitialized = false;
-                    initializeAutoVoiceSystem();
-                }, 3000);
-            }
-        });
-        
-        peer.on('disconnected', () => {
-            console.log('🔌 PeerJS desconectado, reconectando...');
-            voiceSystemInitialized = false;
-            peer.reconnect();
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao inicializar sistema de voz:', error);
-        
-        // Tentar novamente após delay
-        setTimeout(() => {
-            voiceSystemInitialized = false;
-            initializeAutoVoiceSystem();
-        }, 5000);
-    }
-}
-
-// 5. VERIFICAR CONDIÇÕES ANTES DE INICIAR VOZ
-function shouldEnableVoice() {
-    // Verificar se estamos em uma partida
-    if (!gameState || gameState.status !== 'playing') {
-        return false;
-    }
-    
-    // Verificar se há dois jogadores
-    if (!gameState.players || gameState.players.length < 2) {
-        return false;
-    }
-    
-    // Verificar se o usuário atual é jogador
-    const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
-    if (!isPlayer) {
-        return false;
-    }
-    
-    // Verificar se já não está conectado
-    if (autoVoiceEnabled) {
-        return false;
-    }
-    
-    return true;
-}
-
-// 6. INTEGRAR COM setupGameListener
-function setupGameListener(tableId) {
-    // ... (código existente) ...
-    
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
-        // ... (código existente) ...
-        
-        try {
-            // ... (código existente) ...
-            
-            // 🔥 VERIFICAR SE DEVE ATIVAR VOZ AUTOMÁTICA
-            if (playersChanged && shouldEnableVoice()) {
-                console.log('🎵 Condições para voz atendidas, iniciando...');
-                setTimeout(() => {
-                    initializeAutoVoiceSystem();
-                }, 3000);
-            }
-            
-            // ... (código existente) ...
-            
-        } catch (error) {
-            console.error('💥 Erro no listener:', error);
-        }
-    });
-}
-
-console.log('✅ Sistema de voz corrigido - Problemas de recebimento resolvidos');
