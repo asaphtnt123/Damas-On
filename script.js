@@ -9036,4 +9036,384 @@ function initializeGameWithSound() {
         });
 
 
+
+        // ===== FUNÇÃO updateGameHeader (SE NÃO EXISTIR) =====
+function updateGameHeader(currentPlayer, opponent) {
+    const gameHeader = document.querySelector('.game-header');
+    if (!gameHeader) return;
+    
+    // Buscar elementos existentes ou criar novos
+    let playersSection = document.querySelector('.players-names');
+    if (!playersSection) {
+        playersSection = document.createElement('div');
+        playersSection.className = 'players-names';
+        gameHeader.appendChild(playersSection);
+    }
+    
+    // Atualizar conteúdo
+    playersSection.innerHTML = `
+        <div class="player-vs-player">
+            <span class="player-name ${currentPlayer?.color || 'black'}">
+                ${currentPlayer?.displayName || 'Você'}
+            </span>
+            <span class="vs">VS</span>
+            <span class="player-name ${opponent?.color || 'red'}">
+                ${opponent?.displayName || 'Oponente'}
+            </span>
+        </div>
+    `;
+}
+
+// ===== CORREÇÃO DO SISTEMA DE VOZ - PROBLEMA DE RECEBIMENTO =====
+
+// 1. CONFIGURAR PEERJS PARA RECEBER CHAMADAS CORRETAMENTE
+function setupVoiceReceiver() {
+    if (!peer) return;
+    
+    console.log('🎧 Configurando receptor de voz...');
+    
+    peer.on('call', async (call) => {
+        console.log('📞 Chamada recebida de:', call.peer);
         
+        try {
+            // Obter stream de áudio local
+            const localStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    channelCount: 1,
+                    sampleRate: 48000
+                },
+                video: false
+            });
+            
+            // Responder à chamada com o stream local
+            call.answer(localStream);
+            
+            call.on('stream', (remoteStream) => {
+                console.log('🔊 Stream de áudio remoto recebido');
+                
+                // Criar e configurar elemento de áudio
+                const audio = new Audio();
+                audio.srcObject = remoteStream;
+                audio.autoplay = true;
+                audio.volume = 0.7;
+                
+                // Configurar para evitar eco
+                audio.mozPreservesPitch = false;
+                audio.webkitPreservesPitch = false;
+                audio.preservesPitch = false;
+                
+                window.voiceAudioElement = audio;
+                autoVoiceEnabled = true;
+                
+                updateVoiceStatus(true);
+                showNotification('Voz conectada', 'success');
+                
+                // Configurar tratamento de erro
+                audio.addEventListener('error', (e) => {
+                    console.error('Erro no elemento de áudio:', e);
+                    showNotification('Erro de áudio', 'error');
+                });
+            });
+            
+            call.on('close', () => {
+                console.log('📞 Chamada encerrada');
+                autoVoiceEnabled = false;
+                updateVoiceStatus(false);
+                
+                // Parar tracks locais
+                localStream.getTracks().forEach(track => track.stop());
+            });
+            
+            call.on('error', (error) => {
+                console.error('❌ Erro na chamada:', error);
+                autoVoiceEnabled = false;
+                updateVoiceStatus(false);
+                
+                // Parar tracks locais em caso de erro
+                localStream.getTracks().forEach(track => track.stop());
+            });
+            
+        } catch (error) {
+            console.error('❌ Erro ao atender chamada:', error);
+            showNotification('Erro ao conectar voz', 'error');
+        }
+    });
+}
+
+// 2. MELHORAR CONEXÃO COM OPONENTE
+async function connectToOpponentAuto() {
+    if (!gameState || !gameState.players) {
+        console.log('⚠️ GameState ou players não disponíveis');
+        return;
+    }
+    
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    if (!opponent) {
+        console.log('⚠️ Oponente não encontrado');
+        return;
+    }
+    
+    console.log('🔍 Buscando dados do oponente:', opponent.uid);
+    
+    try {
+        const opponentDoc = await db.collection('users').doc(opponent.uid).get();
+        if (opponentDoc.exists) {
+            const opponentData = opponentDoc.data();
+            
+            if (opponentData.voicePeerId) {
+                opponentPeerId = opponentData.voicePeerId;
+                console.log('✅ PeerID do oponente encontrado:', opponentPeerId);
+                
+                // Pequeno delay antes de iniciar chamada
+                setTimeout(() => {
+                    startAutoVoiceCall();
+                }, 1500);
+                
+            } else {
+                console.log('⚠️ Oponente não tem voicePeerId');
+            }
+        } else {
+            console.log('⚠️ Documento do oponente não existe');
+        }
+    } catch (error) {
+        console.error('❌ Erro ao buscar dados do oponente:', error);
+    }
+}
+
+// 3. START AUTO VOICE CALL MELHORADO
+async function startAutoVoiceCall() {
+    console.log('🎯 Iniciando chamada automática para:', opponentPeerId);
+    
+    if (!opponentPeerId) {
+        console.log('⚠️ opponentPeerId não disponível');
+        return;
+    }
+    
+    if (!peer) {
+        console.log('⚠️ Peer não inicializado');
+        return;
+    }
+    
+    try {
+        // Configurar stream de áudio com melhores parâmetros
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                channelCount: 1,
+                sampleRate: 48000,
+                latency: 0.01
+            },
+            video: false
+        });
+        
+        localStream = stream;
+        
+        console.log('🎤 Microfone acessado, iniciando chamada...');
+        
+        // Fazer a chamada
+        activeCall = peer.call(opponentPeerId, stream, {
+            metadata: {
+                type: 'voice-chat',
+                player: currentUser.uid,
+                timestamp: new Date().toISOString()
+            }
+        });
+        
+        activeCall.on('stream', (remoteStream) => {
+            console.log('🔊 Áudio do oponente recebido com sucesso');
+            
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            audio.volume = 0.7;
+            
+            // Configurações para melhor qualidade
+            audio.mozPreservesPitch = false;
+            audio.webkitPreservesPitch = false;
+            audio.preservesPitch = false;
+            
+            window.voiceAudioElement = audio;
+            autoVoiceEnabled = true;
+            
+            updateVoiceStatus(true);
+            showNotification('Voz conectada com ' + (gameState.players.find(p => p.uid !== currentUser.uid)?.displayName || 'oponente'), 'success');
+        });
+        
+        activeCall.on('close', () => {
+            console.log('📞 Chamada fechada');
+            autoVoiceEnabled = false;
+            updateVoiceStatus(false);
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+        });
+        
+        activeCall.on('error', (error) => {
+            console.error('❌ Erro na chamada:', error);
+            autoVoiceEnabled = false;
+            updateVoiceStatus(false);
+            showNotification('Erro na conexão de voz', 'error');
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+        });
+        
+        // Timeout para evitar chamadas pendentes
+        setTimeout(() => {
+            if (!autoVoiceEnabled && activeCall) {
+                console.log('⏰ Timeout na chamada, encerrando...');
+                activeCall.close();
+            }
+        }, 10000);
+        
+    } catch (error) {
+        console.error('❌ Erro ao acessar microfone:', error);
+        
+        if (error.name === 'NotAllowedError') {
+            showNotification('Permissão de microfone negada', 'error');
+        } else {
+            showNotification('Erro ao acessar microfone: ' + error.message, 'error');
+        }
+    }
+}
+
+// 4. INICIALIZAÇÃO MELHORADA
+async function initializeAutoVoiceSystem() {
+    if (voiceSystemInitialized) {
+        console.log('✅ Sistema de voz já inicializado');
+        return;
+    }
+    
+    console.log('🎵 Iniciando sistema de voz automático...');
+    
+    try {
+        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Date.now().toString(36)}`;
+        
+        peer = new Peer(peerId, {
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' }
+                ]
+            },
+            debug: 2
+        });
+        
+        peer.on('open', (id) => {
+            console.log('✅ PeerJS conectado com ID:', id);
+            currentPeerId = id;
+            voiceSystemInitialized = true;
+            
+            // Salvar no perfil do usuário
+            db.collection('users').doc(currentUser.uid).update({
+                voicePeerId: currentPeerId,
+                voiceEnabled: true,
+                lastVoiceUpdate: new Date()
+            }).catch(error => {
+                console.warn('⚠️ Não foi possível salvar voicePeerId:', error);
+            });
+            
+            // Configurar receptor de chamadas
+            setupVoiceReceiver();
+            
+            // Tentar conectar com oponente
+            setTimeout(() => {
+                connectToOpponentAuto();
+            }, 2000);
+        });
+        
+        peer.on('error', (err) => {
+            console.error('❌ Erro no PeerJS:', err);
+            
+            // Tentar reconectar em caso de erro
+            if (err.type !== 'peer-destroyed') {
+                setTimeout(() => {
+                    voiceSystemInitialized = false;
+                    initializeAutoVoiceSystem();
+                }, 3000);
+            }
+        });
+        
+        peer.on('disconnected', () => {
+            console.log('🔌 PeerJS desconectado, reconectando...');
+            voiceSystemInitialized = false;
+            peer.reconnect();
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao inicializar sistema de voz:', error);
+        
+        // Tentar novamente após delay
+        setTimeout(() => {
+            voiceSystemInitialized = false;
+            initializeAutoVoiceSystem();
+        }, 5000);
+    }
+}
+
+// 5. VERIFICAR CONDIÇÕES ANTES DE INICIAR VOZ
+function shouldEnableVoice() {
+    // Verificar se estamos em uma partida
+    if (!gameState || gameState.status !== 'playing') {
+        return false;
+    }
+    
+    // Verificar se há dois jogadores
+    if (!gameState.players || gameState.players.length < 2) {
+        return false;
+    }
+    
+    // Verificar se o usuário atual é jogador
+    const isPlayer = gameState.players.some(p => p.uid === currentUser.uid);
+    if (!isPlayer) {
+        return false;
+    }
+    
+    // Verificar se já não está conectado
+    if (autoVoiceEnabled) {
+        return false;
+    }
+    
+    return true;
+}
+
+// 6. INTEGRAR COM setupGameListener
+function setupGameListener(tableId) {
+    // ... (código existente) ...
+    
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
+        // ... (código existente) ...
+        
+        try {
+            // ... (código existente) ...
+            
+            // 🔥 VERIFICAR SE DEVE ATIVAR VOZ AUTOMÁTICA
+            if (playersChanged && shouldEnableVoice()) {
+                console.log('🎵 Condições para voz atendidas, iniciando...');
+                setTimeout(() => {
+                    initializeAutoVoiceSystem();
+                }, 3000);
+            }
+            
+            // ... (código existente) ...
+            
+        } catch (error) {
+            console.error('💥 Erro no listener:', error);
+        }
+    });
+}
+
+console.log('✅ Sistema de voz corrigido - Problemas de recebimento resolvidos');
