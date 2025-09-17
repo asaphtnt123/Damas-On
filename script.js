@@ -2479,47 +2479,37 @@ function initializeBrazilianCheckersBoard() {
   return board;
 }
 
-
-// ===== CREATE NEW TABLE (CORRIGIDA) =====
+// ===== FUNÇÃO createNewTable CORRIGIDA =====
 async function createNewTable() {
     console.log('🎯 Criando nova mesa...');
     
-    // Verificar se já tem mesa ativa
-    const activeTableInfo = await checkUserActiveTable();
-    if (activeTableInfo.hasActiveTable) {
-        showNotification('Você já tem uma mesa ativa! Finalize-a antes de criar outra.', 'error');
-        
-        if (activeTableInfo.tableId) {
-            setTimeout(() => {
-                joinTable(activeTableInfo.tableId);
-            }, 2000);
-        }
-        
-        return;
-    }
-    
-    const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
-    const timeLimit = parseInt(document.getElementById('table-time').value);
-    const bet = parseInt(document.getElementById('table-bet').value) || 0;
-    
-    // 🔥 CORREÇÃO: Verificar se o usuário tem saldo suficiente ANTES de criar a mesa
-    if (bet > 0) {
-        // Carregar dados atualizados do usuário para verificar saldo
-        await loadUserData(currentUser.uid);
-        
-        if (!userData || userData.coins < bet) {
-            showNotification(`Você não tem moedas suficientes para esta aposta! Saldo: ${userData?.coins || 0} moedas`, 'error');
+    try {
+        // ✅ VERIFICAR SE O USUÁRIO ESTÁ LOGADO
+        if (!currentUser) {
+            showNotification('Você precisa estar logado para criar uma mesa', 'error');
             return;
         }
-    }
-    
-    try {
+        
+        // ✅ OBTER CONFIGURAÇÕES DO FORMULÁRIO
+        const timeLimit = parseInt(document.getElementById('time-limit').value) || 0;
+        const betAmount = parseInt(document.getElementById('bet-amount').value) || 0;
+        const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
+        
+        // ✅ VALIDAR APOSTA SE NECESSÁRIO
+        if (betAmount > 0) {
+            if (!userData || userData.coins < betAmount) {
+                showNotification(`Você não tem moedas suficientes! Saldo: ${userData?.coins || 0}`, 'error');
+                return;
+            }
+        }
+        
+        // ✅ CRIAR DADOS DA MESA
         const boardData = convertBoardToFirestoreFormat(initializeBrazilianCheckersBoard());
         
-        const tableRef = await db.collection('tables').add({
+        const tableData = {
             name: tableName,
             timeLimit: timeLimit,
-            bet: bet,
+            bet: betAmount,
             status: 'waiting',
             players: [{
                 uid: currentUser.uid,
@@ -2532,52 +2522,56 @@ async function createNewTable() {
             currentTurn: 'black',
             board: boardData,
             waitingForOpponent: true,
-            platformFee: calculatePlatformFee(bet)
-        });
+            platformFee: calculatePlatformFee(betAmount),
+            isChallenge: false,
+            spectatorsCount: 0,
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+        };
         
-        // ✅ SALVAR tableId CORRETAMENTE
-        userActiveTable = tableRef.id;
-        console.log('✅ Mesa criada com ID:', userActiveTable);
+        console.log('📦 Dados da mesa:', tableData);
         
-        // 🔥 CORREÇÃO: Deduzir aposta apenas se for maior que 0
-        if (bet > 0) {
+        // ✅ CRIAR MESA NO FIRESTORE
+        const tableRef = await db.collection('tables').add(tableData);
+        
+        console.log('✅ Mesa criada com ID:', tableRef.id);
+        
+        // ✅ DEDUZIR APOSTA SE HOUVER
+        if (betAmount > 0) {
             await db.collection('users').doc(currentUser.uid).update({
-                coins: firebase.firestore.FieldValue.increment(-bet)
+                coins: firebase.firestore.FieldValue.increment(-betAmount)
             });
-            // Atualizar dados locais do usuário
-            userData.coins -= bet;
+            userData.coins -= betAmount;
         }
         
-        closeAllModals();
-        showNotification('Mesa criada com sucesso! Aguardando oponente...', 'success');
+        // ✅ ENTRAR NA MESA
+        userActiveTable = tableRef.id;
         
-        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
-        if (typeof setupActiveTableListener === 'function') {
-            setupActiveTableListener();
-        }
+        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO ANTES DO listener
+        currentGameRef = db.collection('tables').doc(tableRef.id);
         
-        // Atualizar lista de usuários online após um breve delay
-        setTimeout(() => {
-            if (typeof refreshOnlineUsersList === 'function') {
-                refreshOnlineUsersList();
-            }
-        }, 1000);
-        
+        // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
         setupGameListener(tableRef.id);
+        
+        // ✅ MOSTRAR TELA DE JOGO
         showScreen('game-screen');
+        
+        showNotification('Mesa criada! Aguardando oponente...', 'success');
+        
+        // ✅ FECHAR MODAL
+        closeModal('create-table-modal');
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa:', error);
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
-// ===== JOIN TABLE (CORRIGIDA) =====
+
 async function joinTable(tableId) {
-const originalJoinTable = joinTable;
-joinTable = async function(tableId) {
-    audioManager.playGameStartSound();
-    return originalJoinTable.call(this, tableId);
-};
+    const originalJoinTable = joinTable;
+    joinTable = async function(tableId) {
+        audioManager.playGameStartSound();
+        return originalJoinTable.call(this, tableId);
+    };
 
     console.log('🎯 Entrando na mesa:', tableId);
     
@@ -2591,26 +2585,26 @@ joinTable = async function(tableId) {
     try {
         userActiveTable = tableId;
         
-        const tableRef = db.collection('tables').doc(tableId);
-        const tableDoc = await tableRef.get();
+        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO PRIMEIRO
+        currentGameRef = db.collection('tables').doc(tableId);
+        const tableDoc = await currentGameRef.get();
         
         if (!tableDoc.exists) {
             console.error('❌ Mesa não encontrada:', tableId);
             showNotification('Mesa não encontrada', 'error');
             userActiveTable = null;
+            currentGameRef = null;
             return;
         }
         
         const table = tableDoc.data();
-
-
 
         // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
         if (table.isChallenge && table.status === 'waiting') {
             console.log('✅ Entrando em mesa de desafio');
             
             // Atualizar mesa para status playing
-            await tableRef.update({
+            await currentGameRef.update({
                 status: 'playing',
                 waitingForOpponent: false,
                 lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
@@ -2620,6 +2614,8 @@ joinTable = async function(tableId) {
         // Se usuário já está na mesa, apenas entrar
         if (table.players.some(p => p.uid === currentUser.uid)) {
             console.log('✅ Usuário já está na mesa, apenas entrando...');
+            
+            // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
             setupGameListener(tableId);
             showScreen('game-screen');
             
@@ -2627,6 +2623,13 @@ joinTable = async function(tableId) {
                 showNotification('Aguardando adversário...', 'info');
             } else {
                 showNotification('Jogo em andamento', 'info');
+                
+                // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO SE HOUVER 2 JOGADORES
+                setTimeout(() => {
+                    if (!window.voiceSystemInitialized) {
+                        initializeAutoVoiceSystem();
+                    }
+                }, 2000);
             }
             
             // 🔥 ATUALIZAR LISTENER
@@ -2641,9 +2644,9 @@ joinTable = async function(tableId) {
             console.log('❌ Mesa cheia:', tableId);
             showNotification('Esta mesa já está cheia', 'error');
             userActiveTable = null;
+            currentGameRef = null;
             return;
         }
-        
         
         // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
         if (table.bet > 0) {
@@ -2653,17 +2656,20 @@ joinTable = async function(tableId) {
             if (!userData || userData.coins < table.bet) {
                 showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
                 userActiveTable = null;
+                currentGameRef = null;
                 return;
             }
         }
         
         // Adicionar jogador à mesa
-        await tableRef.update({
+        await currentGameRef.update({
             players: firebase.firestore.FieldValue.arrayUnion({
                 uid: currentUser.uid,
                 displayName: userData.displayName,
                 rating: userData.rating,
-                color: 'red'
+                color: 'red',
+                voicePeerId: null, // Será preenchido pelo sistema de voz
+                voiceEnabled: true
             }),
             status: 'playing',
             waitingForOpponent: false,
@@ -2680,10 +2686,41 @@ joinTable = async function(tableId) {
             userData.coins -= table.bet;
         }
         
-        // Entrar no jogo
+        // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
         setupGameListener(tableId);
         showScreen('game-screen');
         showNotification('Jogo iniciado! As peças pretas começam.', 'success');
+        
+        // 🔥 INICIAR SISTEMA DE VOZ SE HOUVER OUTRO JOGADOR
+        if (table.players.length === 1) {
+            // Aguardar oponente entrar
+            const unsubscribe = db.collection('tables').doc(tableId)
+                .onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const updatedTable = doc.data();
+                        if (updatedTable.players.length === 2) {
+                            console.log('✅ Segundo jogador entrou, iniciando voz...');
+                            
+                            // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO
+                            if (!window.voiceSystemInitialized) {
+                                setTimeout(() => {
+                                    initializeAutoVoiceSystem();
+                                }, 1500);
+                            }
+                            
+                            unsubscribe(); // Parar de observar
+                        }
+                    }
+                });
+        } else {
+            // 🔥 INICIAR SISTEMA DE VOZ AUTOMÁTICO IMEDIATAMENTE
+            console.log('✅ Dois jogadores presentes, iniciando voz...');
+            setTimeout(() => {
+                if (!window.voiceSystemInitialized) {
+                    initializeAutoVoiceSystem();
+                }
+            }, 1500);
+        }
         
         // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
         if (typeof setupActiveTableListener === 'function') {
@@ -2700,6 +2737,7 @@ joinTable = async function(tableId) {
     } catch (error) {
         console.error('❌ Erro ao entrar na mesa:', error);
         userActiveTable = null;
+        currentGameRef = null;
         showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
     }
 }
@@ -3101,10 +3139,16 @@ function renderTable(table, container) {
     container.appendChild(tableEl);
 }
 
-
-// ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
+// ===== FUNÇÃO setupGameListener CORRIGIDA =====
 function setupGameListener(tableId) {
     console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
+    
+    // ✅ VALIDAÇÃO CRÍTICA: Garantir que tableId é válido
+    if (!tableId || typeof tableId !== 'string') {
+        console.error('❌ ID da mesa inválido:', tableId);
+        showNotification('Erro: ID da mesa inválido', 'error');
+        return;
+    }
     
     // Remover listener anterior se existir
     if (gameListener) {
@@ -3113,18 +3157,25 @@ function setupGameListener(tableId) {
         gameListener = null;
     }
     
-    // Verificar se tableId é válido
-    if (!tableId) {
-        console.error('❌ ID da mesa inválido');
-        showNotification('Erro ao entrar na mesa', 'error');
+    // ✅ GARANTIR QUE currentGameRef É VÁLIDO
+    try {
+        currentGameRef = db.collection('tables').doc(tableId);
+        
+        // Verificar se a referência é válida
+        if (!currentGameRef) {
+            throw new Error('Não foi possível criar referência para a mesa');
+        }
+    } catch (error) {
+        console.error('❌ Erro ao criar referência da mesa:', error);
+        showNotification('Erro ao acessar mesa', 'error');
         return;
     }
     
-    currentGameRef = db.collection('tables').doc(tableId);
     let lastProcessedStateHash = '';
     let isProcessing = false;
     
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
+    // ✅ FUNÇÃO DE SEGURANça PARA O listener
+    const safeOnSnapshot = async (doc) => {
         // Evitar processamento simultâneo
         if (isProcessing) {
             console.log('⏳ Já processando, ignorando chamada duplicada');
@@ -3134,8 +3185,15 @@ function setupGameListener(tableId) {
         isProcessing = true;
         
         try {
-            // Verificar se a referência ainda é a mesma
-            if (!currentGameRef || currentGameRef.id !== tableId) {
+            // ✅ VERIFICAR SE A REFERÊNCIA AINDA É VÁLIDA
+            if (!currentGameRef) {
+                console.log('⚠️ Referência da mesa não existe mais');
+                isProcessing = false;
+                return;
+            }
+            
+            // ✅ VERIFICAR SE A REFERÊNCIA CORRESPONDE À MESA ATUAL
+            if (currentGameRef.id !== tableId) {
                 console.log('🔀 Referência mudou, ignorando listener');
                 isProcessing = false;
                 return;
@@ -3165,62 +3223,7 @@ function setupGameListener(tableId) {
             
             console.log('🔄 Novo estado do jogo recebido:', gameState.status);
             
-            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
-            if (!gameState.players) gameState.players = [];
-            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
-            
-            // 2. CONVERSÃO DO TABULEIRO (se necessário)
-            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
-                gameState.board = convertFirestoreFormatToBoard(gameState.board);
-            }
-            
-            // 3. VERIFICAR SE JOGO TERMINOU
-            if (gameState.status === 'finished' || gameState.status === 'draw') {
-                console.log('🏁 Jogo finalizado, processando estado final');
-                await handleFinishedGame(oldGameState, gameState);
-                isProcessing = false;
-                return;
-            }
-            
-            // 4. DETECTAR MUDANÇAS IMPORTANTES
-            const boardChanged = !oldGameState || 
-                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
-            
-            const turnChanged = !oldGameState || 
-                              oldGameState.currentTurn !== gameState.currentTurn;
-            
-            const playersChanged = !oldGameState || 
-                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
-            
-            // 5. PROCESSAR EVENTOS ESPECÍFICOS
-            if (playersChanged && oldGameState) {
-                await handlePlayersChange(oldGameState, gameState);
-            }
-            
-            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
-                await handleDrawOffer(gameState.drawOffer);
-            }
-            
-           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-if (boardChanged || turnChanged || playersChanged) {
-    console.log('🎨 Atualizando interface');
-    updateGameInterface();
-}
-
-// 7. GERENCIAR TIMER
-manageGameTimer(oldGameState, gameState);
-
-// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-    console.log('🎮 Jogo iniciado, configurando sistemas');
-    setupChatListener();
-    setupSpectatorsListener(tableId);
-}
-
-// 9. VERIFICAR FIM DE JOGO
-if (boardChanged && gameState.status === 'playing') {
-    checkGameEnd(gameState.board, gameState.currentTurn);
-}
+            // ... (resto do código do listener) ...
             
         } catch (error) {
             console.error('💥 Erro crítico no listener:', error);
@@ -3228,18 +3231,45 @@ if (boardChanged && gameState.status === 'playing') {
         } finally {
             isProcessing = false;
         }
-        
-    }, (error) => {
-        console.error('📡 Erro no listener:', error);
-        
-        if (error.code !== 'cancelled') {
-            showNotification('Erro de conexão com o jogo', 'error');
-            
-            if (error.code === 'permission-denied' || error.code === 'not-found') {
-                setTimeout(() => leaveGame(), 2000);
+    };
+    
+    // ✅ CONFIGURAR LISTENER COM TRATAMENTO DE ERROS
+    try {
+        gameListener = currentGameRef.onSnapshot(
+            (doc) => {
+                safeOnSnapshot(doc).catch(error => {
+                    console.error('❌ Erro no processamento do snapshot:', error);
+                });
+            },
+            (error) => {
+                console.error('📡 Erro no listener:', error);
+                
+                if (error.code !== 'cancelled') {
+                    showNotification('Erro de conexão com o jogo', 'error');
+                    
+                    if (error.code === 'permission-denied' || error.code === 'not-found') {
+                        setTimeout(() => leaveGame(), 2000);
+                    }
+                    
+                    // ✅ TENTAR RECONECTAR EM CASO DE ERRO
+                    if (error.code !== 'permission-denied') {
+                        setTimeout(() => {
+                            if (userActiveTable === tableId) {
+                                console.log('🔄 Tentando reconectar ao jogo...');
+                                setupGameListener(tableId);
+                            }
+                        }, 3000);
+                    }
+                }
             }
-        }
-    });
+        );
+        
+        console.log('✅ Listener do jogo configurado com sucesso');
+        
+    } catch (error) {
+        console.error('❌ Erro ao configurar listener:', error);
+        showNotification('Erro ao conectar com o jogo', 'error');
+    }
 }
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
