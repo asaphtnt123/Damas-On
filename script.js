@@ -2224,6 +2224,90 @@ async function loadUserData(uid) {
     }
 }
 
+
+// ===== VERIFICAÇÃO DE ELEMENTOS DO FORMULÁRIO =====
+function checkFormElements() {
+    const requiredElements = [
+        'time-limit',
+        'bet-amount', 
+        'table-name',
+        'create-table-modal'
+    ];
+    
+    const missingElements = [];
+    
+    requiredElements.forEach(id => {
+        if (!document.getElementById(id)) {
+            missingElements.push(id);
+        }
+    });
+    
+    if (missingElements.length > 0) {
+        console.warn('⚠️ Elementos faltando no DOM:', missingElements);
+        return false;
+    }
+    
+    return true;
+}
+
+// ===== INICIALIZAÇÃO SEGURA =====
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ Verificando elementos do formulário...');
+    
+    // Verificar após um pequeno delay para garantir que o DOM esteja carregado
+    setTimeout(() => {
+        if (!checkFormElements()) {
+            console.error('❌ Elementos do formulário de criação de mesa não encontrados');
+            // Podemos recriar os elementos necessários se faltarem
+            createMissingFormElements();
+        }
+    }, 1000);
+});
+
+// ===== CRIAR ELEMENTOS FALTANTES (FALLBACK) =====
+function createMissingFormElements() {
+    console.log('🛠️ Criando elementos faltantes...');
+    
+    // Verificar e criar se necessário
+    if (!document.getElementById('time-limit')) {
+        const input = document.createElement('input');
+        input.id = 'time-limit';
+        input.type = 'number';
+        input.value = '120';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+    }
+    
+    if (!document.getElementById('bet-amount')) {
+        const input = document.createElement('input');
+        input.id = 'bet-amount';
+        input.type = 'number';
+        input.value = '0';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+    }
+    
+    if (!document.getElementById('table-name')) {
+        const input = document.createElement('input');
+        input.id = 'table-name';
+        input.type = 'text';
+        input.value = '';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+    }
+}
+
+// ===== ALTERNATIVA SEGURA PARA ACESSAR VALORES =====
+function getFormValues() {
+    return {
+        timeLimit: parseInt(document.getElementById('time-limit')?.value || '120'),
+        betAmount: parseInt(document.getElementById('bet-amount')?.value || '0'),
+        tableName: document.getElementById('table-name')?.value || `Mesa de ${userData?.displayName || 'Jogador'}`
+    };
+}
+
+console.log('✅ Função createNewTable corrigida e segura');
+
 function updateUI() {
     // Atualizar saldo exibido
     const balanceElement = document.getElementById('current-coins-balance');
@@ -2479,6 +2563,7 @@ function initializeBrazilianCheckersBoard() {
   return board;
 }
 
+
 // ===== FUNÇÃO createNewTable CORRIGIDA =====
 async function createNewTable() {
     console.log('🎯 Criando nova mesa...');
@@ -2490,13 +2575,40 @@ async function createNewTable() {
             return;
         }
         
-        // ✅ OBTER CONFIGURAÇÕES DO FORMULÁRIO
-        const timeLimit = parseInt(document.getElementById('time-limit').value) || 0;
-        const betAmount = parseInt(document.getElementById('bet-amount').value) || 0;
-        const tableName = document.getElementById('table-name').value || `Mesa de ${userData.displayName}`;
+        // ✅ VERIFICAR SE OS ELEMENTOS EXISTEM NO DOM
+        const timeLimitInput = document.getElementById('time-limit');
+        const betAmountInput = document.getElementById('bet-amount');
+        const tableNameInput = document.getElementById('table-name');
+        
+        if (!timeLimitInput || !betAmountInput || !tableNameInput) {
+            console.error('❌ Elementos do formulário não encontrados');
+            showNotification('Erro: Formulário não carregado corretamente', 'error');
+            return;
+        }
+        
+        // ✅ OBTER VALORES COM VALIDAÇÃO
+        const timeLimit = parseInt(timeLimitInput.value) || 0;
+        const betAmount = parseInt(betAmountInput.value) || 0;
+        const tableName = tableNameInput.value.trim() || `Mesa de ${userData?.displayName || 'Jogador'}`;
+        
+        // ✅ VALIDAR VALORES
+        if (timeLimit < 0) {
+            showNotification('Tempo por jogada não pode ser negativo', 'error');
+            return;
+        }
+        
+        if (betAmount < 0) {
+            showNotification('Aposta não pode ser negativa', 'error');
+            return;
+        }
         
         // ✅ VALIDAR APOSTA SE NECESSÁRIO
         if (betAmount > 0) {
+            // Garantir que userData está carregado
+            if (!userData) {
+                await loadUserData(currentUser.uid);
+            }
+            
             if (!userData || userData.coins < betAmount) {
                 showNotification(`Você não tem moedas suficientes! Saldo: ${userData?.coins || 0}`, 'error');
                 return;
@@ -2514,8 +2626,10 @@ async function createNewTable() {
             players: [{
                 uid: currentUser.uid,
                 displayName: userData.displayName,
-                rating: userData.rating,
-                color: 'black'
+                rating: userData.rating || 1000,
+                color: 'black',
+                voicePeerId: null,
+                voiceEnabled: true
             }],
             createdBy: currentUser.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2540,16 +2654,17 @@ async function createNewTable() {
             await db.collection('users').doc(currentUser.uid).update({
                 coins: firebase.firestore.FieldValue.increment(-betAmount)
             });
+            // Atualizar userData localmente
             userData.coins -= betAmount;
         }
         
         // ✅ ENTRAR NA MESA
         userActiveTable = tableRef.id;
         
-        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO ANTES DO listener
+        // ✅ GARANTIR QUE currentGameRef SEJA DEFINIDO
         currentGameRef = db.collection('tables').doc(tableRef.id);
         
-        // ✅ CONFIGURAR LISTENER COM REFERÊNCIA VÁLIDA
+        // ✅ CONFIGURAR LISTENER
         setupGameListener(tableRef.id);
         
         // ✅ MOSTRAR TELA DE JOGO
@@ -2557,14 +2672,18 @@ async function createNewTable() {
         
         showNotification('Mesa criada! Aguardando oponente...', 'success');
         
-        // ✅ FECHAR MODAL
-        closeModal('create-table-modal');
+        // ✅ FECHAR MODAL COM VERIFICAÇÃO
+        const modal = document.getElementById('create-table-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
         
     } catch (error) {
         console.error('❌ Erro ao criar mesa:', error);
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
+
 
 async function joinTable(tableId) {
     const originalJoinTable = joinTable;
