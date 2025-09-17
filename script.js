@@ -900,9 +900,7 @@ async function sendChallenge(targetUserId, targetUserName) {
     console.log('👤 De:', currentUser.uid, userData.displayName);
     console.log('🎯 Para:', targetUserId, targetUserName);
     
-    const timeLimit = parseInt(document.getElementById('challenge-time').value);
-    const betAmount = parseInt(document.getElementById('challenge-bet').value) || 0;
-    const message = document.getElementById('challenge-message').value;
+ const { timeLimit, betAmount, tableName } = getFormValues();
     
     console.log('⚙️ Detalhes:', { timeLimit, betAmount, message });
     
