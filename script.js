@@ -8557,6 +8557,8 @@ function addVoiceControls(audioElement, call) {
         audioElement.volume = parseFloat(e.target.value);
     });
 }
+
+
 // ===== FUNÇÃO joinTable ATUALIZADA COM NOVO SISTEMA DE VOZ =====
 async function joinTable(tableId) {
     console.log('🎯 Entrando na mesa:', tableId);
@@ -8675,10 +8677,16 @@ async function joinTable(tableId) {
             userData.coins -= table.bet;
         }
         
-        // Entrar no jogo
+         // Entrar no jogo
         setupGameListener(tableId);
         showScreen('game-screen');
         showNotification('Jogo iniciado! As peças pretas começam.', 'success');
+        
+        // 🔥 ADICIONAR BOTÃO DE VOZ APÓS ENTRAR NO JOGO
+        setTimeout(() => {
+            checkAndAddVoiceButton();
+        }, 1500);
+        
         
         // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR (AGORA OTIMIZADO)
         if (table.players.length === 1) {
@@ -8958,13 +8966,10 @@ function setupGameListener(tableId) {
                 console.log('🎨 Atualizando interface');
                 updateGameInterface();
                 
-                // 🔥 ADICIONAR BOTÃO DE VOZ OTIMIZADO SE HOUVER DOIS JOGADORES
-                if (gameState.players && gameState.players.length === 2) {
-                    // Pequeno delay para garantir que a interface foi renderizada
-                    setTimeout(() => {
-                        addVoiceButtonToGameScreen();
-                    }, 800);
-                }
+                // 🔥 VERIFICAR E ADICIONAR BOTÃO DE VOZ SE APLICÁVEL
+                setTimeout(() => {
+                    checkAndAddVoiceButton();
+                }, 1000);
             }
             
             // 7. GERENCIAR TIMER
@@ -9886,69 +9891,6 @@ document.head.insertAdjacentHTML('beforeend', voicePanelStyles);
 
 
 
-
-// ===== SOLUÇÃO IMEDIATA - FUNÇÃO SIMPLIFICADA =====
-function showVoicePanelImmediately() {
-    console.log('🚀 Exibindo painel de voz imediatamente...');
-    
-    // Primeiro, remover qualquer painel existente
-    hideVoiceControls();
-    
-    // Criar painel simplificado
-    const panel = document.createElement('div');
-    panel.id = 'voice-control-panel';
-    panel.style.cssText = `
-        position: fixed;
-        bottom: 100px;
-        right: 20px;
-        background: rgba(0, 0, 0, 0.95);
-        border-radius: 15px;
-        padding: 20px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-        border: 2px solid #fdbb2d;
-        width: 280px;
-        color: white;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        z-index: 10000;
-    `;
-
-    panel.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3 style="margin: 0; color: #fdbb2d;">
-                <i class="fas fa-microphone"></i> Controles de Voz
-            </h3>
-            <button onclick="hideVoiceControls()" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px;">×</button>
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-            <label style="display: block; margin-bottom: 5px;">Volume: <span id="volume-value">70%</span></label>
-            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
-                   style="width: 100%;" oninput="updateVolume(this.value)">
-        </div>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-            <button id="mute-btn" onclick="toggleMute()" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer;">
-                <i class="fas fa-microphone"></i> Mutar
-            </button>
-            <button id="deafen-btn" onclick="toggleDeafen()" style="padding: 10px; border: none; border-radius: 5px; background: #9b59b6; color: white; cursor: pointer;">
-                <i class="fas fa-volume-up"></i> Silenciar
-            </button>
-        </div>
-        
-        <button onclick="endVoiceCall()" style="width: 100%; padding: 12px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer;">
-            <i class="fas fa-phone-slash"></i> Encerrar Chamada
-        </button>
-        
-        <div style="margin-top: 15px; text-align: center; color: #2ecc71;">
-            <i class="fas fa-circle" style="font-size: 8px;"></i> Conexão Ativa
-        </div>
-    `;
-
-    // Adicionar ao corpo do documento
-    document.body.appendChild(panel);
-    console.log('✅ Painel de voz exibido!');
-}
-
 // ===== FUNÇÕES SIMPLIFICADAS DE CONTROLE =====
 function updateVolume(value) {
     const volumeValue = document.getElementById('volume-value');
@@ -10005,116 +9947,6 @@ function endVoiceCall() {
     showNotification('Chamada de voz encerrada', 'info');
 }
 
-// ===== ATUALIZAR FUNÇÃO startOptimizedVoiceCall =====
-async function startOptimizedVoiceCall() {
-    if (!opponentPeerId) {
-        showNotification('Oponente não disponível', 'warning');
-        return;
-    }
-
-    try {
-        console.log('🎯 Iniciando chamada de voz otimizada...');
-        
-        // Processar áudio antes de iniciar chamada
-        const processedStream = await setupAudioProcessing();
-        
-        activeCall = peer.call(opponentPeerId, processedStream);
-
-        activeCall.on('stream', (remoteStream) => {
-            console.log('📞 Stream de voz recebido');
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            audio.volume = 0.7;
-            
-            // Armazenar globalmente
-            window.voiceAudioElement = audio;
-            
-            // 🔥 EXIBIR PAINEL IMEDIATAMENTE
-            showVoicePanelImmediately();
-            
-            showNotification('Chamada de voz conectada!', 'success');
-        });
-
-        activeCall.on('close', () => {
-            console.log('📞 Chamada de voz encerrada');
-            hideVoiceControls();
-        });
-        
-        activeCall.on('error', (error) => {
-            console.error('❌ Erro na chamada:', error);
-            hideVoiceControls();
-        });
-
-    } catch (error) {
-        console.error('❌ Erro na chamada otimizada:', error);
-        showNotification('Erro ao iniciar chamada', 'error');
-    }
-}
-
-// ===== ATUALIZAR BOTÃO DE VOZ =====
-function addVoiceButtonToGameScreen() {
-    // Verificar se já estamos na tela de jogo
-    const gameScreen = document.getElementById('game-screen');
-    if (!gameScreen || gameScreen.style.display === 'none') {
-        return;
-    }
-    
-    // Verificar se o botão já existe
-    if (document.getElementById('voice-call-btn')) {
-        return;
-    }
-    
-    // Verificar se há dois jogadores na partida
-    if (!gameState || !gameState.players || gameState.players.length < 2) {
-        return;
-    }
-    
-    // Verificar se o usuário atual é um jogador
-    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
-    if (!isPlayer) {
-        return;
-    }
-    
-    // Criar botão de voz
-    const voiceBtn = document.createElement('button');
-    voiceBtn.id = 'voice-call-btn';
-    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-    voiceBtn.title = 'Chamada de Voz';
-    
-    // Estilos do botão
-    voiceBtn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 15px;
-        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 9999;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        font-size: 18px;
-        width: 50px;
-        height: 50px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
-    
-    // Clique no botão - 🔥 DIRETO E SIMPLES
-    voiceBtn.addEventListener('click', () => {
-        console.log('🎙️ Botão de voz clicado - Chamada direta');
-        startOptimizedVoiceCall();
-    });
-    
-    // Adicionar botão à interface
-    document.body.appendChild(voiceBtn);
-    
-    console.log('✅ Botão de voz adicionado à interface');
-}
-
 // ===== VERIFICAR SE O PAINEL JÁ EXISTE =====
 function isVoicePanelVisible() {
     return document.getElementById('voice-control-panel') !== null;
@@ -10161,3 +9993,263 @@ document.head.insertAdjacentHTML('beforeend', simpleVoiceStyles);
 console.log('🔥 Sistema de voz simplificado carregado!');
 
 setTimeout(() => { showVoicePanelImmediately(); }, 3000);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ===== VERIFICAR E ADICIONAR BOTÃO DE VOZ =====
+function checkAndAddVoiceButton() {
+    console.log('🔍 Verificando se deve adicionar botão de voz...');
+    
+    // Verificar se estamos na tela de jogo
+    const gameScreen = document.getElementById('game-screen');
+    if (!gameScreen || gameScreen.style.display === 'none') {
+        console.log('❌ Não está na tela de jogo');
+        return false;
+    }
+    
+    // Verificar se há um jogo ativo com dois jogadores
+    if (!gameState || !gameState.players || gameState.players.length < 2) {
+        console.log('❌ Não há jogadores suficientes');
+        return false;
+    }
+    
+    // Verificar se o usuário atual é um jogador
+    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
+    if (!isPlayer) {
+        console.log('❌ Usuário não é jogador');
+        return false;
+    }
+    
+    // Verificar se o botão já existe
+    if (document.getElementById('voice-call-btn')) {
+        console.log('✅ Botão de voz já existe');
+        return true;
+    }
+    
+    // Adicionar botão de voz
+    addVoiceButtonToGameScreen();
+    return true;
+}
+// ===== FUNÇÃO addVoiceButtonToGameScreen ATUALIZADA =====
+function addVoiceButtonToGameScreen() {
+    console.log('🎨 Adicionando botão de voz à interface...');
+    
+    // Criar botão de voz
+    const voiceBtn = document.createElement('button');
+    voiceBtn.id = 'voice-call-btn';
+    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    voiceBtn.title = 'Chamada de Voz';
+    
+    // Estilos do botão
+    voiceBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 15px;
+        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        z-index: 9999;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        font-size: 18px;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    // Efeitos de hover
+    voiceBtn.addEventListener('mouseenter', () => {
+        voiceBtn.style.transform = 'scale(1.1)';
+        voiceBtn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+    });
+    
+    voiceBtn.addEventListener('mouseleave', () => {
+        voiceBtn.style.transform = 'scale(1)';
+        voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    });
+    
+    // Clique no botão
+    voiceBtn.addEventListener('click', () => {
+        console.log('🎙️ Botão de voz clicado');
+        startOptimizedVoiceCall();
+    });
+    
+    // Adicionar botão à interface
+    document.body.appendChild(voiceBtn);
+    
+    console.log('✅ Botão de voz adicionado com sucesso');
+}
+
+// ===== MONITORAR MUDANÇAS NA TELA =====
+let lastScreen = '';
+
+function monitorScreenChanges() {
+    setInterval(() => {
+        const gameScreen = document.getElementById('game-screen');
+        const currentScreen = gameScreen && gameScreen.style.display !== 'none' ? 'game' : 'other';
+        
+        if (currentScreen !== lastScreen) {
+            console.log('🔄 Mudança de tela detectada:', lastScreen, '->', currentScreen);
+            lastScreen = currentScreen;
+            
+            if (currentScreen === 'game') {
+                // Pequeno delay para garantir que a interface esteja carregada
+                setTimeout(() => {
+                    checkAndAddVoiceButton();
+                }, 2000);
+            } else {
+                // Remover botão se sair da tela de jogo
+                const voiceBtn = document.getElementById('voice-call-btn');
+                if (voiceBtn) {
+                    voiceBtn.remove();
+                    console.log('🗑️ Botão de voz removido (saiu da tela de jogo)');
+                }
+            }
+        }
+    }, 1000);
+}
+
+// ===== INICIAR MONITORAMENTO =====
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        monitorScreenChanges();
+        console.log('👀 Monitoramento de tela iniciado');
+    }, 3000);
+});
+
+// ===== FUNÇÃO startOptimizedVoiceCall GARANTIDA =====
+async function startOptimizedVoiceCall() {
+    console.log('🎯 Iniciando chamada de voz...');
+    
+    if (!opponentPeerId) {
+        showNotification('Aguardando oponente conectar...', 'info');
+        
+        // Tentar obter opponentPeerId do gameState
+        if (gameState && gameState.players) {
+            const opponent = gameState.players.find(p => p.uid !== currentUser?.uid);
+            if (opponent && opponent.voicePeerId) {
+                opponentPeerId = opponent.voicePeerId;
+                console.log('✅ OpponentPeerId obtido do gameState:', opponentPeerId);
+            }
+        }
+        
+        if (!opponentPeerId) {
+            showNotification('Oponente não disponível para voz', 'warning');
+            return;
+        }
+    }
+
+    try {
+        // Processar áudio
+        const processedStream = await setupAudioProcessing();
+        
+        if (!peer) {
+            await initializeVoiceSystem();
+        }
+        
+        activeCall = peer.call(opponentPeerId, processedStream);
+
+        activeCall.on('stream', (remoteStream) => {
+            console.log('📞 Stream de voz recebido');
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            audio.volume = 0.7;
+            
+            window.voiceAudioElement = audio;
+            
+            // MOSTRAR PAINEL DE CONTROLE
+            showVoicePanelImmediately();
+            
+            showNotification('Chamada de voz conectada!', 'success');
+        });
+
+        activeCall.on('close', cleanupVoiceCall);
+        activeCall.on('error', cleanupVoiceCall);
+
+    } catch (error) {
+        console.error('❌ Erro na chamada de voz:', error);
+        showNotification('Erro ao conectar voz: ' + error.message, 'error');
+    }
+}
+
+// ===== FUNÇÃO showVoicePanelImmediately CONFIRMADA =====
+function showVoicePanelImmediately() {
+    console.log('🚀 Exibindo painel de voz...');
+    
+    // Remover painel existente
+    hideVoiceControls();
+    
+    // Criar painel
+    const panel = document.createElement('div');
+    panel.id = 'voice-control-panel';
+    panel.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.95);
+        border-radius: 15px;
+        padding: 20px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+        border: 2px solid #fdbb2d;
+        width: 280px;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 10000;
+    `;
+
+    panel.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #fdbb2d;">
+                <i class="fas fa-microphone"></i> Controles de Voz
+            </h3>
+            <button onclick="hideVoiceControls()" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px;">×</button>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px;">Volume: <span id="volume-value">70%</span></label>
+            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
+                   style="width: 100%;" oninput="updateVolume(this.value)">
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+            <button id="mute-btn" onclick="toggleMute()" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer;">
+                <i class="fas fa-microphone"></i> Mutar
+            </button>
+            <button id="deafen-btn" onclick="toggleDeafen()" style="padding: 10px; border: none; border-radius: 5px; background: #9b59b6; color: white; cursor: pointer;">
+                <i class="fas fa-volume-up"></i> Silenciar
+            </button>
+        </div>
+        
+        <button onclick="endVoiceCall()" style="width: 100%; padding: 12px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer;">
+            <i class="fas fa-phone-slash"></i> Encerrar Chamada
+        </button>
+        
+        <div style="margin-top: 15px; text-align: center; color: #2ecc71;">
+            <i class="fas fa-circle" style="font-size: 8px;"></i> Conexão Ativa
+        </div>
+    `;
+
+    // Adicionar ao documento
+    document.body.appendChild(panel);
+    console.log('✅ Painel de voz exibido com sucesso!');
+}
+
+
+
+console.log('✅ Sistema de voz melhorado carregado!');
