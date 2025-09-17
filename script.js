@@ -9038,98 +9038,6 @@ function checkVoiceStatusChange(oldPlayers, newPlayers) {
 }
 
 
-// ===== FUNÇÃO addVoiceButtonToGameScreen ATUALIZADA =====
-function addVoiceButtonToGameScreen() {
-    // Verificar se já estamos na tela de jogo
-    const gameScreen = document.getElementById('game-screen');
-    if (!gameScreen || gameScreen.style.display === 'none') {
-        return;
-    }
-    
-    // Verificar se o botão já existe
-    if (document.getElementById('voice-call-btn')) {
-        return;
-    }
-    
-    // Verificar se há dois jogadores na partida
-    if (!gameState || !gameState.players || gameState.players.length < 2) {
-        return;
-    }
-    
-    // Verificar se o usuário atual é um jogador (não espectador)
-    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
-    if (!isPlayer) {
-        return;
-    }
-    
-    // Criar botão de voz
-    const voiceBtn = document.createElement('button');
-    voiceBtn.id = 'voice-call-btn';
-    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i> Voz';
-    voiceBtn.className = 'voice-control-btn';
-    
-    // Estilos do botão
-    voiceBtn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 15px;
-        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 9999;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        font-size: 18px;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.3s ease;
-    `;
-    
-    // Efeito hover
-    voiceBtn.addEventListener('mouseenter', () => {
-        voiceBtn.style.transform = 'scale(1.1)';
-        voiceBtn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
-    });
-    
-    voiceBtn.addEventListener('mouseleave', () => {
-        voiceBtn.style.transform = 'scale(1)';
-        voiceBtn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
-    });
-    
-    // Clique no botão - 🔥 USAR FUNÇÃO ATUALIZADA
-    voiceBtn.addEventListener('click', () => {
-        console.log('🎙️ Botão de voz clicado');
-        
-        if (!peer || !opponentPeerId) {
-            showNotification('Otimizando conexão de voz...', 'info');
-            initializeVoiceSystem().then(voiceSys => {
-                if (voiceSys) {
-                    voiceSystem = voiceSys;
-                    connectToOpponentVoice(gameState);
-                    setTimeout(() => {
-                        if (opponentPeerId) {
-                            startOptimizedVoiceCall(); // 🔥 FUNÇÃO ATUALIZADA
-                        }
-                    }, 1000);
-                }
-            });
-            return;
-        }
-        
-        startOptimizedVoiceCall(); // 🔥 FUNÇÃO ATUALIZADA
-    });
-    
-    
-    // Adicionar botão à interface
-    document.body.appendChild(voiceBtn);
-    
-    console.log('✅ Botão de voz adicionado à interface');
-}
 
 
 // ===== INICIAR CHAMADA DE VOZ =====
@@ -9701,57 +9609,6 @@ function setupNoiseGate(source, gainNode) {
     checkVolume();
 }
 
-// ===== ATUALIZAR FUNÇÃO startOptimizedVoiceCall =====
-async function startOptimizedVoiceCall() {
-    if (!opponentPeerId) {
-        showNotification('Oponente não disponível', 'warning');
-        return;
-    }
-
-    try {
-        console.log('🎯 Iniciando chamada de voz otimizada...');
-        
-        // Processar áudio antes de iniciar chamada
-        const processedStream = await setupAudioProcessing();
-        
-        activeCall = peer.call(opponentPeerId, processedStream, {
-            metadata: {
-                player: userData.displayName,
-                quality: 'high',
-                timestamp: new Date().toISOString()
-            }
-        });
-
-        activeCall.on('stream', (remoteStream) => {
-            console.log('📞 Stream de voz recebido, criando elemento de áudio...');
-            const audio = createOptimizedAudioElement(remoteStream);
-            
-            // 🔥 CORREÇÃO CRÍTICA: Garantir que o elemento seja armazenado
-            window.voiceAudioElement = audio;
-            
-            // 🔥 MOSTRAR PAINEL DE CONTROLE
-            showVoiceControlPanel(audio, activeCall);
-            
-            showNotification('Chamada de voz conectada!', 'success');
-        });
-
-        activeCall.on('close', () => {
-            console.log('📞 Chamada de voz encerrada');
-            cleanupVoiceCall();
-        });
-        
-        activeCall.on('error', (error) => {
-            console.error('❌ Erro na chamada:', error);
-            cleanupVoiceCall();
-        });
-
-    } catch (error) {
-        console.error('❌ Erro na chamada otimizada:', error);
-        showNotification('Erro ao iniciar chamada', 'error');
-    }
-}
-
-
 
 // Criar elemento de áudio otimizado
 function createOptimizedAudioElement(stream) {
@@ -9954,38 +9811,6 @@ function setupAdvancedControlEvents(audioElement, call) {
 
 
 
-// Alternar mute
-function toggleMute() {
-    if (localStream) {
-        const audioTracks = localStream.getAudioTracks();
-        const isMuted = audioTracks[0].enabled;
-        
-        audioTracks[0].enabled = !isMuted;
-        
-        const button = document.getElementById('mute-call');
-        button.innerHTML = isMuted ? 
-            '<i class="fas fa-microphone-slash"></i> Ativar' : 
-            '<i class="fas fa-microphone"></i> Mutar';
-        
-        showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
-    }
-}
-
-// Alternar silenciar
-function toggleDeafen() {
-    if (window.voiceAudioElement) {
-        const isDeafened = window.voiceAudioElement.volume === 0;
-        window.voiceAudioElement.volume = isDeafened ? VOICE_SETTINGS.volume : 0;
-        
-        const button = document.getElementById('deafen-call');
-        button.innerHTML = isDeafened ? 
-            '<i class="fas fa-volume-up"></i> Ouvir' : 
-            '<i class="fas fa-volume-mute"></i> Silenciar';
-        
-        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
-    }
-}
-
 // ===== ADICIONAR ANIMAÇÕES CSS =====
 const voicePanelStyles = `
 <style>
@@ -10053,3 +9878,286 @@ const voicePanelStyles = `
 
 // Adicionar estilos ao documento
 document.head.insertAdjacentHTML('beforeend', voicePanelStyles);
+
+
+
+
+
+
+
+
+
+// ===== SOLUÇÃO IMEDIATA - FUNÇÃO SIMPLIFICADA =====
+function showVoicePanelImmediately() {
+    console.log('🚀 Exibindo painel de voz imediatamente...');
+    
+    // Primeiro, remover qualquer painel existente
+    hideVoiceControls();
+    
+    // Criar painel simplificado
+    const panel = document.createElement('div');
+    panel.id = 'voice-control-panel';
+    panel.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.95);
+        border-radius: 15px;
+        padding: 20px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+        border: 2px solid #fdbb2d;
+        width: 280px;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 10000;
+    `;
+
+    panel.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #fdbb2d;">
+                <i class="fas fa-microphone"></i> Controles de Voz
+            </h3>
+            <button onclick="hideVoiceControls()" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px;">×</button>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px;">Volume: <span id="volume-value">70%</span></label>
+            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
+                   style="width: 100%;" oninput="updateVolume(this.value)">
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+            <button id="mute-btn" onclick="toggleMute()" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer;">
+                <i class="fas fa-microphone"></i> Mutar
+            </button>
+            <button id="deafen-btn" onclick="toggleDeafen()" style="padding: 10px; border: none; border-radius: 5px; background: #9b59b6; color: white; cursor: pointer;">
+                <i class="fas fa-volume-up"></i> Silenciar
+            </button>
+        </div>
+        
+        <button onclick="endVoiceCall()" style="width: 100%; padding: 12px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer;">
+            <i class="fas fa-phone-slash"></i> Encerrar Chamada
+        </button>
+        
+        <div style="margin-top: 15px; text-align: center; color: #2ecc71;">
+            <i class="fas fa-circle" style="font-size: 8px;"></i> Conexão Ativa
+        </div>
+    `;
+
+    // Adicionar ao corpo do documento
+    document.body.appendChild(panel);
+    console.log('✅ Painel de voz exibido!');
+}
+
+// ===== FUNÇÕES SIMPLIFICADAS DE CONTROLE =====
+function updateVolume(value) {
+    const volumeValue = document.getElementById('volume-value');
+    if (volumeValue) {
+        volumeValue.textContent = Math.round(value * 100) + '%';
+    }
+    if (window.voiceAudioElement) {
+        window.voiceAudioElement.volume = parseFloat(value);
+    }
+}
+
+function toggleMute() {
+    if (localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+            const isMuted = !audioTracks[0].enabled;
+            audioTracks[0].enabled = isMuted;
+            
+            const muteBtn = document.getElementById('mute-btn');
+            if (muteBtn) {
+                muteBtn.innerHTML = isMuted ? 
+                    '<i class="fas fa-microphone"></i> Ativar' : 
+                    '<i class="fas fa-microphone-slash"></i> Mutar';
+                muteBtn.style.background = isMuted ? '#2ecc71' : '#3498db';
+            }
+            
+            showNotification(isMuted ? 'Microfone ativado' : 'Microfone desativado', 'info');
+        }
+    }
+}
+
+function toggleDeafen() {
+    if (window.voiceAudioElement) {
+        const isDeafened = window.voiceAudioElement.volume === 0;
+        window.voiceAudioElement.volume = isDeafened ? 0.7 : 0;
+        
+        const deafenBtn = document.getElementById('deafen-btn');
+        if (deafenBtn) {
+            deafenBtn.innerHTML = isDeafened ? 
+                '<i class="fas fa-volume-up"></i> Ouvir' : 
+                '<i class="fas fa-volume-mute"></i> Silenciar';
+            deafenBtn.style.background = isDeafened ? '#2ecc71' : '#9b59b6';
+        }
+        
+        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
+    }
+}
+
+function endVoiceCall() {
+    if (activeCall) {
+        activeCall.close();
+    }
+    hideVoiceControls();
+    showNotification('Chamada de voz encerrada', 'info');
+}
+
+// ===== ATUALIZAR FUNÇÃO startOptimizedVoiceCall =====
+async function startOptimizedVoiceCall() {
+    if (!opponentPeerId) {
+        showNotification('Oponente não disponível', 'warning');
+        return;
+    }
+
+    try {
+        console.log('🎯 Iniciando chamada de voz otimizada...');
+        
+        // Processar áudio antes de iniciar chamada
+        const processedStream = await setupAudioProcessing();
+        
+        activeCall = peer.call(opponentPeerId, processedStream);
+
+        activeCall.on('stream', (remoteStream) => {
+            console.log('📞 Stream de voz recebido');
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            audio.volume = 0.7;
+            
+            // Armazenar globalmente
+            window.voiceAudioElement = audio;
+            
+            // 🔥 EXIBIR PAINEL IMEDIATAMENTE
+            showVoicePanelImmediately();
+            
+            showNotification('Chamada de voz conectada!', 'success');
+        });
+
+        activeCall.on('close', () => {
+            console.log('📞 Chamada de voz encerrada');
+            hideVoiceControls();
+        });
+        
+        activeCall.on('error', (error) => {
+            console.error('❌ Erro na chamada:', error);
+            hideVoiceControls();
+        });
+
+    } catch (error) {
+        console.error('❌ Erro na chamada otimizada:', error);
+        showNotification('Erro ao iniciar chamada', 'error');
+    }
+}
+
+// ===== ATUALIZAR BOTÃO DE VOZ =====
+function addVoiceButtonToGameScreen() {
+    // Verificar se já estamos na tela de jogo
+    const gameScreen = document.getElementById('game-screen');
+    if (!gameScreen || gameScreen.style.display === 'none') {
+        return;
+    }
+    
+    // Verificar se o botão já existe
+    if (document.getElementById('voice-call-btn')) {
+        return;
+    }
+    
+    // Verificar se há dois jogadores na partida
+    if (!gameState || !gameState.players || gameState.players.length < 2) {
+        return;
+    }
+    
+    // Verificar se o usuário atual é um jogador
+    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
+    if (!isPlayer) {
+        return;
+    }
+    
+    // Criar botão de voz
+    const voiceBtn = document.createElement('button');
+    voiceBtn.id = 'voice-call-btn';
+    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+    voiceBtn.title = 'Chamada de Voz';
+    
+    // Estilos do botão
+    voiceBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 15px;
+        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        z-index: 9999;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        font-size: 18px;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+    
+    // Clique no botão - 🔥 DIRETO E SIMPLES
+    voiceBtn.addEventListener('click', () => {
+        console.log('🎙️ Botão de voz clicado - Chamada direta');
+        startOptimizedVoiceCall();
+    });
+    
+    // Adicionar botão à interface
+    document.body.appendChild(voiceBtn);
+    
+    console.log('✅ Botão de voz adicionado à interface');
+}
+
+// ===== VERIFICAR SE O PAINEL JÁ EXISTE =====
+function isVoicePanelVisible() {
+    return document.getElementById('voice-control-panel') !== null;
+}
+
+// ===== ADICIONAR ESTILOS SIMPLES =====
+const simpleVoiceStyles = `
+<style>
+    #voice-control-panel {
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    #voice-control-panel input[type="range"] {
+        width: 100%;
+        height: 6px;
+        border-radius: 3px;
+        background: #34495e;
+    }
+    
+    #voice-control-panel button:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+    
+    #voice-call-btn {
+        transition: all 0.3s ease;
+    }
+    
+    #voice-call-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    }
+</style>
+`;
+
+// Adicionar estilos
+document.head.insertAdjacentHTML('beforeend', simpleVoiceStyles);
+
+console.log('🔥 Sistema de voz simplificado carregado!');
+
+setTimeout(() => { showVoicePanelImmediately(); }, 3000);
