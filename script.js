@@ -8880,3 +8880,354 @@ function initializeGameWithSound() {
         gameState = new Proxy(gameState, gameStateHandler);
     }
 }
+
+
+
+
+// SISTEMA DE VOZ PROFISSIONAL
+class ProfessionalVoiceSystem {
+    constructor() {
+        this.peer = null;
+        this.mediaStream = null;
+        this.audioContext = null;
+        this.analyser = null;
+        this.isConnected = false;
+        this.isSpeaking = false;
+        this.volume = 0.7;
+        this.sensitivity = 50;
+        
+        this.init();
+    }
+
+    async init() {
+        this.setupEventListeners();
+        await this.initializeAudioContext();
+    }
+
+    setupEventListeners() {
+        // Botão de ligar/desligar voz
+        document.getElementById('voice-toggle').addEventListener('click', () => {
+            this.toggleVoice();
+        });
+
+        // Controles de volume e sensibilidade
+        document.getElementById('voice-volume').addEventListener('input', (e) => {
+            this.volume = e.target.value / 100;
+            this.updateAudioVolume();
+        });
+
+        document.getElementById('voice-sensitivity').addEventListener('input', (e) => {
+            this.sensitivity = e.target.value;
+        });
+    }
+
+    async initializeAudioContext() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            console.log('✅ AudioContext inicializado');
+        } catch (error) {
+            console.error('❌ Erro ao inicializar AudioContext:', error);
+        }
+    }
+
+    async toggleVoice() {
+        if (this.isConnected) {
+            await this.disconnectVoice();
+        } else {
+            await this.connectVoice();
+        }
+    }
+
+    async connectVoice() {
+        try {
+            console.log('🎤 Conectando voz...');
+            
+            // Solicitar permissão do microfone
+            this.mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    channelCount: 1,
+                    sampleRate: 48000
+                },
+                video: false
+            });
+
+            // Configurar processamento de áudio
+            await this.setupAudioProcessing();
+            
+            // Inicializar PeerJS
+            await this.initializePeerJS();
+            
+            this.updateUI(true);
+            this.showNotification('Voz conectada', 'success');
+            
+        } catch (error) {
+            console.error('❌ Erro ao conectar voz:', error);
+            this.showNotification('Erro ao conectar voz: ' + error.message, 'error');
+        }
+    }
+
+    async setupAudioProcessing() {
+        if (!this.audioContext || !this.mediaStream) return;
+
+        try {
+            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+            
+            // Configurar analisador para visualização
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 256;
+            source.connect(this.analyser);
+            
+            // Iniciar visualização
+            this.startVisualization();
+            
+            // Aplicar filtros de qualidade
+            this.applyAudioFilters(source);
+            
+        } catch (error) {
+            console.error('❌ Erro no processamento de áudio:', error);
+        }
+    }
+
+    applyAudioFilters(source) {
+        // Filtro passa-baixa para reduzir chiado
+        const lowPass = this.audioContext.createBiquadFilter();
+        lowPass.type = 'lowpass';
+        lowPass.frequency.value = 8000;
+        
+        // Filtro passa-alta para reduzir ruído grave
+        const highPass = this.audioContext.createBiquadFilter();
+        highPass.type = 'highpass';
+        highPass.frequency.value = 80;
+        
+        // Compressor para normalizar volume
+        const compressor = this.audioContext.createDynamicsCompressor();
+        compressor.threshold.value = -24;
+        compressor.knee.value = 30;
+        compressor.ratio.value = 12;
+        
+        // Conectar filtros
+        source.connect(highPass);
+        highPass.connect(lowPass);
+        lowPass.connect(compressor);
+        
+        // Conexão final
+        const destination = this.audioContext.createMediaStreamDestination();
+        compressor.connect(destination);
+        
+        this.processedStream = destination.stream;
+    }
+
+    startVisualization() {
+        const updateVisualizer = () => {
+            if (!this.analyser) return;
+
+            const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+            this.analyser.getByteFrequencyData(dataArray);
+            
+            // Calcular nível médio
+            let sum = 0;
+            for (const value of dataArray) {
+                sum += value;
+            }
+            const average = sum / dataArray.length;
+            
+            // Atualizar visualizador
+            const level = document.getElementById('voice-level');
+            if (level) {
+                const width = Math.min(100, average * 2);
+                level.style.width = width + '%';
+                
+                // Detectar se está falando
+                this.isSpeaking = width > this.sensitivity / 2;
+                if (this.isSpeaking) {
+                    level.style.background = 'linear-gradient(90deg, #e74c3c, #f39c12)';
+                } else {
+                    level.style.background = 'linear-gradient(90deg, #3498db, #2ecc71)';
+                }
+            }
+
+            requestAnimationFrame(updateVisualizer);
+        };
+
+        updateVisualizer();
+    }
+
+    async initializePeerJS() {
+        try {
+            // Carregar PeerJS dinamicamente
+            if (typeof Peer === 'undefined') {
+                await this.loadPeerJS();
+            }
+
+            this.peer = new Peer({
+                host: '0.peerjs.com',
+                port: 443,
+                path: '/',
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:global.stun.twilio.com:3478' }
+                    ]
+                }
+            });
+
+            this.peer.on('open', (id) => {
+                console.log('✅ Conectado ao PeerJS com ID:', id);
+                this.setupPeerListeners();
+            });
+
+            this.peer.on('error', (error) => {
+                console.error('❌ Erro no PeerJS:', error);
+                this.showNotification('Erro de conexão de voz', 'error');
+            });
+
+        } catch (error) {
+            console.error('❌ Erro ao inicializar PeerJS:', error);
+        }
+    }
+
+    async loadPeerJS() {
+        return new Promise((resolve, reject) => {
+            if (typeof Peer !== 'undefined') {
+                resolve();
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+
+    setupPeerListeners() {
+        this.peer.on('call', async (call) => {
+            try {
+                console.log('📞 Chamada recebida');
+                
+                // Responder à chamada com áudio processado
+                call.answer(this.processedStream || this.mediaStream);
+                
+                call.on('stream', (remoteStream) => {
+                    console.log('🔊 Stream de áudio recebido');
+                    this.handleRemoteStream(remoteStream);
+                });
+                
+            } catch (error) {
+                console.error('❌ Erro ao atender chamada:', error);
+            }
+        });
+    }
+
+    handleRemoteStream(remoteStream) {
+        const audio = new Audio();
+        audio.srcObject = remoteStream;
+        audio.autoplay = true;
+        audio.volume = this.volume;
+        
+        // Configurações para reduzir eco
+        audio.mozPreservesPitch = false;
+        audio.webkitPreservesPitch = false;
+        audio.preservesPitch = false;
+        
+        this.remoteAudio = audio;
+        this.isConnected = true;
+        
+        this.showNotification('Oponente conectado por voz', 'success');
+    }
+
+    updateAudioVolume() {
+        if (this.remoteAudio) {
+            this.remoteAudio.volume = this.volume;
+        }
+    }
+
+    async disconnectVoice() {
+        try {
+            // Parar stream local
+            if (this.mediaStream) {
+                this.mediaStream.getTracks().forEach(track => track.stop());
+                this.mediaStream = null;
+            }
+            
+            // Fechar conexão PeerJS
+            if (this.peer) {
+                this.peer.destroy();
+                this.peer = null;
+            }
+            
+            // Parar áudio remoto
+            if (this.remoteAudio) {
+                this.remoteAudio.pause();
+                this.remoteAudio = null;
+            }
+            
+            this.isConnected = false;
+            this.updateUI(false);
+            this.showNotification('Voz desconectada', 'info');
+            
+        } catch (error) {
+            console.error('❌ Erro ao desconectar voz:', error);
+        }
+    }
+
+    updateUI(connected) {
+        const button = document.getElementById('voice-toggle');
+        const indicator = document.getElementById('voice-status-indicator');
+        const statusText = document.getElementById('voice-status-text');
+        
+        if (connected) {
+            button.classList.add('connected');
+            button.innerHTML = '<i class="fas fa-microphone-slash"></i><span>Desativar Voz</span>';
+            indicator.classList.add('connected');
+            statusText.textContent = 'Conectado';
+        } else {
+            button.classList.remove('connected');
+            button.innerHTML = '<i class="fas fa-microphone"></i><span>Ativar Voz</span>';
+            indicator.classList.remove('connected');
+            statusText.textContent = 'Desconectado';
+        }
+    }
+
+    showNotification(message, type) {
+        // Use sua função de notificação existente
+        if (typeof showNotification === 'function') {
+            showNotification(message, type);
+        } else {
+            console.log(`${type}: ${message}`);
+        }
+    }
+}
+
+// INICIALIZAR SISTEMA DE VOZ QUANDO O JOGO COMEÇAR
+function initializeGameVoiceSystem() {
+    // Esperar até que a tela do jogo esteja carregada
+    const observer = new MutationObserver((mutations) => {
+        const gameScreen = document.getElementById('game-screen');
+        if (gameScreen && gameScreen.style.display !== 'none') {
+            // Inicializar sistema de voz
+            window.voiceSystem = new ProfessionalVoiceSystem();
+            observer.disconnect();
+        }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+}
+
+// INICIAR QUANDO O DOCUMENTO ESTIVER PRONTO
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar quando o usuário entrar em uma partida
+    if (typeof setupGameListener === 'function') {
+        const originalSetupGameListener = setupGameListener;
+        setupGameListener = function(tableId) {
+            originalSetupGameListener.call(this, tableId);
+            setTimeout(initializeGameVoiceSystem, 1000);
+        };
+    }
+});
+
+console.log('✅ Sistema de voz profissional carregado');

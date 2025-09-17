@@ -475,6 +475,40 @@
 
     <!-- Chat Fixo como era antes -->
     <div class="game-chat">
+        <div class="voice-chat-container">
+    <div class="voice-header">
+        <div class="voice-title">
+            <i class="fas fa-microphone"></i>
+            Chat de Voz
+        </div>
+        <div class="voice-status">
+            <span class="status-indicator" id="voice-status-indicator"></span>
+            <span id="voice-status-text">Desconectado</span>
+        </div>
+    </div>
+
+    <div class="voice-controls">
+        <button class="voice-btn" id="voice-toggle">
+            <i class="fas fa-microphone"></i>
+            <span>Ativar Voz</span>
+        </button>
+        
+        <div class="voice-settings">
+            <div class="voice-setting">
+                <label>Volume</label>
+                <input type="range" id="voice-volume" min="0" max="100" value="70">
+            </div>
+            <div class="voice-setting">
+                <label>Sensibilidade</label>
+                <input type="range" id="voice-sensitivity" min="1" max="100" value="50">
+            </div>
+        </div>
+    </div>
+
+    <div class="voice-visualizer">
+        <div class="voice-level" id="voice-level"></div>
+    </div>
+</div>
         <div class="chat-messages" id="chat-messages">
             <!-- Mensagens de chat serão carregadas dinamicamente -->
         </div>
@@ -486,6 +520,7 @@
             </button>
         </div>
     </div>
+
 
     <!-- Modal de Espectadores -->
     <div class="modal spectators-modal" id="spectators-modal">

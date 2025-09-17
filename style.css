@@ -5682,3 +5682,137 @@ input:checked + .slider:before {
 
 
   
+/* ESTILOS PARA O SISTEMA DE VOZ */
+.voice-chat-container {
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid #34495e;
+}
+
+.voice-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.voice-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: bold;
+    color: #3498db;
+}
+
+.voice-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e74c3c;
+}
+
+.status-indicator.connected {
+    background: #2ecc71;
+    animation: pulse 1.5s infinite;
+}
+
+.voice-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.voice-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    background: #2c3e50;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.voice-btn:hover {
+    background: #34495e;
+    transform: translateY(-1px);
+}
+
+.voice-btn.active {
+    background: #e74c3c;
+}
+
+.voice-btn.connected {
+    background: #27ae60;
+}
+
+.voice-settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.voice-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.voice-setting label {
+    font-size: 11px;
+    color: #95a5a6;
+    text-transform: uppercase;
+}
+
+.voice-setting input[type="range"] {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: #34495e;
+    outline: none;
+}
+
+.voice-visualizer {
+    margin-top: 10px;
+    height: 3px;
+    background: #2c3e50;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.voice-level {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #3498db, #2ecc71);
+    transition: width 0.1s ease;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* RESPONSIVIDADE */
+@media (max-width: 768px) {
+    .voice-settings {
+        grid-template-columns: 1fr;
+    }
+    
+    .voice-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
