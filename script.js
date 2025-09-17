@@ -329,7 +329,7 @@ function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
      // 1. Inicializar sistema de som
     createSoundControls();
-   
+    initializeGameWithSound();
 
     
     // 1. Sistemas de autenticação e UI
@@ -2571,11 +2571,138 @@ async function createNewTable() {
         showNotification('Erro ao criar mesa: ' + error.message, 'error');
     }
 }
+// ===== JOIN TABLE (CORRIGIDA) =====
+async function joinTable(tableId) {
+const originalJoinTable = joinTable;
+joinTable = async function(tableId) {
+    audioManager.playGameStartSound();
+    return originalJoinTable.call(this, tableId);
+};
+
+    console.log('🎯 Entrando na mesa:', tableId);
+    
+    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
+    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
+        console.error('❌ TableId inválido:', tableId);
+        showNotification('Erro: ID da mesa inválido', 'error');
+        return;
+    }
+    
+    try {
+        userActiveTable = tableId;
+        
+        const tableRef = db.collection('tables').doc(tableId);
+        const tableDoc = await tableRef.get();
+        
+        if (!tableDoc.exists) {
+            console.error('❌ Mesa não encontrada:', tableId);
+            showNotification('Mesa não encontrada', 'error');
+            userActiveTable = null;
+            return;
+        }
+        
+        const table = tableDoc.data();
 
 
 
+        // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
+        if (table.isChallenge && table.status === 'waiting') {
+            console.log('✅ Entrando em mesa de desafio');
+            
+            // Atualizar mesa para status playing
+            await tableRef.update({
+                status: 'playing',
+                waitingForOpponent: false,
+                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        
+        // Se usuário já está na mesa, apenas entrar
+        if (table.players.some(p => p.uid === currentUser.uid)) {
+            console.log('✅ Usuário já está na mesa, apenas entrando...');
+            setupGameListener(tableId);
+            showScreen('game-screen');
+            
+            if (table.players.length === 1) {
+                showNotification('Aguardando adversário...', 'info');
+            } else {
+                showNotification('Jogo em andamento', 'info');
+            }
+            
+            // 🔥 ATUALIZAR LISTENER
+            if (typeof setupActiveTableListener === 'function') {
+                setupActiveTableListener();
+            }
+            return;
+        }
+        
+        // Verificar se mesa está cheia
+        if (table.players.length >= 2) {
+            console.log('❌ Mesa cheia:', tableId);
+            showNotification('Esta mesa já está cheia', 'error');
+            userActiveTable = null;
+            return;
+        }
+        
+        
+        // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
+        if (table.bet > 0) {
+            // Carregar dados atualizados do usuário
+            await loadUserData(currentUser.uid);
+            
+            if (!userData || userData.coins < table.bet) {
+                showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
+                userActiveTable = null;
+                return;
+            }
+        }
+        
+        // Adicionar jogador à mesa
+        await tableRef.update({
+            players: firebase.firestore.FieldValue.arrayUnion({
+                uid: currentUser.uid,
+                displayName: userData.displayName,
+                rating: userData.rating,
+                color: 'red'
+            }),
+            status: 'playing',
+            waitingForOpponent: false,
+            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
+        });
 
-
+        console.log('✅ Jogador adicionado à mesa');
+        
+        // Deduzir aposta se houver
+        if (table.bet > 0) {
+            await db.collection('users').doc(currentUser.uid).update({
+                coins: firebase.firestore.FieldValue.increment(-table.bet)
+            });
+            userData.coins -= table.bet;
+        }
+        
+        // Entrar no jogo
+        setupGameListener(tableId);
+        showScreen('game-screen');
+        showNotification('Jogo iniciado! As peças pretas começam.', 'success');
+        
+        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
+        if (typeof setupActiveTableListener === 'function') {
+            setupActiveTableListener();
+        }
+        
+        // Atualizar lista de usuários online
+        setTimeout(() => {
+            if (typeof refreshOnlineUsersList === 'function') {
+                refreshOnlineUsersList();
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('❌ Erro ao entrar na mesa:', error);
+        userActiveTable = null;
+        showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
+    }
+}
 // ===== LIMPEZA DE MESAS ABANDONADAS =====
 async function cleanupAbandonedTables() {
     if (!currentUser) return;
@@ -2881,8 +3008,239 @@ async function supportPlayer(playerColor) {
         console.error('Erro ao torcer:', error);
         showNotification('Erro ao torcer: ' + error.message, 'error');
     }
+}// ===== RENDER TABLE COM ESPECTADORES CORRIGIDA =====
+function renderTable(table, container) {
+    const tableEl = document.createElement('div');
+    tableEl.className = 'table-item';
+    tableEl.dataset.tableId = table.id;
+    
+    const playerCount = table.players ? table.players.length : 0;
+    const isPlaying = table.status === 'playing';
+    const isFinished = table.status === 'finished';
+    const isDraw = table.status === 'draw';
+    const isWaiting = table.status === 'waiting';
+    
+    // Obter nomes dos jogadores
+    let playersInfo = '';
+    if (table.players && table.players.length > 0) {
+        playersInfo = table.players.map(player => 
+            `<span class="player-name-tag ${player.color}">${player.displayName || 'Jogador'}</span>`
+        ).join(' vs ');
+    }
+    
+    let tableStatus = '';
+    let actionButton = '';
+    
+    if (isFinished || isDraw) {
+        const resultClass = isDraw ? 'draw-result' : 'win-result';
+        tableStatus = `
+            <div class="table-result ${resultClass}">${table.resultText || (isDraw ? 'Empate' : 'Jogo finalizado')}</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+        `;
+        actionButton = `<button class="btn btn-secondary btn-small" disabled>Finalizado</button>`;
+    } else if (isPlaying) {
+        tableStatus = `
+            <div class="table-status">Jogando</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+            <div class="spectators-count">
+                <i class="fas fa-eye"></i> ${table.spectatorsCount || 0} espectadores
+            </div>
+        `;
+        
+        const isUserInTable = table.players && table.players.some(p => p.uid === currentUser?.uid);
+        
+        if (isUserInTable) {
+            actionButton = `<button class="btn btn-warning btn-small" disabled>Jogando</button>`;
+        } else {
+            actionButton = `
+                <button class="btn btn-info btn-small watch-btn">
+                    <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
+                </button>
+            `;
+        }
+    } else if (isWaiting) {
+        tableStatus = `
+            <div class="table-status waiting">Aguardando jogador</div>
+            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
+        `;
+        actionButton = `<button class="btn btn-primary btn-small join-btn">Entrar</button>`;
+    }
+    
+    tableEl.innerHTML = `
+        <div class="table-info">
+            <div class="table-name">${table.name || `Mesa ${table.id.substring(0, 8)}`}</div>
+            <div class="table-details">
+                <span><i class="fas fa-users"></i> ${playerCount}/2</span>
+                <span><i class="fas fa-clock"></i> ${table.timeLimit || 0}s</span>
+                ${table.bet > 0 ? `<span><i class="fas fa-coins"></i> ${table.bet}</span>` : ''}
+            </div>
+            ${tableStatus}
+        </div>
+        <div class="table-actions">
+            ${actionButton}
+        </div>
+    `;
+    
+    if (isWaiting) {
+        const joinBtn = tableEl.querySelector('.join-btn');
+        if (joinBtn) {
+            joinBtn.addEventListener('click', () => joinTable(table.id));
+        }
+    } else if (isPlaying && !table.players.some(p => p.uid === currentUser?.uid)) {
+        const watchBtn = tableEl.querySelector('.watch-btn');
+        if (watchBtn) {
+            watchBtn.addEventListener('click', () => joinAsSpectator(table.id));
+        }
+    }
+    
+    if (isFinished || isDraw) {
+        tableEl.classList.add('table-finished');
+        if (isDraw) tableEl.classList.add('table-draw');
+    }
+    
+    container.appendChild(tableEl);
 }
 
+
+// ===== SETUP GAME LISTENER COMPLETAMENTE ROTEAWRITTEN =====
+function setupGameListener(tableId) {
+    console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
+    
+    // Remover listener anterior se existir
+    if (gameListener) {
+        console.log('🗑️ Removendo listener anterior');
+        gameListener();
+        gameListener = null;
+    }
+    
+    // Verificar se tableId é válido
+    if (!tableId) {
+        console.error('❌ ID da mesa inválido');
+        showNotification('Erro ao entrar na mesa', 'error');
+        return;
+    }
+    
+    currentGameRef = db.collection('tables').doc(tableId);
+    let lastProcessedStateHash = '';
+    let isProcessing = false;
+    
+    gameListener = currentGameRef.onSnapshot(async (doc) => {
+        // Evitar processamento simultâneo
+        if (isProcessing) {
+            console.log('⏳ Já processando, ignorando chamada duplicada');
+            return;
+        }
+        
+        isProcessing = true;
+        
+        try {
+            // Verificar se a referência ainda é a mesma
+            if (!currentGameRef || currentGameRef.id !== tableId) {
+                console.log('🔀 Referência mudou, ignorando listener');
+                isProcessing = false;
+                return;
+            }
+            
+            if (!doc.exists) {
+                console.log('❌ Documento não existe mais');
+                showNotification('A mesa foi encerrada', 'info');
+                leaveGame();
+                isProcessing = false;
+                return;
+            }
+            
+            const newGameState = doc.data();
+            const newStateHash = JSON.stringify(newGameState);
+            
+            // Verificar se o estado realmente mudou
+            if (newStateHash === lastProcessedStateHash) {
+                console.log('⚡ Estado inalterado, ignorando update');
+                isProcessing = false;
+                return;
+            }
+            
+            lastProcessedStateHash = newStateHash;
+            const oldGameState = gameState;
+            gameState = newGameState;
+            
+            console.log('🔄 Novo estado do jogo recebido:', gameState.status);
+            
+            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
+            if (!gameState.players) gameState.players = [];
+            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
+            
+            // 2. CONVERSÃO DO TABULEIRO (se necessário)
+            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
+                gameState.board = convertFirestoreFormatToBoard(gameState.board);
+            }
+            
+            // 3. VERIFICAR SE JOGO TERMINOU
+            if (gameState.status === 'finished' || gameState.status === 'draw') {
+                console.log('🏁 Jogo finalizado, processando estado final');
+                await handleFinishedGame(oldGameState, gameState);
+                isProcessing = false;
+                return;
+            }
+            
+            // 4. DETECTAR MUDANÇAS IMPORTANTES
+            const boardChanged = !oldGameState || 
+                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
+            
+            const turnChanged = !oldGameState || 
+                              oldGameState.currentTurn !== gameState.currentTurn;
+            
+            const playersChanged = !oldGameState || 
+                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
+            
+            // 5. PROCESSAR EVENTOS ESPECÍFICOS
+            if (playersChanged && oldGameState) {
+                await handlePlayersChange(oldGameState, gameState);
+            }
+            
+            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
+                await handleDrawOffer(gameState.drawOffer);
+            }
+            
+           // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
+if (boardChanged || turnChanged || playersChanged) {
+    console.log('🎨 Atualizando interface');
+    updateGameInterface();
+}
+
+// 7. GERENCIAR TIMER
+manageGameTimer(oldGameState, gameState);
+
+// 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
+if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
+    console.log('🎮 Jogo iniciado, configurando sistemas');
+    setupChatListener();
+    setupSpectatorsListener(tableId);
+}
+
+// 9. VERIFICAR FIM DE JOGO
+if (boardChanged && gameState.status === 'playing') {
+    checkGameEnd(gameState.board, gameState.currentTurn);
+}
+            
+        } catch (error) {
+            console.error('💥 Erro crítico no listener:', error);
+            showNotification('Erro de conexão com o jogo', 'error');
+        } finally {
+            isProcessing = false;
+        }
+        
+    }, (error) => {
+        console.error('📡 Erro no listener:', error);
+        
+        if (error.code !== 'cancelled') {
+            showNotification('Erro de conexão com o jogo', 'error');
+            
+            if (error.code === 'permission-denied' || error.code === 'not-found') {
+                setTimeout(() => leaveGame(), 2000);
+            }
+        }
+    });
+}
 
 // ===== FUNÇÃO COMPARE PLAYERS =====
 function comparePlayers(oldPlayers, newPlayers) {
@@ -3717,42 +4075,6 @@ function updatePlayerStats(currentPlayer, opponent) {
             el.textContent = `${blackPieces} peça${blackPieces !== 1 ? 's' : ''}`;
         }
     });
-}
-
-// ===== FUNÇÃO UPDATE GAME HEADER =====
-function updateGameHeader(currentPlayer, opponent) {
-    const gameHeader = document.querySelector('.game-header');
-    if (!gameHeader) return;
-    
-    // Criar ou atualizar a seção de nomes dos jogadores
-    let playersSection = document.querySelector('.players-names');
-    if (!playersSection) {
-        playersSection = document.createElement('div');
-        playersSection.className = 'players-names';
-        gameHeader.insertBefore(playersSection, document.querySelector('.header-actions'));
-    }
-    
-    playersSection.innerHTML = `
-        <div class="player-vs-player">
-            <span class="player-name ${currentPlayer?.color || 'black'}">
-                ${currentPlayer?.displayName || 'Você'}
-            </span>
-            <span class="vs">VS</span>
-            <span class="player-name ${opponent?.color || 'red'}">
-                ${opponent?.displayName || 'Oponente'}
-            </span>
-        </div>
-    `;
-    
-    // Atualizar também a versão mobile se existir
-    const mobileScore = document.querySelector('.mobile-score');
-    if (mobileScore) {
-        mobileScore.innerHTML = `
-            <span class="player-badge red">${opponent?.displayName?.substring(0, 10) || 'Oponente'}</span>
-            <span class="vs">VS</span>
-            <span class="player-badge black">${currentPlayer?.displayName?.substring(0, 10) || 'Você'}</span>
-        `;
-    }
 }
 
 // ===== FUNÇÃO SURRENDER FROM GAME (CORRIGIDA) =====
@@ -8432,1971 +8754,286 @@ function updateSoundButtons() {
 
 
 
+// ===== INTEGRAÇÃO DOS SONS NO JOGO =====
 
-// ===== SISTEMA DE VOZ PARA PARTIDAS =====
-let voiceSystem = null;
-let peer = null;
-let currentPeerId = null;
-let opponentPeerId = null;
-
-// Manipular dados de voz recebidos
-function handleVoiceData(data, senderName) {
-    switch (data.type) {
-        case 'voice-greeting':
-            showNotification(`🔊 ${senderName}: ${data.message}`, 'info');
-            break;
-        case 'voice-message':
-            showNotification(`🔊 ${senderName}: ${data.message}`, 'info');
-            break;
-        case 'game-move':
-            // Mensagens relacionadas a jogadas
-            console.log('Mensagem de jogo:', data);
-            break;
-    }
+// Sons de movimento
+function playMoveSound() {
+    audioManager.playSound('move');
 }
 
-// Enviar mensagem de voz para oponente
-function sendVoiceMessage(message) {
-    if (!peer || !opponentPeerId) {
-        showNotification('Sistema de voz não disponível', 'warning');
-        return;
-    }
-
-    try {
-        const conn = peer.connect(opponentPeerId);
-        conn.on('open', () => {
-            conn.send({
-                type: 'voice-message',
-                message: message,
-                timestamp: new Date(),
-                player: userData.displayName
-            });
-        });
-    } catch (error) {
-        console.warn('Erro ao enviar mensagem de voz:', error);
-    }
+function playCaptureSound(isMultiple = false) {
+    audioManager.playSound(isMultiple ? 'multipleCapture' : 'capture');
 }
 
-// Configurar chamadas de voz recebidas
-function setupVoiceCalls() {
-    if (!peer) return;
-
-    peer.on('call', (call) => {
-        console.log('📞 Recebendo chamada de voz de:', call.peer);
-        
-        // Aceitar a chamada automaticamente (poderia ter um botão para aceitar)
-        navigator.mediaDevices.getUserMedia({ video: false, audio: true })
-            .then((stream) => {
-                call.answer(stream);
-                
-                call.on('stream', (remoteStream) => {
-                    // Criar elemento de áudio para ouvir o oponente
-                    const audio = document.createElement('audio');
-                    audio.srcObject = remoteStream;
-                    audio.autoplay = true;
-                    audio.volume = 0.8;
-                    
-                    // Adicionar controles de áudio à interface
-                    addVoiceControls(audio, call);
-                });
-            })
-            .catch((error) => {
-                console.error('Erro ao aceitar chamada:', error);
-                call.close();
-            });
-    });
+function playKingPromotionSound() {
+    audioManager.playSound('kingPromotion');
 }
 
-// Adicionar controles de voz à interface
-function addVoiceControls(audioElement, call) {
-    // Verificar se já existe controles de voz
-    if (document.getElementById('voice-controls')) {
-        return;
-    }
-
-    const voiceControls = document.createElement('div');
-    voiceControls.id = 'voice-controls';
-    voiceControls.style.cssText = `
-        position: fixed;
-        bottom: 80px;
-        right: 20px;
-        background: rgba(0,0,0,0.8);
-        padding: 10px;
-        border-radius: 10px;
-        color: white;
-        z-index: 1000;
-        border: 2px solid #fdbb2d;
-    `;
-
-    voiceControls.innerHTML = `
-        <div style="margin-bottom: 10px;">
-            <strong>🔊 Chamada de Voz</strong>
-            <button id="mute-call" style="margin-left: 10px; padding: 5px;">Mutar</button>
-            <button id="end-call" style="margin-left: 5px; padding: 5px;">Encerrar</button>
-        </div>
-        <div>
-            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.8" 
-                   style="width: 100px;"> Volume
-        </div>
-    `;
-
-    document.body.appendChild(voiceControls);
-
-    // Configurar eventos
-    document.getElementById('mute-call').addEventListener('click', () => {
-        audioElement.muted = !audioElement.muted;
-        this.textContent = audioElement.muted ? 'Ativar Som' : 'Mutar';
-    });
-
-    document.getElementById('end-call').addEventListener('click', () => {
-        call.close();
-        voiceControls.remove();
-    });
-
-    document.getElementById('voice-volume').addEventListener('input', (e) => {
-        audioElement.volume = parseFloat(e.target.value);
-    });
+// Sons de jogo
+function playGameStartSound() {
+    audioManager.playSound('gameStart');
+    audioManager.playMusic('backgroundMusic');
 }
 
+function playGameEndSound(win = true) {
+    audioManager.playSound(win ? 'victory' : 'defeat');
+    audioManager.stopMusic();
+}
 
-// ===== FUNÇÃO joinTable ATUALIZADA COM NOVO SISTEMA DE VOZ =====
-async function joinTable(tableId) {
-    console.log('🎯 Entrando na mesa:', tableId);
+function playIntenseMusic() {
+    audioManager.playMusic('intenseMusic');
+}
+
+// Sons de interface
+function playClickSound() {
+    audioManager.playSound('click');
+}
+
+function playNotificationSound() {
+    audioManager.playSound('notification');
+}
+
+function playChallengeSound() {
+    audioManager.playSound('challenge');
+}
+
+// ===== INTEGRAÇÃO SIMPLIFICADA =====
+function initializeGameWithSound() {
+    console.log('🔊 Inicializando sistema de som...');
     
-    // ✅ VALIDAÇÃO CRÍTICA: garantir que tableId não está vazio
-    if (!tableId || typeof tableId !== 'string' || tableId.trim() === '') {
-        console.error('❌ TableId inválido:', tableId);
-        showNotification('Erro: ID da mesa inválido', 'error');
-        return;
-    }
-    
-    try {
-        userActiveTable = tableId;
+    // Sons de movimento - modificar makeMove diretamente
+    const originalMakeMove = makeMove;
+    makeMove = async function(fromRow, fromCol, toRow, toCol, captures) {
+        const result = await originalMakeMove.call(this, fromRow, fromCol, toRow, toCol, captures);
         
-        const tableRef = db.collection('tables').doc(tableId);
-        const tableDoc = await tableRef.get();
-        
-        if (!tableDoc.exists) {
-            console.error('❌ Mesa não encontrada:', tableId);
-            showNotification('Mesa não encontrada', 'error');
-            userActiveTable = null;
-            return;
-        }
-        
-        const table = tableDoc.data();
-
-        // 🔥 INICIALIZAR SISTEMA DE VOZ OTIMIZADO AO ENTRAR NA MESA
-        if (!voiceSystem) {
-            voiceSystem = await initializeVoiceSystem();
-            
-            if (voiceSystem) {
-                showNotification('Sistema de voz de alta qualidade ativado', 'success');
-            }
-        }
-
-        // 🔥 VERIFICAR SE É UMA MESA DE DESAFIO
-        if (table.isChallenge && table.status === 'waiting') {
-            console.log('✅ Entrando em mesa de desafio');
-            
-            // Atualizar mesa para status playing
-            await tableRef.update({
-                status: 'playing',
-                waitingForOpponent: false,
-                lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        // Se usuário já está na mesa, apenas entrar
-        if (table.players.some(p => p.uid === currentUser.uid)) {
-            console.log('✅ Usuário já está na mesa, apenas entrando...');
-            setupGameListener(tableId);
-            showScreen('game-screen');
-            
-            // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR (AGORA OTIMIZADO)
-            if (table.players.length === 2) {
-                setTimeout(() => {
-                    connectToOpponentVoice(table);
-                }, 1500); // Pequeno delay para garantir inicialização
-            }
-            
-            if (table.players.length === 1) {
-                showNotification('Aguardando adversário...', 'info');
+        // Tocar som apropriado
+        if (captures && captures.length > 0) {
+            if (captures.length > 1) {
+                audioManager.playMultipleCaptureSound();
             } else {
-                showNotification('Jogo em andamento - Voz disponível', 'info');
+                audioManager.playCaptureSound();
             }
-            
-            // 🔥 ATUALIZAR LISTENER
-            if (typeof setupActiveTableListener === 'function') {
-                setupActiveTableListener();
-            }
-            return;
+        } else {
+            audioManager.playMoveSound();
         }
         
-        // Verificar se mesa está cheia
-        if (table.players.length >= 2) {
-            console.log('❌ Mesa cheia:', tableId);
-            showNotification('Esta mesa já está cheia', 'error');
-            userActiveTable = null;
-            return;
-        }
-        
-        // 🔥 CORREÇÃO: Verificar saldo ANTES de entrar na mesa com aposta
-        if (table.bet > 0) {
-            // Carregar dados atualizados do usuário
-            await loadUserData(currentUser.uid);
-            
-            if (!userData || userData.coins < table.bet) {
-                showNotification(`Você não tem moedas suficientes para entrar nesta mesa! Saldo: ${userData?.coins || 0} moedas`, 'error');
-                userActiveTable = null;
-                return;
-            }
-        }
-        
-        // Adicionar jogador à mesa
-        await tableRef.update({
-            players: firebase.firestore.FieldValue.arrayUnion({
-                uid: currentUser.uid,
-                displayName: userData.displayName,
-                rating: userData.rating,
-                color: 'red',
-                voicePeerId: currentPeerId, // 🔥 ADICIONAR PEER ID DO JOGADOR
-                voiceEnabled: true // 🔥 INDICAR QUE TEM VOZ ATIVADA
-            }),
-            status: 'playing',
-            waitingForOpponent: false,
-            lastMoveTime: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        return result;
+    };
 
-        console.log('✅ Jogador adicionado à mesa');
-        
-        // Deduzir aposta se houver
-        if (table.bet > 0) {
-            await db.collection('users').doc(currentUser.uid).update({
-                coins: firebase.firestore.FieldValue.increment(-table.bet)
-            });
-            userData.coins -= table.bet;
-        }
-        
-         // Entrar no jogo
-        setupGameListener(tableId);
-        showScreen('game-screen');
-        showNotification('Jogo iniciado! As peças pretas começam.', 'success');
-        
-        // 🔥 ADICIONAR BOTÃO DE VOZ APÓS ENTRAR NO JOGO
-        setTimeout(() => {
-            checkAndAddVoiceButton();
-        }, 1500);
-        
-        
-        // 🔥 CONECTAR VOZ COM OPONENTE SE EXISTIR (AGORA OTIMIZADO)
-        if (table.players.length === 1) {
-            // Aguardar oponente entrar
-            const unsubscribe = db.collection('tables').doc(tableId)
-                .onSnapshot((doc) => {
-                    if (doc.exists) {
-                        const updatedTable = doc.data();
-                        if (updatedTable.players.length === 2) {
-                            // Delay para garantir estabilidade da conexão
-                            setTimeout(() => {
-                                connectToOpponentVoice(updatedTable);
-                            }, 2000);
-                            unsubscribe(); // Parar de observar
+    // Verificar promoção a dama - adicionar à makeMove ou criar função separada
+    const gameStateHandler = {
+        set: function(target, property, value) {
+            target[property] = value;
+            
+            // Verificar se uma peça foi promovida a dama
+            if (property === 'board' && value) {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        const piece = value[row] && value[row][col];
+                        if (piece && piece.king && 
+                            !(target[property][row] && target[property][row][col] && target[property][row][col].king)) {
+                            audioManager.playKingPromotionSound();
                         }
                     }
-                });
-        } else {
-            // Delay para garantir estabilidade da conexão
-            setTimeout(() => {
-                connectToOpponentVoice(table);
-            }, 1500);
-        }
-        
-        // 🔥 ATUALIZAR LISTENER E LISTA DE USUÁRIOS ONLINE
-        if (typeof setupActiveTableListener === 'function') {
-            setupActiveTableListener();
-        }
-        
-        // Atualizar lista de usuários online
-        setTimeout(() => {
-            if (typeof refreshOnlineUsersList === 'function') {
-                refreshOnlineUsersList();
+                }
             }
-        }, 1000);
-        
-    } catch (error) {
-        console.error('❌ Erro ao entrar na mesa:', error);
-        userActiveTable = null;
-        
-        // 🔥 LIMPAR RECURSOS DE VOZ EM CASO DE ERRO
-        if (voiceSystem) {
-            cleanupVoiceCall();
+            return true;
         }
-        
-        showNotification('Erro ao entrar na mesa: ' + error.message, 'error');
+    };
+    
+    // Aplicar handler se gameState existir
+    if (gameState) {
+        gameState = new Proxy(gameState, gameStateHandler);
     }
 }
 
-// ===== FUNÇÃO RENDERTABLE ATUALIZADA COM INDICADOR DE VOZ OTIMIZADO =====
-function renderTable(table, container) {
-    const tableEl = document.createElement('div');
-    tableEl.className = 'table-item';
-    tableEl.dataset.tableId = table.id;
-    
-    const playerCount = table.players ? table.players.length : 0;
-    const isPlaying = table.status === 'playing';
-    const isFinished = table.status === 'finished';
-    const isDraw = table.status === 'draw';
-    const isWaiting = table.status === 'waiting';
-    
-    // Verificar se os jogadores têm voz ativada
-    const voiceAvailable = table.players && table.players.length === 2 && 
-                          table.players.every(p => p.voiceEnabled !== false);
-    
-    // Obter nomes dos jogadores
-    let playersInfo = '';
-    if (table.players && table.players.length > 0) {
-        playersInfo = table.players.map(player => {
-            const voiceStatus = player.voiceEnabled !== false ? 
-                '<i class="fas fa-microphone voice-enabled" title="Voz ativada"></i>' : 
-                '<i class="fas fa-microphone-slash voice-disabled" title="Voz desativada"></i>';
+  // Sistema de Voz para Jogo de Damas
+        document.addEventListener('DOMContentLoaded', function() {
+            // Elementos da UI
+            const voiceToggle = document.getElementById('voice-toggle');
+            const voiceContainer = document.getElementById('voice-chat-container');
+            const voiceClose = document.getElementById('voice-close');
+            const voiceTalk = document.getElementById('voice-talk');
+            const voiceMute = document.getElementById('voice-mute');
+            const voiceDeafen = document.getElementById('voice-deafen');
+            const voiceStatus = document.getElementById('voice-status');
+            const audioLevel = document.getElementById('voice-audio-level');
             
-            return `<span class="player-name-tag ${player.color}">${voiceStatus} ${player.displayName || 'Jogador'}</span>`;
-        }).join(' vs ');
-    }
-    
-    let tableStatus = '';
-    let actionButton = '';
-    
-    if (isFinished || isDraw) {
-        const resultClass = isDraw ? 'draw-result' : 'win-result';
-        tableStatus = `
-            <div class="table-result ${resultClass}">${table.resultText || (isDraw ? 'Empate' : 'Jogo finalizado')}</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-        `;
-        actionButton = `<button class="btn btn-secondary btn-small" disabled>Finalizado</button>`;
-    } else if (isPlaying) {
-        tableStatus = `
-            <div class="table-status">Jogando</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-            <div class="spectators-count">
-                <i class="fas fa-eye"></i> ${table.spectatorsCount || 0} espectadores
-            </div>
-        `;
-        
-        const isUserInTable = table.players && table.players.some(p => p.uid === currentUser?.uid);
-        
-        if (isUserInTable) {
-            actionButton = `
-                <button class="btn btn-warning btn-small" disabled>Jogando</button>
-                ${voiceAvailable ? 
-                    '<div class="voice-available optimized-voice"><i class="fas fa-microphone-alt"></i> Voz HD</div>' : 
-                    '<div class="voice-unavailable"><i class="fas fa-microphone-slash"></i> Sem voz</div>'
+            // Estados do sistema de voz
+            let isRecording = false;
+            let isMuted = false;
+            let isDeafened = false;
+            let mediaRecorder = null;
+            let audioContext = null;
+            let analyser = null;
+            let microphone = null;
+            let javascriptNode = null;
+            
+            // Alternar visibilidade do chat de voz
+            voiceToggle.addEventListener('click', function() {
+                if (voiceContainer.style.display === 'none') {
+                    voiceContainer.style.display = 'block';
+                    voiceToggle.textContent = '🎙️';
+                } else {
+                    voiceContainer.style.display = 'none';
+                    voiceToggle.textContent = '🎙️';
                 }
-            `;
-        } else {
-            actionButton = `
-                <button class="btn btn-info btn-small watch-btn">
-                    <i class="fas fa-eye"></i> Assistir (${table.spectatorsCount || 0})
-                </button>
-                ${voiceAvailable ? 
-                    '<div class="voice-available"><i class="fas fa-microphone"></i> Com voz</div>' : 
-                    ''
+            });
+            
+            // Fechar o chat de voz
+            voiceClose.addEventListener('click', function() {
+                voiceContainer.style.display = 'none';
+            });
+            
+            // Configurar áudio
+            async function setupAudio() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    // Configurar AudioContext para análise de áudio
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    analyser = audioContext.createAnalyser();
+                    
+                    microphone.connect(analyser);
+                    
+                    // Configurar MediaRecorder para gravação
+                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    const audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = function(event) {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = function() {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        // Aqui você enviaria o áudio para o servidor/oponente
+                        sendAudioToOpponent(audioBlob);
+                    };
+                    
+                    // Iniciar análise de áudio para visualização
+                    startAudioAnalysis();
+                    
+                    voiceStatus.textContent = 'Microfone conectado';
+                    voiceTalk.disabled = false;
+                    
+                } catch (error) {
+                    console.error('Erro ao acessar microfone:', error);
+                    voiceStatus.textContent = 'Erro ao acessar microfone';
+                    voiceTalk.disabled = true;
                 }
-            `;
-        }
-    } else if (isWaiting) {
-        tableStatus = `
-            <div class="table-status waiting">Aguardando jogador</div>
-            ${playersInfo ? `<div class="table-players">${playersInfo}</div>` : ''}
-        `;
-        actionButton = `<button class="btn btn-primary btn-small join-btn">Entrar</button>`;
-    }
-    
-    tableEl.innerHTML = `
-        <div class="table-info">
-            <div class="table-name">${table.name || `Mesa ${table.id.substring(0, 8)}`}</div>
-            <div class="table-details">
-                <span><i class="fas fa-users"></i> ${playerCount}/2</span>
-                <span><i class="fas fa-clock"></i> ${table.timeLimit || 0}s</span>
-                ${table.bet > 0 ? `<span><i class="fas fa-coins"></i> ${table.bet}</span>` : ''}
-            </div>
-            ${tableStatus}
-        </div>
-        <div class="table-actions">
-            ${actionButton}
-        </div>
-    `;
-    
-    if (isWaiting) {
-        const joinBtn = tableEl.querySelector('.join-btn');
-        if (joinBtn) {
-            joinBtn.addEventListener('click', () => joinTable(table.id));
-        }
-    } else if (isPlaying && !table.players.some(p => p.uid === currentUser?.uid)) {
-        const watchBtn = tableEl.querySelector('.watch-btn');
-        if (watchBtn) {
-            watchBtn.addEventListener('click', () => joinAsSpectator(table.id));
-        }
-    }
-    
-    if (isFinished || isDraw) {
-        tableEl.classList.add('table-finished');
-        if (isDraw) tableEl.classList.add('table-draw');
-    }
-    
-    container.appendChild(tableEl);
-}
-
-// ===== SETUP GAME LISTENER ATUALIZADO COM NOVO SISTEMA DE VOZ =====
-function setupGameListener(tableId) {
-    console.log('🔄 Iniciando listener do jogo para mesa:', tableId);
-    
-    // Remover listener anterior se existir
-    if (gameListener) {
-        console.log('🗑️ Removendo listener anterior');
-        gameListener();
-        gameListener = null;
-    }
-    
-    // Verificar se tableId é válido
-    if (!tableId) {
-        console.error('❌ ID da mesa inválido');
-        showNotification('Erro ao entrar na mesa', 'error');
-        return;
-    }
-    
-    currentGameRef = db.collection('tables').doc(tableId);
-    let lastProcessedStateHash = '';
-    let isProcessing = false;
-    
-    gameListener = currentGameRef.onSnapshot(async (doc) => {
-        // Evitar processamento simultâneo
-        if (isProcessing) {
-            console.log('⏳ Já processando, ignorando chamada duplicada');
-            return;
-        }
-        
-        isProcessing = true;
-        
-        try {
-            // Verificar se a referência ainda é a mesma
-            if (!currentGameRef || currentGameRef.id !== tableId) {
-                console.log('🔀 Referência mudou, ignorando listener');
-                isProcessing = false;
-                return;
             }
             
-            if (!doc.exists) {
-                console.log('❌ Documento não existe mais');
-                showNotification('A mesa foi encerrada', 'info');
-                leaveGame();
-                isProcessing = false;
-                return;
-            }
-            
-            const newGameState = doc.data();
-            const newStateHash = JSON.stringify(newGameState);
-            
-            // Verificar se o estado realmente mudou
-            if (newStateHash === lastProcessedStateHash) {
-                console.log('⚡ Estado inalterado, ignorando update');
-                isProcessing = false;
-                return;
-            }
-            
-            lastProcessedStateHash = newStateHash;
-            const oldGameState = gameState;
-            gameState = newGameState;
-            
-            console.log('🔄 Novo estado do jogo recebido:', gameState.status);
-            
-            // 1. PRIMEIRO: VERIFICAÇÕES CRÍTICAS
-            if (!gameState.players) gameState.players = [];
-            if (!gameState.board) gameState.board = initializeBrazilianCheckersBoard();
-            
-            // 2. CONVERSÃO DO TABULEIRO (se necessário)
-            if (gameState.board && typeof gameState.board === 'object' && !Array.isArray(gameState.board)) {
-                gameState.board = convertFirestoreFormatToBoard(gameState.board);
-            }
-            
-            // 3. VERIFICAR SE JOGO TERMINOU
-            if (gameState.status === 'finished' || gameState.status === 'draw') {
-                console.log('🏁 Jogo finalizado, processando estado final');
-                await handleFinishedGame(oldGameState, gameState);
+            // Iniciar análise de áudio para visualização
+            function startAudioAnalysis() {
+                if (!analyser) return;
                 
-                // 🔥 LIMPAR RECURSOS DE VOZ AO FINALIZAR
-                cleanupVoiceCall();
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
                 
-                isProcessing = false;
-                return;
-            }
-            
-            // 4. DETECTAR MUDANÇAS IMPORTANTES
-            const boardChanged = !oldGameState || 
-                               JSON.stringify(oldGameState.board) !== JSON.stringify(gameState.board);
-            
-            const turnChanged = !oldGameState || 
-                              oldGameState.currentTurn !== gameState.currentTurn;
-            
-            const playersChanged = !oldGameState || 
-                                 JSON.stringify(oldGameState.players) !== JSON.stringify(gameState.players);
-            
-            // 5. PROCESSAR EVENTOS ESPECÍFICOS
-            if (playersChanged && oldGameState) {
-                await handlePlayersChange(oldGameState, gameState);
-                
-                // 🔥 VERIFICAR MUDANÇAS NO STATUS DE VOZ DOS JOGADORES
-                if (gameState.players && gameState.players.length === 2) {
-                    const voiceStatusChanged = checkVoiceStatusChange(oldGameState.players, gameState.players);
-                    if (voiceStatusChanged) {
-                        console.log('🔊 Status de voz alterado, reconectando...');
-                        setTimeout(() => {
-                            connectToOpponentVoice(gameState);
-                        }, 1000);
+                function updateAudioLevel() {
+                    if (!analyser || isMuted) {
+                        audioLevel.style.width = '0%';
+                        return;
                     }
+                    
+                    analyser.getByteFrequencyData(dataArray);
+                    
+                    let sum = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        sum += dataArray[i];
+                    }
+                    
+                    const average = sum / bufferLength;
+                    const level = Math.min(100, average * 100 / 256);
+                    
+                    audioLevel.style.width = level + '%';
+                    
+                    requestAnimationFrame(updateAudioLevel);
                 }
-            }
-            
-            if (gameState.drawOffer && (!oldGameState || !oldGameState.drawOffer)) {
-                await handleDrawOffer(gameState.drawOffer);
-            }
-            
-            // 6. ATUALIZAR INTERFACE (APENAS SE NECESSÁRIO)
-            if (boardChanged || turnChanged || playersChanged) {
-                console.log('🎨 Atualizando interface');
-                updateGameInterface();
                 
-                // 🔥 VERIFICAR E ADICIONAR BOTÃO DE VOZ SE APLICÁVEL
+                updateAudioLevel();
+            }
+            
+            // Enviar áudio para o oponente (simulação)
+            function sendAudioToOpponent(audioBlob) {
+                // Aqui você implementaria o envio do áudio para o oponente
+                // via WebSockets, WebRTC ou seu backend
+                console.log('Áudio gravado, tamanho:', audioBlob.size, 'bytes');
+                
+                // Simulação de envio
+                voiceStatus.textContent = 'Enviando áudio...';
+                
                 setTimeout(() => {
-                    checkAndAddVoiceButton();
+                    voiceStatus.textContent = 'Áudio enviado';
+                    setTimeout(() => {
+                        voiceStatus.textContent = 'Pronto para conversar';
+                    }, 2000);
                 }, 1000);
             }
             
-            // 7. GERENCIAR TIMER
-            manageGameTimer(oldGameState, gameState);
+            // Botão para falar (push-to-talk)
+            voiceTalk.addEventListener('mousedown', startRecording);
+            voiceTalk.addEventListener('mouseup', stopRecording);
+            voiceTalk.addEventListener('touchstart', startRecording);
+            voiceTalk.addEventListener('touchend', stopRecording);
             
-            // 8. INICIALIZAR SISTEMAS SECUNDÁRIOS
-            if (gameState.status === 'playing' && (!oldGameState || oldGameState.status !== 'playing')) {
-                console.log('🎮 Jogo iniciado, configurando sistemas');
-                setupChatListener();
-                setupSpectatorsListener(tableId);
+            function startRecording(e) {
+                if (e) e.preventDefault();
+                if (isMuted || isDeafened || !mediaRecorder) return;
                 
-                // 🔥 INICIAR SISTEMA DE VOZ OTIMIZADO SE HOUVER DOIS JOGADORES
-                if (gameState.players && gameState.players.length === 2) {
-                    setTimeout(() => {
-                        initializeVoiceSystem().then(voiceSys => {
-                            if (voiceSys) {
-                                voiceSystem = voiceSys;
-                                
-                                // Delay adicional para melhor estabilidade
-                                setTimeout(() => {
-                                    connectToOpponentVoice(gameState);
-                                }, 2000);
-                            }
-                        });
-                    }, 1500);
-                }
+                isRecording = true;
+                voiceTalk.classList.add('recording');
+                voiceStatus.textContent = 'Gravando...';
+                
+                mediaRecorder.start();
             }
             
-            // 9. VERIFICAR FIM DE JOGO
-            if (boardChanged && gameState.status === 'playing') {
-                checkGameEnd(gameState.board, gameState.currentTurn);
+            function stopRecording(e) {
+                if (e) e.preventDefault();
+                if (!isRecording) return;
+                
+                isRecording = false;
+                voiceTalk.classList.remove('recording');
+                voiceStatus.textContent = 'Enviando áudio...';
+                
+                mediaRecorder.stop();
             }
             
-        } catch (error) {
-            console.error('💥 Erro crítico no listener:', error);
-            showNotification('Erro de conexão com o jogo', 'error');
-        } finally {
-            isProcessing = false;
-        }
-        
-    }, (error) => {
-        console.error('📡 Erro no listener:', error);
-        
-        if (error.code !== 'cancelled') {
-            showNotification('Erro de conexão com o jogo', 'error');
-            
-            if (error.code === 'permission-denied' || error.code === 'not-found') {
-                setTimeout(() => leaveGame(), 2000);
-            }
-        }
-    });
-}
-
-// ===== FUNÇÃO AUXILIAR: VERIFICAR MUDANÇAS NO STATUS DE VOZ =====
-function checkVoiceStatusChange(oldPlayers, newPlayers) {
-    if (!oldPlayers || !newPlayers) return false;
-    
-    for (let i = 0; i < newPlayers.length; i++) {
-        const newPlayer = newPlayers[i];
-        const oldPlayer = oldPlayers.find(p => p.uid === newPlayer.uid);
-        
-        if (oldPlayer) {
-            if (oldPlayer.voiceEnabled !== newPlayer.voiceEnabled ||
-                oldPlayer.voicePeerId !== newPlayer.voicePeerId) {
-                return true;
-            }
-        }
-    }
-    
-    return false;
-}
-
-
-
-
-// ===== INICIAR CHAMADA DE VOZ =====
-function startVoiceCall() {
-    if (!opponentPeerId) {
-        showNotification('Oponente não disponível para voz', 'warning');
-        return;
-    }
-    
-    navigator.mediaDevices.getUserMedia({ video: false, audio: true })
-        .then((stream) => {
-            const call = peer.call(opponentPeerId, stream);
-            
-            call.on('stream', (remoteStream) => {
-                // Criar elemento de áudio
-                const audio = document.createElement('audio');
-                audio.srcObject = remoteStream;
-                audio.autoplay = true;
-                audio.volume = 0.8;
-                
-                // Mostrar controles de voz
-                showVoiceControls(audio, call);
-                
-                showNotification('Chamada de voz conectada', 'success');
-            });
-            
-            call.on('close', () => {
-                showNotification('Chamada de voz encerrada', 'info');
-                hideVoiceControls();
-            });
-            
-            call.on('error', (error) => {
-                console.error('Erro na chamada:', error);
-                showNotification('Erro na chamada de voz', 'error');
-                hideVoiceControls();
-            });
-        })
-        .catch((error) => {
-            console.error('Erro ao acessar microfone:', error);
-            showNotification('Permissão de microfone negada', 'error');
-        });
-}
-// ===== FUNÇÃO GLOBAL PARA MOSTRAR PAINEL DE VOZ =====
-function showVoiceControlPanel(audioElement, call) {
-    console.log('🎛️ Tentando mostrar painel de voz...');
-    
-    // Primeiro, garantir que qualquer painel existente seja removido
-    hideVoiceControls();
-    
-    // Pequeno delay para garantir que o DOM está pronto
-    setTimeout(() => {
-        // Criar o painel de controles
-        const panel = document.createElement('div');
-        panel.id = 'voice-control-panel';
-        panel.style.cssText = `
-            position: fixed;
-            bottom: 100px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.95);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(12px);
-            border: 2px solid #fdbb2d;
-            width: 300px;
-            color: white;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            z-index: 10000;
-            animation: slideIn 0.3s ease-out;
-        `;
-
-        panel.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #fdbb2d;">
-                <div style="display: flex; align-items: center; gap: 10px; font-weight: bold; font-size: 16px;">
-                    <i class="fas fa-microphone-alt" style="color: #fdbb2d;"></i>
-                    <span>Controles de Voz</span>
-                </div>
-                <button id="close-voice-panel" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px; padding: 5px;">×</button>
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                    <i class="fas fa-volume-up" style="margin-right: 10px; color: #ccc;"></i>
-                    <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
-                           style="flex: 1; height: 6px; border-radius: 3px; background: #34495e;">
-                    <span id="volume-value" style="margin-left: 10px; font-size: 12px; min-width: 30px;">70%</span>
-                </div>
-                
-                <div style="display: flex; align-items: center; margin-bottom: 15px;">
-                    <i class="fas fa-bullseye" style="margin-right: 10px; color: #ccc;"></i>
-                    <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="0.05" 
-                           style="flex: 1; height: 6px; border-radius: 3px; background: #34495e;">
-                    <span id="sensitivity-value" style="margin-left: 10px; font-size: 12px; min-width: 30px;">Média</span>
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                <button id="mute-toggle" style="padding: 10px; border: none; border-radius: 8px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                    <i class="fas fa-microphone"></i> Mutar
-                </button>
-                <button id="deafen-toggle" style="padding: 10px; border: none; border-radius: 8px; background: #9b59b6; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                    <i class="fas fa-volume-up"></i> Silenciar
-                </button>
-            </div>
-            
-            <button id="end-call-btn" style="width: 100%; padding: 12px; border: none; border-radius: 8px; background: #e74c3c; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                <i class="fas fa-phone-slash"></i> Encerrar Chamada
-            </button>
-            
-            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #444; text-align: center;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: #2ecc71;">
-                    <div style="width: 10px; height: 10px; border-radius: 50%; background: #2ecc71; animation: pulse 1.5s infinite;"></div>
-                    <span>Conexão Estável</span>
-                </div>
-            </div>
-        `;
-
-        // Adicionar ao documento
-        document.body.appendChild(panel);
-        
-        console.log('✅ Painel de voz adicionado ao DOM');
-        
-        // Configurar eventos
-        setupVoicePanelEvents(audioElement, call);
-        
-    }, 100);
-}
-
-
-
-// ===== CONFIGURAR EVENTOS DO PAINEL =====
-function setupVoicePanelEvents(audioElement, call) {
-    console.log('⚙️ Configurando eventos do painel de voz...');
-    
-    // Volume
-    const volumeSlider = document.getElementById('voice-volume');
-    const volumeValue = document.getElementById('volume-value');
-    
-    if (volumeSlider && volumeValue && audioElement) {
-        volumeSlider.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            audioElement.volume = value;
-            volumeValue.textContent = Math.round(value * 100) + '%';
-        });
-    }
-    
-    // Sensibilidade
-    const sensitivitySlider = document.getElementById('voice-sensitivity');
-    const sensitivityValue = document.getElementById('sensitivity-value');
-    
-    if (sensitivitySlider && sensitivityValue) {
-        sensitivitySlider.addEventListener('input', (e) => {
-            const value = parseFloat(e.target.value);
-            VOICE_SETTINGS.noiseThreshold = value;
-            
-            let sensitivityText = 'Baixa';
-            if (value > 0.1) sensitivityText = 'Alta';
-            else if (value > 0.05) sensitivityText = 'Média';
-            
-            sensitivityValue.textContent = sensitivityText;
-        });
-    }
-    
-    // Botão de mutar
-    const muteButton = document.getElementById('mute-toggle');
-    if (muteButton && localStream) {
-        let isMuted = false;
-        muteButton.addEventListener('click', () => {
-            const audioTracks = localStream.getAudioTracks();
-            if (audioTracks.length > 0) {
+            // Botão de mutar
+            voiceMute.addEventListener('click', function() {
                 isMuted = !isMuted;
-                audioTracks[0].enabled = !isMuted;
                 
-                muteButton.innerHTML = isMuted ? 
-                    '<i class="fas fa-microphone-slash"></i> Ativar' : 
-                    '<i class="fas fa-microphone"></i> Mutar';
-                
-                muteButton.style.background = isMuted ? '#e74c3c' : '#3498db';
-                
-                showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
-            }
-        });
-    }
-    
-    // Botão de silenciar
-    const deafenButton = document.getElementById('deafen-toggle');
-    if (deafenButton && audioElement) {
-        let isDeafened = false;
-        deafenButton.addEventListener('click', () => {
-            isDeafened = !isDeafened;
-            audioElement.volume = isDeafened ? 0 : parseFloat(volumeSlider.value);
-            
-            deafenButton.innerHTML = isDeafened ? 
-                '<i class="fas fa-volume-mute"></i> Ouvir' : 
-                '<i class="fas fa-volume-up"></i> Silenciar';
-            
-            deafenButton.style.background = isDeafened ? '#e74c3c' : '#9b59b6';
-            
-            showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
-        });
-    }
-    
-    // Botão de encerrar
-    const endCallButton = document.getElementById('end-call-btn');
-    if (endCallButton) {
-        endCallButton.addEventListener('click', () => {
-            if (call) {
-                call.close();
-            }
-            hideVoiceControls();
-            showNotification('Chamada de voz encerrada', 'info');
-        });
-    }
-    
-    // Botão de fechar
-    const closeButton = document.getElementById('close-voice-panel');
-    if (closeButton) {
-        closeButton.addEventListener('click', hideVoiceControls);
-    }
-    
-    console.log('✅ Eventos do painel de voz configurados');
-}
-
-
-
-
-// ===== ADICIONAR ESTILOS DE ANIMAÇÃO =====
-const voiceAnimationStyles = `
-<style>
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1; }
-}
-
-.quality-dot {
-    animation: pulse 2s infinite;
-}
-
-#voice-call-btn {
-    animation: pulse 2s infinite;
-}
-
-#voice-call-btn:hover {
-    animation: none;
-}
-</style>
-`;
-
-// Adicionar estilos de animação
-document.head.insertAdjacentHTML('beforeend', voiceAnimationStyles);
-
-console.log('✅ Funções de voz corrigidas - Painel deve aparecer agora');
-
-
-// ===== REMOVER BOTÃO DE VOZ AO SAIR DO JOGO =====
-function cleanupVoiceControls() {
-    const voiceBtn = document.getElementById('voice-call-btn');
-    if (voiceBtn) {
-        voiceBtn.remove();
-    }
-    
-    hideVoiceControls();
-    
-    // Fechar conexão PeerJS se existir
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
-    
-    voiceSystem = null;
-    currentPeerId = null;
-    opponentPeerId = null;
-}
-
-// ===== ATUALIZAR FUNÇÃO leaveGame PARA LIMPAR CONTROLES DE VOZ =====
-const originalLeaveGame = leaveGame;
-leaveGame = function() {
-    cleanupVoiceControls();
-    return originalLeaveGame.apply(this, arguments);
-};
-
-console.log('✅ Sistema de voz integrado às funções de jogo');
-
-
-// ===== FUNÇÃO connectToOpponentVoice ATUALIZADA =====
-async function connectToOpponentVoice(tableData) {
-    if (!peer || !currentPeerId) {
-        console.warn('Sistema de voz não disponível');
-        return;
-    }
-
-    try {
-        const opponent = tableData.players.find(p => p.uid !== currentUser.uid);
-        if (!opponent) return;
-
-        const opponentUserDoc = await db.collection('users').doc(opponent.uid).get();
-        if (opponentUserDoc.exists) {
-            const opponentData = opponentUserDoc.data();
-            
-            if (opponentData.voicePeerId && opponentData.voiceEnabled !== false) {
-                opponentPeerId = opponentData.voicePeerId;
-                console.log('🔗 Conectando ao oponente via voz:', opponentPeerId);
-                
-                // 🔥 CORREÇÃO: Configurar conexão de dados primeiro
-                const conn = peer.connect(opponentPeerId, {
-                    reliable: true,
-                    serialization: 'json'
-                });
-                
-                conn.on('open', () => {
-                    console.log('✅ Conexão de dados estabelecida com oponente');
-                    
-                    // 🔥 CORREÇÃO: Só iniciar chamada de voz após conexão de dados
-                    setTimeout(() => {
-                        if (!activeCall) {
-                            startOptimizedVoiceCall();
-                        }
-                    }, 500);
-                });
-                
-                conn.on('data', (data) => {
-                    handleVoiceData(data, opponent.displayName || 'Oponente');
-                });
-                
-                conn.on('error', (error) => {
-                    console.warn('Erro na conexão de dados:', error);
-                });
-            }
-        }
-    } catch (error) {
-        console.warn('Erro ao conectar com oponente:', error);
-    }
-}
-
-
-// ===== SISTEMA DE VOZ APERFEIÇOADO =====
-
-let activeCall = null;
-let localStream = null;
-let audioContext = null;
-let voiceProcessor = null;
-
-// Configurações avançadas de áudio
-const VOICE_SETTINGS = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    sampleRate: 48000,
-    channelCount: 1,
-    volume: 0.7,
-    noiseThreshold: 0.05,
-    echoCancellationType: 'system' // 'system' ou 'software'
-};
-
-// Inicializar sistema de voz com configurações avançadas
-async function initializeVoiceSystem() {
-    try {
-        if (typeof Peer === 'undefined') {
-            console.warn('PeerJS não carregado, sistema de voz desativado');
-            return null;
-        }
-
-        // Criar ID único
-        const peerId = `damas-${currentUser.uid.substring(0, 8)}-${Date.now().toString(36)}`;
-        
-        peer = new Peer(peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/',
-            debug: 1,
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
-                ]
-            }
-        });
-
-        return new Promise((resolve) => {
-            peer.on('open', (id) => {
-                console.log('✅ Sistema de voz conectado com ID:', id);
-                currentPeerId = id;
-                
-                // Salvar PeerID no perfil
-                db.collection('users').doc(currentUser.uid).update({
-                    voicePeerId: currentPeerId,
-                    voiceEnabled: true
-                });
-                
-                resolve(peer);
-            });
-
-            peer.on('error', (err) => {
-                console.warn('⚠️ Erro no PeerJS:', err);
-                resolve(null);
-            });
-
-            // Configurar timeout
-            setTimeout(() => resolve(null), 5000);
-        });
-    } catch (error) {
-        console.warn('⚠️ Erro ao inicializar sistema de voz:', error);
-        return null;
-    }
-}
-
-
-
-// Configurar processamento de áudio avançado
-async function setupAudioProcessing() {
-    try {
-        // Obter stream de áudio com configurações otimizadas
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: VOICE_SETTINGS.echoCancellation,
-                noiseSuppression: VOICE_SETTINGS.noiseSuppression,
-                autoGainControl: VOICE_SETTINGS.autoGainControl,
-                sampleRate: VOICE_SETTINGS.sampleRate,
-                channelCount: VOICE_SETTINGS.channelCount
-            },
-            video: false
-        });
-
-        // Configurar AudioContext para processamento avançado
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: VOICE_SETTINGS.sampleRate
-        });
-
-        // Criar nós de processamento
-        const source = audioContext.createMediaStreamSource(localStream);
-        const destination = audioContext.createMediaStreamDestination();
-        
-        // Aplicar filtros para reduzir eco e ruído
-        const filters = setupAudioFilters(source, destination);
-        
-        // Conectar todos os filtros em série
-        source.connect(filters.lowPass);
-        filters.lowPass.connect(filters.highPass);
-        filters.highPass.connect(filters.noiseSuppress);
-        filters.noiseSuppress.connect(destination);
-        
-        // Substituir stream original pela processada
-        const processedStream = destination.stream;
-        
-        return processedStream;
-
-    } catch (error) {
-        console.error('Erro no processamento de áudio:', error);
-        return localStream; // Fallback para stream não processado
-    }
-}
-
-
-// Configurar filtros de áudio
-function setupAudioFilters(source, destination) {
-    // Filtro passa-baixa (reduz agudos que causam eco)
-    const lowPass = audioContext.createBiquadFilter();
-    lowPass.type = 'lowpass';
-    lowPass.frequency.value = 4000; // Corta frequências acima de 4kHz
-    lowPass.Q.value = 0.5;
-
-    // Filtro passa-alta (reduz ruídos graves)
-    const highPass = audioContext.createBiquadFilter();
-    highPass.type = 'highpass';
-    highPass.frequency.value = 80; // Corta frequências abaixo de 80Hz
-    highPass.Q.value = 0.5;
-
-    // Compressor para normalizar volume
-    const compressor = audioContext.createDynamicsCompressor();
-    compressor.threshold.value = -24;
-    compressor.knee.value = 30;
-    compressor.ratio.value = 12;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
-
-    // Noise gate (reduz ruído de fundo)
-    const noiseSuppress = audioContext.createGain();
-    noiseSuppress.gain.value = 1;
-
-    // Configurar noise gate automático
-    setupNoiseGate(source, noiseSuppress);
-
-    return {
-        lowPass,
-        highPass,
-        compressor,
-        noiseSuppress
-    };
-}
-
-
-// Configurar noise gate automático
-function setupNoiseGate(source, gainNode) {
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    let silenceStart = Date.now();
-
-    function checkVolume() {
-        analyser.getByteFrequencyData(dataArray);
-        
-        let sum = 0;
-        for (const value of dataArray) {
-            sum += value;
-        }
-        
-        const average = sum / dataArray.length;
-        const normalized = average / 256;
-        
-        // Aplicar noise gate
-        if (normalized < VOICE_SETTINGS.noiseThreshold) {
-            const silenceDuration = Date.now() - silenceStart;
-            if (silenceDuration > 300) { // 300ms de silêncio
-                gainNode.gain.setTargetAtTime(0.01, audioContext.currentTime, 0.1);
-            }
-        } else {
-            silenceStart = Date.now();
-            gainNode.gain.setTargetAtTime(1, audioContext.currentTime, 0.05);
-        }
-
-        requestAnimationFrame(checkVolume);
-    }
-
-    checkVolume();
-}
-
-
-// Criar elemento de áudio otimizado
-function createOptimizedAudioElement(stream) {
-    const audio = new Audio();
-    audio.srcObject = stream;
-    audio.autoplay = true;
-    audio.volume = VOICE_SETTINGS.volume;
-    
-    // Configurações para reduzir eco
-    audio.mozPreservesPitch = false;
-    audio.webkitPreservesPitch = false;
-    audio.preservesPitch = false;
-    
-    // Configurar equalização
-    if (audioContext && audio.setSinkId) {
-        try {
-            // Tentar usar fones de ouvido para reduzir eco
-            audio.setSinkId('').catch(() => {});
-        } catch (e) {}
-    }
-    
-    return audio;
-}
-
-
-
-// ===== FUNÇÃO showAdvancedVoiceControls ATUALIZADA =====
-function showAdvancedVoiceControls(audioElement, call) {
-    // 🔥 CORREÇÃO: Remover controles existentes primeiro
-    hideVoiceControls();
-    
-    const controls = document.createElement('div');
-    controls.id = 'advanced-voice-controls';
-    controls.style.cssText = `
-        position: fixed;
-        bottom: 100px;
-        right: 20px;
-        background: rgba(0, 0, 0, 0.95);
-        border-radius: 15px;
-        padding: 15px;
-        box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(10px);
-        border: 2px solid #fdbb2d;
-        width: 280px;
-        color: white;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        z-index: 10000;
-    `;
-
-    controls.innerHTML = `
-        <div class="voice-controls-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #fdbb2d;">
-            <div style="display: flex; align-items: center; gap: 8px; font-weight: bold;">
-                <i class="fas fa-microphone-alt"></i>
-                <span>Controles de Voz</span>
-            </div>
-            <button id="close-voice-controls" style="background: none; border: none; color: white; cursor: pointer; font-size: 18px;">×</button>
-        </div>
-        
-        <div class="voice-controls-body">
-            <div class="voice-control-group" style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Volume</label>
-                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="${VOICE_SETTINGS.volume}" 
-                       style="width: 100%; padding: 5px;">
-            </div>
-            
-            <div class="voice-control-group" style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Redução de Eco</label>
-                <select id="echo-cancellation" style="width: 100%; padding: 8px; border-radius: 5px; background: #2c3e50; color: white; border: 1px solid #34495e;">
-                    <option value="auto" selected>Automático</option>
-                    <option value="aggressive">Agressivo</option>
-                    <option value="moderate">Moderado</option>
-                </select>
-            </div>
-            
-            <div class="voice-control-group" style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Redução de Ruído</label>
-                <select id="noise-reduction" style="width: 100%; padding: 8px; border-radius: 5px; background: #2c3e50; color: white; border: 1px solid #34495e;">
-                    <option value="high">Alta</option>
-                    <option value="medium" selected>Média</option>
-                    <option value="low">Baixa</option>
-                </select>
-            </div>
-            
-            <div class="voice-control-group" style="margin-bottom: 20px;">
-                <label style="display: block; margin-bottom: 5px; font-size: 12px; color: #ccc;">Sensibilidade</label>
-                <input type="range" id="voice-sensitivity" min="0.01" max="0.2" step="0.01" value="${VOICE_SETTINGS.noiseThreshold}" 
-                       style="width: 100%; padding: 5px;">
-            </div>
-            
-            <div class="voice-control-buttons" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                <button id="mute-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                    <i class="fas fa-microphone"></i> Mutar
-                </button>
-                <button id="deafen-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
-                    <i class="fas fa-volume-mute"></i> Silenciar
-                </button>
-                <button id="end-call" class="voice-btn" style="padding: 10px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center;">
-                    <i class="fas fa-phone-slash"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div class="voice-controls-footer" style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #444; text-align: center;">
-            <div class="voice-quality-indicator" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px;">
-                <span class="quality-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #2ecc71; animation: pulse 2s infinite;"></span>
-                <span>Qualidade: Boa</span>
-            </div>
-        </div>
-    `;
-
-    document.body.appendChild(controls);
-    
-    // 🔥 CORREÇÃO: Garantir que o elemento de áudio está acessível
-    if (audioElement) {
-        window.voiceAudioElement = audioElement;
-    }
-    
-    // 🔥 CORREÇÃO: Configurar eventos após o elemento ser adicionado ao DOM
-    setTimeout(() => {
-        setupAdvancedControlEvents(audioElement, call);
-    }, 100);
-}
-// ===== FUNÇÃO setupAdvancedControlEvents ATUALIZADA =====
-function setupAdvancedControlEvents(audioElement, call) {
-    if (!audioElement) {
-        console.warn('Elemento de áudio não disponível para configuração de controles');
-        return;
-    }
-
-    // Volume
-    const volumeSlider = document.getElementById('voice-volume');
-    if (volumeSlider) {
-        volumeSlider.addEventListener('input', (e) => {
-            VOICE_SETTINGS.volume = parseFloat(e.target.value);
-            audioElement.volume = VOICE_SETTINGS.volume;
-        });
-    }
-
-    // Sensibilidade
-    const sensitivitySlider = document.getElementById('voice-sensitivity');
-    if (sensitivitySlider) {
-        sensitivitySlider.addEventListener('input', (e) => {
-            VOICE_SETTINGS.noiseThreshold = parseFloat(e.target.value);
-        });
-    }
-
-    // Fechar controles
-    const closeButton = document.getElementById('close-voice-controls');
-    if (closeButton) {
-        closeButton.addEventListener('click', hideVoiceControls);
-    }
-
-    // Mutar
-    const muteButton = document.getElementById('mute-call');
-    if (muteButton && localStream) {
-        let isMuted = false;
-        muteButton.addEventListener('click', () => {
-            const audioTracks = localStream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                isMuted = !isMuted;
-                audioTracks[0].enabled = !isMuted;
-                
-                muteButton.innerHTML = isMuted ? 
-                    '<i class="fas fa-microphone-slash"></i> Ativar' : 
-                    '<i class="fas fa-microphone"></i> Mutar';
-                
-                showNotification(isMuted ? 'Microfone desativado' : 'Microfone ativado', 'info');
-            }
-        });
-    }
-
-    // Silenciar
-    const deafenButton = document.getElementById('deafen-call');
-    if (deafenButton && audioElement) {
-        let isDeafened = false;
-        deafenButton.addEventListener('click', () => {
-            isDeafened = !isDeafened;
-            audioElement.volume = isDeafened ? 0 : VOICE_SETTINGS.volume;
-            
-            deafenButton.innerHTML = isDeafened ? 
-                '<i class="fas fa-volume-up"></i> Ouvir' : 
-                '<i class="fas fa-volume-mute"></i> Silenciar';
-            
-            showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
-        });
-    }
-
-    // Encerrar chamada
-    const endCallButton = document.getElementById('end-call');
-    if (endCallButton) {
-        endCallButton.addEventListener('click', () => {
-            if (call) {
-                call.close();
-            }
-            hideVoiceControls();
-            showNotification('Chamada de voz encerrada', 'info');
-        });
-    }
-}
-
-
-
-// ===== ADICIONAR ANIMAÇÕES CSS =====
-const voicePanelStyles = `
-<style>
-    @keyframes slideIn {
-        from {
-            transform: translateX(100px);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100px);
-            opacity: 0;
-        }
-    }
-    
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-    
-    #voice-control-panel {
-        animation: slideIn 0.3s ease-out;
-    }
-    
-    #voice-control-panel input[type="range"] {
-        -webkit-appearance: none;
-        appearance: none;
-        height: 6px;
-        border-radius: 3px;
-        background: #34495e;
-        outline: none;
-    }
-    
-    #voice-control-panel input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #fdbb2d;
-        cursor: pointer;
-    }
-    
-    #voice-control-panel button {
-        transition: all 0.2s ease;
-    }
-    
-    #voice-control-panel button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-    }
-</style>
-`;
-
-// Adicionar estilos ao documento
-document.head.insertAdjacentHTML('beforeend', voicePanelStyles);
-
-
-
-
-
-
-
-
-// ===== VERIFICAR SE O PAINEL JÁ EXISTE =====
-function isVoicePanelVisible() {
-    return document.getElementById('voice-control-panel') !== null;
-}
-
-// ===== ADICIONAR ESTILOS SIMPLES =====
-const simpleVoiceStyles = `
-<style>
-    #voice-control-panel {
-        animation: fadeIn 0.3s ease-in;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    #voice-control-panel input[type="range"] {
-        width: 100%;
-        height: 6px;
-        border-radius: 3px;
-        background: #34495e;
-    }
-    
-    #voice-control-panel button:hover {
-        opacity: 0.9;
-        transform: translateY(-1px);
-    }
-    
-    #voice-call-btn {
-        transition: all 0.3s ease;
-    }
-    
-    #voice-call-btn:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-    }
-</style>
-`;
-
-// Adicionar estilos
-document.head.insertAdjacentHTML('beforeend', simpleVoiceStyles);
-
-console.log('🔥 Sistema de voz simplificado carregado!');
-
-setTimeout(() => { showVoicePanelImmediately(); }, 3000);
-
-
-
-
-
-
-
-
-
-
-
-
-// ===== MONITORAR MUDANÇAS NA TELA =====
-let lastScreen = '';
-
-function monitorScreenChanges() {
-    setInterval(() => {
-        const gameScreen = document.getElementById('game-screen');
-        const currentScreen = gameScreen && gameScreen.style.display !== 'none' ? 'game' : 'other';
-        
-        if (currentScreen !== lastScreen) {
-            console.log('🔄 Mudança de tela detectada:', lastScreen, '->', currentScreen);
-            lastScreen = currentScreen;
-            
-            if (currentScreen === 'game') {
-                // Pequeno delay para garantir que a interface esteja carregada
-                setTimeout(() => {
-                    checkAndAddVoiceButton();
-                }, 2000);
-            } else {
-                // Remover botão se sair da tela de jogo
-                const voiceBtn = document.getElementById('voice-call-btn');
-                if (voiceBtn) {
-                    voiceBtn.remove();
-                    console.log('🗑️ Botão de voz removido (saiu da tela de jogo)');
+                if (isMuted) {
+                    voiceMute.innerHTML = '<i>🔈</i> Ativar Som';
+                    voiceStatus.textContent = 'Microfone desativado';
+                } else {
+                    voiceMute.innerHTML = '<i>🔇</i> Silenciar';
+                    voiceStatus.textContent = 'Microfone ativado';
                 }
-            }
-        }
-    }, 1000);
-}
-
-// ===== INICIAR MONITORAMENTO =====
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(() => {
-        monitorScreenChanges();
-        console.log('👀 Monitoramento de tela iniciado');
-    }, 3000);
-});
-
-
-console.log('✅ Sistema de voz melhorado carregado!');
-
-
-
-// ===== REMOVER ESTILOS CONFLITANTES E CRIAR ESTILOS OTIMIZADOS =====
-function setupVoiceStyles() {
-    // Remover estilos antigos se existirem
-    const oldStyles = document.getElementById('voice-styles');
-    if (oldStyles) {
-        oldStyles.remove();
-    }
-    
-    // Adicionar novos estilos otimizados
-    const styles = `
-    <style id="voice-styles">
-        /* BOTÃO DE VOZ PRINCIPAL */
-        #voice-call-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 15px;
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            cursor: pointer;
-            z-index: 9999;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            font-size: 18px;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-        
-        #voice-call-btn:hover {
-            transform: scale(1.1);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-        }
-        
-        /* PAINEL DE CONTROLE DE VOZ */
-        #voice-control-panel {
-            position: fixed;
-            bottom: 100px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.95);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-            border: 2px solid #fdbb2d;
-            width: 280px;
-            color: white;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            z-index: 10000;
-            animation: fadeIn 0.3s ease-in;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        #voice-control-panel h3 {
-            margin: 0 0 15px 0;
-            color: #fdbb2d;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        #voice-control-panel label {
-            display: block;
-            margin-bottom: 5px;
-            color: #ccc;
-            font-size: 14px;
-        }
-        
-        #voice-control-panel input[type="range"] {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: #34495e;
-            -webkit-appearance: none;
-            appearance: none;
-        }
-        
-        #voice-control-panel input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: #fdbb2d;
-            cursor: pointer;
-        }
-        
-        #voice-control-panel button {
-            padding: 10px;
-            border: none;
-            border-radius: 5px;
-            color: white;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-        }
-        
-        #voice-control-panel button:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
-        }
-        
-        #mute-btn {
-            background: #3498db;
-        }
-        
-        #deafen-btn {
-            background: #9b59b6;
-        }
-        
-        #end-call-btn {
-            background: #e74c3c;
-            width: 100%;
-            padding: 12px;
-        }
-        
-        /* REMOVER ESTILOS ANTIGOS CONFLITANTES */
-        .voice-chat-container {
-            display: none !important;
-        }
-        
-        .voice-toggle {
-            display: none !important;
-        }
-    </style>
-    `;
-    
-    document.head.insertAdjacentHTML('beforeend', styles);
-    console.log('✅ Estilos de voz otimizados carregados');
-}
-
-
-// ===== FUNÇÃO checkAndAddVoiceButton ATUALIZADA =====
-function checkAndAddVoiceButton() {
-    // Verificar se estamos na tela de jogo
-    const gameScreen = document.getElementById('game-screen');
-    if (!gameScreen || gameScreen.style.display === 'none') {
-        return;
-    }
-    
-    // Verificar se há um jogo ativo
-    if (!gameState || !gameState.players) {
-        return;
-    }
-    
-    // Verificar se o usuário é um jogador
-    const isPlayer = gameState.players.some(p => p.uid === currentUser?.uid);
-    if (!isPlayer) {
-        return;
-    }
-    
-    // Adicionar botão se não existir
-    if (!document.getElementById('voice-call-btn')) {
-        addVoiceButtonToGameScreen();
-    }
-}
-
-
-// ===== VERIFICAR E CORRIGIR CONFLITOS =====
-function fixVoiceUIConflicts() {
-    console.log('🔍 Verificando conflitos de UI...');
-    
-    // Remover elementos antigos que podem estar causando conflitos
-    const oldContainers = document.querySelectorAll('.voice-chat-container, .voice-toggle');
-    oldContainers.forEach(element => {
-        if (element.parentNode) {
-            element.remove();
-            console.log('🗑️ Elemento antigo removido:', element.className);
-        }
-    });
-    
-    // Garantir que o botão atual esteja visível
-    const voiceBtn = document.getElementById('voice-call-btn');
-    if (voiceBtn) {
-        voiceBtn.style.display = 'flex';
-        voiceBtn.style.zIndex = '9999';
-    }
-    
-    // Garantir que o painel tenha a prioridade máxima
-    const voicePanel = document.getElementById('voice-control-panel');
-    if (voicePanel) {
-        voicePanel.style.zIndex = '10000';
-    }
-}
-
-// ===== ATUALIZAR addVoiceButtonToGameScreen =====
-function addVoiceButtonToGameScreen() {
-    console.log('🎨 Adicionando botão de voz...');
-    
-    // Primeiro, corrigir possíveis conflitos
-    fixVoiceUIConflicts();
-    
-    // Verificar se o botão já existe
-    if (document.getElementById('voice-call-btn')) {
-        console.log('✅ Botão já existe');
-        return;
-    }
-    
-    // Criar botão
-    const voiceBtn = document.createElement('button');
-    voiceBtn.id = 'voice-call-btn';
-    voiceBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-    voiceBtn.title = 'Chamada de Voz';
-    
-    // Estilos do botão
-    voiceBtn.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        padding: 15px;
-        background: linear-gradient(135deg, #1a2a6c, #b21f1f);
-        color: white;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
-        z-index: 9999;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        font-size: 18px;
-        width: 50px;
-        height: 50px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
-    
-    // Adicionar ao documento
-    document.body.appendChild(voiceBtn);
-    
-    // Configurar evento de clique
-    voiceBtn.addEventListener('click', () => {
-        console.log('🎙️ Botão de voz clicado');
-        startOptimizedVoiceCall();
-    });
-    
-    console.log('✅ Botão de voz adicionado');
-}
-
-// ===== FUNÇÃO startOptimizedVoiceCall =====
-async function startOptimizedVoiceCall() {
-    console.log('🎯 Iniciando chamada de voz...');
-    
-    if (!opponentPeerId) {
-        showNotification('Aguardando oponente conectar...', 'info');
-        
-        // Tentar obter opponentPeerId do gameState
-        if (gameState && gameState.players) {
-            const opponent = gameState.players.find(p => p.uid !== currentUser?.uid);
-            if (opponent && opponent.voicePeerId) {
-                opponentPeerId = opponent.voicePeerId;
-                console.log('✅ OpponentPeerId obtido do gameState:', opponentPeerId);
-            }
-        }
-        
-        if (!opponentPeerId) {
-            showNotification('Oponente não disponível para voz', 'warning');
-            return;
-        }
-    }
-
-    try {
-        // Processar áudio
-        const processedStream = await setupAudioProcessing();
-        
-        if (!peer) {
-            await initializeVoiceSystem();
-        }
-        
-        activeCall = peer.call(opponentPeerId, processedStream);
-
-        activeCall.on('stream', (remoteStream) => {
-            console.log('📞 Stream de voz recebido');
-            const audio = new Audio();
-            audio.srcObject = remoteStream;
-            audio.autoplay = true;
-            audio.volume = 0.7;
+            });
             
-            window.voiceAudioElement = audio;
+            // Botão de silenciar todos
+            voiceDeafen.addEventListener('click', function() {
+                isDeafened = !isDeafened;
+                
+                if (isDeafened) {
+                    voiceDeafen.innerHTML = '<i>🔈</i> Ativar Áudio';
+                    voiceStatus.textContent = 'Áudio desativado';
+                } else {
+                    voiceDeafen.innerHTML = '<i>🔇</i> Silenciar Todos';
+                    voiceStatus.textContent = 'Áudio ativado';
+                }
+            });
             
-            // MOSTRAR PAINEL DE CONTROLE
-            showVoicePanelImmediately();
+            // Inicializar o sistema de voz quando a página carregar
+            setupAudio();
             
-            showNotification('Chamada de voz conectada!', 'success');
+            // Adicionar este sistema ao seu jogo existente
+            console.log('Sistema de voz carregado com sucesso!');
         });
 
-        activeCall.on('close', cleanupVoiceCall);
-        activeCall.on('error', cleanupVoiceCall);
 
-    } catch (error) {
-        console.error('❌ Erro na chamada de voz:', error);
-        showNotification('Erro ao conectar voz: ' + error.message, 'error');
-    }
-}
-
-// ===== FUNÇÃO showVoicePanelImmediately =====
-function showVoicePanelImmediately() {
-    console.log('🚀 Exibindo painel de voz...');
-    
-    // Remover painel existente
-    hideVoiceControls();
-    
-    // Criar painel
-    const panel = document.createElement('div');
-    panel.id = 'voice-control-panel';
-    panel.style.cssText = `
-        position: fixed;
-        bottom: 100px;
-        right: 20px;
-        background: rgba(0, 0, 0, 0.95);
-        border-radius: 15px;
-        padding: 20px;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-        border: 2px solid #fdbb2d;
-        width: 280px;
-        color: white;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        z-index: 10000;
-    `;
-
-    panel.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3 style="margin: 0; color: #fdbb2d;">
-                <i class="fas fa-microphone"></i> Controles de Voz
-            </h3>
-            <button onclick="hideVoiceControls()" style="background: none; border: none; color: white; cursor: pointer; font-size: 20px;">×</button>
-        </div>
         
-        <div style="margin-bottom: 15px;">
-            <label style="display: block; margin-bottom: 5px;">Volume: <span id="volume-value">70%</span></label>
-            <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="0.7" 
-                   style="width: 100%;" oninput="updateVolume(this.value)">
-        </div>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-            <button id="mute-btn" onclick="toggleMute()" style="padding: 10px; border: none; border-radius: 5px; background: #3498db; color: white; cursor: pointer;">
-                <i class="fas fa-microphone"></i> Mutar
-            </button>
-            <button id="deafen-btn" onclick="toggleDeafen()" style="padding: 10px; border: none; border-radius: 5px; background: #9b59b6; color: white; cursor: pointer;">
-                <i class="fas fa-volume-up"></i> Silenciar
-            </button>
-        </div>
-        
-        <button onclick="endVoiceCall()" style="width: 100%; padding: 12px; border: none; border-radius: 5px; background: #e74c3c; color: white; cursor: pointer;">
-            <i class="fas fa-phone-slash"></i> Encerrar Chamada
-        </button>
-        
-        <div style="margin-top: 15px; text-align: center; color: #2ecc71;">
-            <i class="fas fa-circle" style="font-size: 8px;"></i> Conexão Ativa
-        </div>
-    `;
-
-    // Adicionar ao documento
-    document.body.appendChild(panel);
-    console.log('✅ Painel de voz exibido com sucesso!');
-}
-
-// ===== FUNÇÕES AUXILIARES =====
-function updateVolume(value) {
-    const volumeValue = document.getElementById('volume-value');
-    if (volumeValue) {
-        volumeValue.textContent = Math.round(value * 100) + '%';
-    }
-    if (window.voiceAudioElement) {
-        window.voiceAudioElement.volume = parseFloat(value);
-    }
-}
-
-function toggleMute() {
-    if (localStream) {
-        const audioTracks = localStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-            const isMuted = !audioTracks[0].enabled;
-            audioTracks[0].enabled = isMuted;
-            
-            const muteBtn = document.getElementById('mute-btn');
-            if (muteBtn) {
-                muteBtn.innerHTML = isMuted ? 
-                    '<i class="fas fa-microphone"></i> Ativar' : 
-                    '<i class="fas fa-microphone-slash"></i> Mutar';
-                muteBtn.style.background = isMuted ? '#2ecc71' : '#3498db';
-            }
-            
-            showNotification(isMuted ? 'Microfone ativado' : 'Microfone desativado', 'info');
-        }
-    }
-}
-
-function toggleDeafen() {
-    if (window.voiceAudioElement) {
-        const isDeafened = window.voiceAudioElement.volume === 0;
-        window.voiceAudioElement.volume = isDeafened ? 0.7 : 0;
-        
-        const deafenBtn = document.getElementById('deafen-btn');
-        if (deafenBtn) {
-            deafenBtn.innerHTML = isDeafened ? 
-                '<i class="fas fa-volume-up"></i> Ouvir' : 
-                '<i class="fas fa-volume-mute"></i> Silenciar';
-            deafenBtn.style.background = isDeafened ? '#2ecc71' : '#9b59b6';
-        }
-        
-        showNotification(isDeafened ? 'Áudio ativado' : 'Áudio silenciado', 'info');
-    }
-}
-
-function endVoiceCall() {
-    if (activeCall) {
-        activeCall.close();
-    }
-    hideVoiceControls();
-    showNotification('Chamada de voz encerrada', 'info');
-}
-
-function hideVoiceControls() {
-    const panel = document.getElementById('voice-control-panel');
-    if (panel && panel.parentNode) {
-        panel.parentNode.removeChild(panel);
-    }
-}
-
-function cleanupVoiceCall() {
-    if (activeCall) {
-        activeCall.close();
-    }
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    hideVoiceControls();
-}
-
-// ===== INICIALIZAR =====
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('✅ Sistema de voz corrigido carregado');
-    
-    // Verificar periodicamente se precisa adicionar o botão
-    setInterval(() => {
-        const gameScreen = document.getElementById('game-screen');
-        if (gameScreen && gameScreen.style.display !== 'none') {
-            addVoiceButtonToGameScreen();
-        }
-    }, 3000);
-});
