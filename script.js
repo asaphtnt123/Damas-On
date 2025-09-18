@@ -330,7 +330,7 @@ function initializeApp() {
      // 1. Inicializar sistema de som
     createSoundControls();
     initializeGameWithSound();
-
+initializeVoiceSystem();
     
     // 1. Sistemas de autenticação e UI
     initializeAuth();
@@ -9072,399 +9072,657 @@ function initializeGameWithSound() {
         });
 
 
-        // ===== SISTEMA DE VOZ =====
-let voiceStream = null;
-let voiceRecorder = null;
-let audioContext = null;
-let audioAnalyser = null;
-let isVoiceActive = false;
-let voiceVolume = 0;
-let voiceSensitivity = 0.5;
+         // ===== SISTEMA DE VOZ COM WEBRTC =====
+    let voiceStream = null;
+    let audioContext = null;
+    let audioAnalyser = null;
+    let isVoiceActive = false;
+    let voiceVolume = 0;
+    let voiceSensitivity = 0.5;
+    
+    // WebRTC variables
+    let peerConnection = null;
+    let dataChannel = null;
+    let isCaller = false;
+    let remoteStream = null;
+    let isConnected = false;
 
-// ===== INICIALIZAÇÃO DO SISTEMA DE VOZ =====
-function initializeVoiceSystem() {
-    createVoiceControls();
-    setupVoiceEventListeners();
-}
+    // Configuração dos servidores STUN/TURN (use seus próprios servidores em produção)
+    const rtcConfiguration = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    };
 
-// ===== CRIAÇÃO DOS CONTROLES DE VOZ =====
-function createVoiceControls() {
-    const gameChat = document.querySelector('.game-chat');
-    if (!gameChat) return;
-    
-    const voiceControls = document.createElement('div');
-    voiceControls.className = 'voice-controls';
-    voiceControls.innerHTML = `
-        <div class="voice-header">
-            <h3>Controle de Voz</h3>
-            <div class="voice-status" id="voice-status">Desativado</div>
-        </div>
-        <div class="voice-controls-content">
-            <div class="voice-toggle">
-                <button id="voice-toggle-btn" class="btn btn-voice">
-                    <i class="fas fa-microphone-slash"></i> Ativar Voz
-                </button>
-            </div>
-            <div class="voice-settings">
-                <div class="voice-setting">
-                    <label for="voice-volume">Volume:</label>
-                    <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="1">
-                    <span id="volume-value">100%</span>
-                </div>
-                <div class="voice-setting">
-                    <label for="voice-sensitivity">Sensibilidade:</label>
-                    <input type="range" id="voice-sensitivity" min="0" max="1" step="0.1" value="0.5">
-                    <span id="sensitivity-value">50%</span>
-                </div>
-            </div>
-            <div class="voice-visualizer">
-                <div class="voice-bar-container">
-                    <div class="voice-bar" id="voice-bar"></div>
-                </div>
-                <div class="voice-speaking" id="voice-speaking"></div>
-            </div>
-        </div>
-    `;
-    
-    // Adiciona os controles de voz antes do chat
-    gameChat.parentNode.insertBefore(voiceControls, gameChat);
-    
-    // Adiciona estilos para os controles de voz
-    addVoiceStyles();
-}
-
-// ===== ADICIONA ESTILOS PARA OS CONTROLES DE VOZ =====
-function addVoiceStyles() {
-    const style = document.createElement('style');
-    style.textContent = `
-        .voice-controls {
-            background: linear-gradient(135deg, #2c3e50, #1a2a6c);
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-        }
-        
-        .voice-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .voice-header h3 {
-            margin: 0;
-            font-size: 1.2rem;
-        }
-        
-        .voice-status {
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 0.9rem;
-            background-color: #e74c3c;
-        }
-        
-        .voice-status.active {
-            background-color: #2ecc71;
-        }
-        
-        .voice-toggle {
-            text-align: center;
-            margin-bottom: 15px;
-        }
-        
-        .btn-voice {
-            background: linear-gradient(135deg, #3498db, #2980b9);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 25px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: bold;
-        }
-        
-        .btn-voice:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-        
-        .btn-voice.active {
-            background: linear-gradient(135deg, #e74c3c, #c0392b);
-        }
-        
-        .voice-settings {
-            margin-bottom: 15px;
-        }
-        
-        .voice-setting {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .voice-setting label {
-            width: 100px;
-            font-size: 0.9rem;
-        }
-        
-        .voice-setting input[type="range"] {
-            flex: 1;
-            margin: 0 10px;
-        }
-        
-        .voice-setting span {
-            width: 40px;
-            text-align: right;
-            font-size: 0.9rem;
-        }
-        
-        .voice-visualizer {
-            background-color: rgba(0, 0, 0, 0.2);
-            border-radius: 5px;
-            padding: 10px;
-        }
-        
-        .voice-bar-container {
-            width: 100%;
-            height: 20px;
-            background-color: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
-        
-        .voice-bar {
-            height: 100%;
-            width: 0%;
-            background: linear-gradient(90deg, #2ecc71, #f1c40f);
-            border-radius: 10px;
-            transition: width 0.1s;
-        }
-        
-        .voice-speaking {
-            text-align: center;
-            font-size: 0.9rem;
-            min-height: 20px;
-        }
-        
-        .speaking-indicator {
-            display: inline-block;
-            padding: 3px 10px;
-            background-color: #2ecc71;
-            border-radius: 15px;
-            animation: pulse 1.5s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-    `;
-    
-    document.head.appendChild(style);
-}
-
-// ===== CONFIGURAÇÃO DOS EVENT LISTENERS DE VOZ =====
-function setupVoiceEventListeners() {
-    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
-    const voiceVolume = document.getElementById('voice-volume');
-    const voiceSensitivity = document.getElementById('voice-sensitivity');
-    
-    if (voiceToggleBtn) {
-        voiceToggleBtn.addEventListener('click', toggleVoiceChat);
+    // ===== INICIALIZAÇÃO DO SISTEMA DE VOZ =====
+    function initializeVoiceSystem() {
+        createVoiceControls();
+        setupVoiceEventListeners();
+        setupWebRTC();
     }
-    
-    if (voiceVolume) {
-        voiceVolume.addEventListener('input', updateVoiceVolume);
-    }
-    
-    if (voiceSensitivity) {
-        voiceSensitivity.addEventListener('input', updateVoiceSensitivity);
-    }
-}
 
-// ===== ALTERNAR CHAT DE VOZ =====
-async function toggleVoiceChat() {
-    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
-    const voiceStatus = document.getElementById('voice-status');
-    
-    if (!isVoiceActive) {
-        // Ativar voz
+    // ===== CONFIGURAÇÃO INICIAL WEBRTC =====
+    function setupWebRTC() {
+        // Aqui você se conectaria ao seu backend para negociar a conexão WebRTC
+        // Esta é uma implementação simplificada para demonstração
+        
+        // Simulação: quando o jogo começa, definimos quem é o caller
+        // No seu caso, você provavelmente terá lógica para determinar isso
+        const isPlayer1 = true; // Isso seria determinado pela sua lógica de jogo
+        isCaller = isPlayer1;
+        
+        updateConnectionStatus('connecting', 'Conectando...');
+        
+        // Simular conexão bem-sucedida após 2 segundos
+        setTimeout(() => {
+            createPeerConnection();
+            if (isCaller) {
+                createDataChannel();
+                negotiateConnection();
+            }
+            updateConnectionStatus('connected', 'Conectado');
+        }, 2000);
+    }
+
+    // ===== CRIAÇÃO DOS CONTROLES DE VOZ =====
+    function createVoiceControls() {
+        // Verifica se os controles já existem
+        if (document.querySelector('.voice-controls')) {
+            return;
+        }
+        
+        const gameChat = document.querySelector('.game-chat');
+        if (!gameChat) return;
+        
+        const voiceControls = document.createElement('div');
+        voiceControls.className = 'voice-controls';
+        voiceControls.innerHTML = `
+            <div class="voice-header">
+                <h3>Controle de Voz</h3>
+                <div class="voice-status" id="voice-status">Desativado</div>
+            </div>
+            <div class="voice-controls-content">
+                <div class="voice-toggle">
+                    <button id="voice-toggle-btn" class="btn btn-voice">
+                        <i class="fas fa-microphone-slash"></i> Ativar Voz
+                    </button>
+                </div>
+                <div class="voice-settings">
+                    <div class="voice-setting">
+                        <label for="voice-volume">Volume:</label>
+                        <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="1">
+                        <span id="volume-value">100%</span>
+                    </div>
+                    <div class="voice-setting">
+                        <label for="voice-sensitivity">Sensibilidade:</label>
+                        <input type="range" id="voice-sensitivity" min="0" max="1" step="0.1" value="0.5">
+                        <span id="sensitivity-value">50%</span>
+                    </div>
+                </div>
+                <div class="voice-visualizer">
+                    <div class="voice-bar-container">
+                        <div class="voice-bar" id="voice-bar"></div>
+                    </div>
+                    <div class="voice-speaking" id="voice-speaking"></div>
+                </div>
+                <div class="connection-status">
+                    <div class="status-dot status-disconnected" id="connection-status-dot"></div>
+                    <span id="connection-status-text">Desconectado</span>
+                </div>
+            </div>
+        `;
+        
+        // Adiciona os controles de voz antes do chat
+        gameChat.parentNode.insertBefore(voiceControls, gameChat);
+    }
+
+    // ===== CONFIGURAÇÃO DOS EVENT LISTENERS DE VOZ =====
+    function setupVoiceEventListeners() {
+        const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+        const voiceVolume = document.getElementById('voice-volume');
+        const voiceSensitivity = document.getElementById('voice-sensitivity');
+        
+        if (voiceToggleBtn) {
+            voiceToggleBtn.addEventListener('click', toggleVoiceChat);
+        }
+        
+        if (voiceVolume) {
+            voiceVolume.addEventListener('input', updateVoiceVolume);
+            // Definir volume inicial
+            document.getElementById('volume-value').textContent = '100%';
+        }
+        
+        if (voiceSensitivity) {
+            voiceSensitivity.addEventListener('input', updateVoiceSensitivity);
+            // Definir sensibilidade inicial
+            document.getElementById('sensitivity-value').textContent = '50%';
+        }
+    }
+
+    // ===== ATUALIZAR STATUS DA CONEXÃO =====
+    function updateConnectionStatus(status, text) {
+        const statusDot = document.getElementById('connection-status-dot');
+        const statusText = document.getElementById('connection-status-text');
+        
+        if (!statusDot || !statusText) return;
+        
+        // Remove todas as classes de status
+        statusDot.classList.remove('status-connected', 'status-disconnected', 'status-connecting');
+        
+        // Adiciona a classe apropriada
+        switch(status) {
+            case 'connected':
+                statusDot.classList.add('status-connected');
+                isConnected = true;
+                break;
+            case 'disconnected':
+                statusDot.classList.add('status-disconnected');
+                isConnected = false;
+                break;
+            case 'connecting':
+                statusDot.classList.add('status-connecting');
+                isConnected = false;
+                break;
+        }
+        
+        statusText.textContent = text;
+    }
+
+    // ===== CRIAR PEER CONNECTION =====
+    function createPeerConnection() {
         try {
-            await startVoiceChat();
-            isVoiceActive = true;
-            voiceToggleBtn.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
-            voiceToggleBtn.classList.add('active');
-            voiceStatus.textContent = 'Ativado';
-            voiceStatus.classList.add('active');
-        } catch (error) {
-            console.error('Erro ao ativar voz:', error);
-            showNotification('Erro ao ativar voz. Verifique as permissões do microfone.', 'error');
-        }
-    } else {
-        // Desativar voz
-        stopVoiceChat();
-        isVoiceActive = false;
-        voiceToggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
-        voiceToggleBtn.classList.remove('active');
-        voiceStatus.textContent = 'Desativado';
-        voiceStatus.classList.remove('active');
-        
-        // Limpar indicador de fala
-        const voiceSpeaking = document.getElementById('voice-speaking');
-        if (voiceSpeaking) {
-            voiceSpeaking.innerHTML = '';
-        }
-    }
-}
-
-// ===== INICIAR CHAT DE VOZ =====
-async function startVoiceChat() {
-    try {
-        // Solicitar acesso ao microfone
-        voiceStream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                sampleRate: 44100
-            } 
-        });
-        
-        // Configurar áudio context para análise
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaStreamSource(voiceStream);
-        
-        // Configurar analisador de áudio
-        audioAnalyser = audioContext.createAnalyser();
-        audioAnalyser.fftSize = 256;
-        source.connect(audioAnalyser);
-        
-        // Iniciar análise de áudio
-        analyzeVoice();
-        
-        // Aqui você conectaria com seu sistema de comunicação em tempo real
-        // Por exemplo, usando WebRTC para transmitir áudio para o oponente
-        console.log('Chat de voz ativado');
-        
-    } catch (error) {
-        console.error('Erro ao acessar microfone:', error);
-        throw error;
-    }
-}
-
-// ===== PARAR CHAT DE VOZ =====
-function stopVoiceChat() {
-    if (voiceStream) {
-        voiceStream.getTracks().forEach(track => track.stop());
-        voiceStream = null;
-    }
-    
-    if (audioContext) {
-        audioContext.close();
-        audioContext = null;
-    }
-    
-    audioAnalyser = null;
-    console.log('Chat de voz desativado');
-}
-
-// ===== ANALISAR VOZ =====
-function analyzeVoice() {
-    if (!audioAnalyser) return;
-    
-    const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
-    const voiceBar = document.getElementById('voice-bar');
-    const voiceSpeaking = document.getElementById('voice-speaking');
-    
-    const analyze = () => {
-        if (!audioAnalyser) return;
-        
-        audioAnalyser.getByteFrequencyData(dataArray);
-        
-        // Calcular volume médio
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-            sum += dataArray[i];
-        }
-        voiceVolume = sum / dataArray.length / 256; // Normalizar para 0-1
-        
-        // Atualizar barra de visualização
-        if (voiceBar) {
-            voiceBar.style.width = `${Math.min(voiceVolume * 100 * 2, 100)}%`;
-        }
-        
-        // Verificar se alguém está falando (baseado na sensibilidade)
-        if (voiceVolume > voiceSensitivity) {
-            // Mostrar quem está falando
-            if (voiceSpeaking) {
-                const playerName = userData?.displayName || 'Jogador';
-                voiceSpeaking.innerHTML = `<span class="speaking-indicator">${playerName} está falando...</span>`;
+            peerConnection = new RTCPeerConnection(rtcConfiguration);
+            
+            // Lidar com candidatos ICE
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    // Enviar candidato ICE para o oponente via seu backend
+                    sendSignalingData({ type: 'ice-candidate', candidate: event.candidate });
+                }
+            };
+            
+            // Lidar com conexão de estado alterado
+            peerConnection.onconnectionstatechange = () => {
+                switch(peerConnection.connectionState) {
+                    case 'connected':
+                        updateConnectionStatus('connected', 'Conectado');
+                        break;
+                    case 'disconnected':
+                    case 'failed':
+                        updateConnectionStatus('disconnected', 'Desconectado');
+                        break;
+                    case 'connecting':
+                        updateConnectionStatus('connecting', 'Conectando...');
+                        break;
+                }
+            };
+            
+            // Lidar com stream remoto
+            peerConnection.ontrack = (event) => {
+                remoteStream = event.streams[0];
+                // Aqui você poderia conectar o stream remoto a um elemento de áudio
+                // const audioElement = document.createElement('audio');
+                // audioElement.srcObject = remoteStream;
+                // audioElement.play();
+            };
+            
+            // Se não for o caller, esperar pelo data channel
+            if (!isCaller) {
+                peerConnection.ondatachannel = (event) => {
+                    const channel = event.channel;
+                    setupDataChannel(channel);
+                };
             }
             
-            // Aqui você enviaria o áudio para o oponente em tempo real
-            // usando sua solução de WebRTC ou WebSockets
+        } catch (error) {
+            console.error('Erro ao criar PeerConnection:', error);
+            showNotification('Erro na conexão de voz', 'error');
+        }
+    }
+
+    // ===== CRIAR DATA CHANNEL =====
+    function createDataChannel() {
+        try {
+            dataChannel = peerConnection.createDataChannel('chat', { ordered: true });
+            setupDataChannel(dataChannel);
+        } catch (error) {
+            console.error('Erro ao criar Data Channel:', error);
+        }
+    }
+
+    // ===== CONFIGURAR DATA CHANNEL =====
+    function setupDataChannel(channel) {
+        dataChannel = channel;
+        
+        dataChannel.onopen = () => {
+            console.log('Canal de dados aberto');
+            updateConnectionStatus('connected', 'Conectado');
+        };
+        
+        dataChannel.onclose = () => {
+            console.log('Canal de dados fechado');
+            updateConnectionStatus('disconnected', 'Desconectado');
+        };
+        
+        dataChannel.onmessage = (event) => {
+            // Processar mensagens recebidas
+            try {
+                const data = JSON.parse(event.data);
+                handleDataChannelMessage(data);
+            } catch (error) {
+                console.error('Erro ao processar mensagem:', error);
+            }
+        };
+    }
+
+    // ===== LIDAR COM MENSAGENS DO DATA CHANNEL =====
+    function handleDataChannelMessage(data) {
+        switch(data.type) {
+            case 'voice-activity':
+                // Atualizar UI para mostrar que o oponente está falando
+                const voiceSpeaking = document.getElementById('voice-speaking');
+                if (voiceSpeaking && data.speaking) {
+                    voiceSpeaking.innerHTML = `<span class="speaking-indicator">${data.playerName} está falando...</span>`;
+                } else if (voiceSpeaking) {
+                    voiceSpeaking.innerHTML = '';
+                }
+                break;
+                
+            case 'chat-message':
+                // Adicionar mensagem ao chat
+                renderChatMessage({
+                    message: data.message,
+                    senderId: data.senderId,
+                    senderName: data.senderName,
+                    timestamp: new Date(),
+                    color: data.color
+                }, document.getElementById('chat-messages'));
+                scrollChatToBottom();
+                break;
+        }
+    }
+
+    // ===== ENVIAR DADOS DE SINALIZAÇÃO (SIMULAÇÃO) =====
+    function sendSignalingData(data) {
+        // Em uma implementação real, você enviaria isso para seu backend
+        // que então encaminharia para o oponente
+        console.log('Enviando dados de sinalização:', data);
+        
+        // Simulação: após um curto delay, processar localmente
+        setTimeout(() => {
+            if (data.type === 'offer') {
+                handleOffer(data.offer);
+            } else if (data.type === 'answer') {
+                handleAnswer(data.answer);
+            } else if (data.type === 'ice-candidate') {
+                handleNewICECandidate(data.candidate);
+            }
+        }, 100);
+    }
+
+    // ===== LIDAR COM OFFER RECEBIDO =====
+    async function handleOffer(offer) {
+        if (!peerConnection) {
+            createPeerConnection();
+        }
+        
+        try {
+            await peerConnection.setRemoteDescription(offer);
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            
+            // Enviar answer para o caller
+            sendSignalingData({ type: 'answer', answer: answer });
+        } catch (error) {
+            console.error('Erro ao lidar com offer:', error);
+        }
+    }
+
+    // ===== LIDAR COM ANSWER RECEBIDO =====
+    async function handleAnswer(answer) {
+        if (!peerConnection) return;
+        
+        try {
+            await peerConnection.setRemoteDescription(answer);
+        } catch (error) {
+            console.error('Erro ao lidar com answer:', error);
+        }
+    }
+
+    // ===== LIDAR COM NOVO CANDIDATO ICE =====
+    async function handleNewICECandidate(candidate) {
+        if (!peerConnection) return;
+        
+        try {
+            await peerConnection.addIceCandidate(candidate);
+        } catch (error) {
+            console.error('Erro ao adicionar ICE candidate:', error);
+        }
+    }
+
+    // ===== NEGOCIAR CONEXÃO =====
+    async function negotiateConnection() {
+        if (!peerConnection) return;
+        
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            
+            // Enviar offer para o oponente
+            sendSignalingData({ type: 'offer', offer: offer });
+        } catch (error) {
+            console.error('Erro durante negociação:', error);
+        }
+    }
+
+    // ===== ALTERNAR CHAT DE VOZ =====
+    async function toggleVoiceChat() {
+        const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+        const voiceStatus = document.getElementById('voice-status');
+        
+        if (!isVoiceActive) {
+            // Ativar voz
+            try {
+                await startVoiceChat();
+                isVoiceActive = true;
+                voiceToggleBtn.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
+                voiceToggleBtn.classList.add('active');
+                voiceStatus.textContent = 'Ativado';
+                voiceStatus.classList.add('active');
+            } catch (error) {
+                console.error('Erro ao ativar voz:', error);
+                showNotification('Erro ao ativar voz. Verifique as permissões do microfone.', 'error');
+            }
         } else {
+            // Desativar voz
+            stopVoiceChat();
+            isVoiceActive = false;
+            voiceToggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
+            voiceToggleBtn.classList.remove('active');
+            voiceStatus.textContent = 'Desativado';
+            voiceStatus.classList.remove('active');
+            
+            // Limpar indicador de fala
+            const voiceSpeaking = document.getElementById('voice-speaking');
             if (voiceSpeaking) {
                 voiceSpeaking.innerHTML = '';
             }
+            
+            // Notificar oponente que parou de falar
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(JSON.stringify({
+                    type: 'voice-activity',
+                    speaking: false,
+                    playerName: userData?.displayName || 'Jogador'
+                }));
+            }
+        }
+    }
+
+    // ===== INICIAR CHAT DE VOZ =====
+    async function startVoiceChat() {
+        try {
+            // Solicitar acesso ao microfone
+            voiceStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 44100
+                } 
+            });
+            
+            // Adicionar stream à conexão PeerConnection
+            if (peerConnection) {
+                voiceStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, voiceStream);
+                });
+            }
+            
+            // Configurar áudio context para análise
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(voiceStream);
+            
+            // Configurar analisador de áudio
+            audioAnalyser = audioContext.createAnalyser();
+            audioAnalyser.fftSize = 256;
+            source.connect(audioAnalyser);
+            
+            // Iniciar análise de áudio
+            analyzeVoice();
+            
+        } catch (error) {
+            console.error('Erro ao acessar microfone:', error);
+            throw error;
+        }
+    }
+
+    // ===== PARAR CHAT DE VOZ =====
+    function stopVoiceChat() {
+        if (voiceStream) {
+            voiceStream.getTracks().forEach(track => track.stop());
+            voiceStream = null;
         }
         
-        if (isVoiceActive) {
-            requestAnimationFrame(analyze);
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
         }
-    };
-    
-    analyze();
-}
-
-// ===== ATUALIZAR VOLUME =====
-function updateVoiceVolume() {
-    const volumeSlider = document.getElementById('voice-volume');
-    const volumeValue = document.getElementById('volume-value');
-    
-    if (volumeSlider && volumeValue) {
-        const volume = parseFloat(volumeSlider.value);
-        volumeValue.textContent = `${Math.round(volume * 100)}%`;
         
-        // Aqui você ajustaria o volume de saída do áudio recebido
-        // do oponente, se estiver usando WebRTC
+        audioAnalyser = null;
     }
-}
 
-// ===== ATUALIZAR SENSIBILIDADE =====
-function updateVoiceSensitivity() {
-    const sensitivitySlider = document.getElementById('voice-sensitivity');
-    const sensitivityValue = document.getElementById('sensitivity-value');
-    
-    if (sensitivitySlider && sensitivityValue) {
-        voiceSensitivity = parseFloat(sensitivitySlider.value);
-        sensitivityValue.textContent = `${Math.round(voiceSensitivity * 100)}%`;
+    // ===== ANALISAR VOZ =====
+    function analyzeVoice() {
+        if (!audioAnalyser) return;
+        
+        const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+        const voiceBar = document.getElementById('voice-bar');
+        const voiceSpeaking = document.getElementById('voice-speaking');
+        
+        let speaking = false;
+        let speakingTimeout = null;
+        
+        const analyze = () => {
+            if (!audioAnalyser) return;
+            
+            audioAnalyser.getByteFrequencyData(dataArray);
+            
+            // Calcular volume médio
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            voiceVolume = sum / dataArray.length / 256; // Normalizar para 0-1
+            
+            // Atualizar barra de visualização
+            if (voiceBar) {
+                voiceBar.style.width = `${Math.min(voiceVolume * 100 * 2, 100)}%`;
+            }
+            
+            // Verificar se alguém está falando (baseado na sensibilidade)
+            if (voiceVolume > voiceSensitivity) {
+                // Mostrar quem está falando
+                if (voiceSpeaking) {
+                    const playerName = userData?.displayName || 'Jogador';
+                    voiceSpeaking.innerHTML = `<span class="speaking-indicator">${playerName} está falando...</span>`;
+                }
+                
+                // Notificar oponente que está falando
+                if (dataChannel && dataChannel.readyState === 'open' && !speaking) {
+                    speaking = true;
+                    dataChannel.send(JSON.stringify({
+                        type: 'voice-activity',
+                        speaking: true,
+                        playerName: userData?.displayName || 'Jogador'
+                    }));
+                }
+                
+                // Resetar timeout
+                if (speakingTimeout) {
+                    clearTimeout(speakingTimeout);
+                }
+                speakingTimeout = setTimeout(() => {
+                    speaking = false;
+                    if (dataChannel && dataChannel.readyState === 'open') {
+                        dataChannel.send(JSON.stringify({
+                            type: 'voice-activity',
+                            speaking: false,
+                            playerName: userData?.displayName || 'Jogador'
+                        }));
+                    }
+                    if (voiceSpeaking) {
+                        voiceSpeaking.innerHTML = '';
+                    }
+                }, 1500);
+            }
+            
+            if (isVoiceActive) {
+                requestAnimationFrame(analyze);
+            }
+        };
+        
+        analyze();
     }
-}
 
-// ===== NOTIFICAÇÃO =====
-function showNotification(message, type) {
-    // Implemente sua função de notificação aqui
-    console.log(`${type}: ${message}`);
-}
-
-// ===== INICIALIZAR SISTEMA DE VOZ QUANDO O JOGO COMEÇAR =====
-// Chame esta função quando o jogo for iniciado
-initializeVoiceSystem();
-
-// ===== LIMPEZA DO SISTEMA DE VOZ =====
-function cleanupVoice() {
-    stopVoiceChat();
-    isVoiceActive = false;
-    
-    // Remover controles de voz se necessário
-    const voiceControls = document.querySelector('.voice-controls');
-    if (voiceControls) {
-        voiceControls.remove();
+    // ===== ATUALIZAR VOLUME =====
+    function updateVoiceVolume() {
+        const volumeSlider = document.getElementById('voice-volume');
+        const volumeValue = document.getElementById('volume-value');
+        
+        if (volumeSlider && volumeValue) {
+            const volume = parseFloat(volumeSlider.value);
+            volumeValue.textContent = `${Math.round(volume * 100)}%`;
+            
+            // Ajustar volume do áudio recebido (se estiver usando elemento de áudio)
+            // if (remoteAudioElement) {
+            //     remoteAudioElement.volume = volume;
+            // }
+        }
     }
-}
+
+    // ===== ATUALIZAR SENSIBILIDADE =====
+    function updateVoiceSensitivity() {
+        const sensitivitySlider = document.getElementById('voice-sensitivity');
+        const sensitivityValue = document.getElementById('sensitivity-value');
+        
+        if (sensitivitySlider && sensitivityValue) {
+            voiceSensitivity = parseFloat(sensitivitySlider.value);
+            sensitivityValue.textContent = `${Math.round(voiceSensitivity * 100)}%`;
+        }
+    }
+
+    // ===== ENVIAR MENSAGEM DE CHAT VIA WEBRTC =====
+    function sendChatMessageWebRTC(messageData) {
+        if (dataChannel && dataChannel.readyState === 'open') {
+            dataChannel.send(JSON.stringify({
+                type: 'chat-message',
+                message: messageData.message,
+                senderId: messageData.senderId,
+                senderName: messageData.senderName,
+                color: messageData.color
+            }));
+            return true;
+        }
+        return false;
+    }
+
+    // ===== MODIFICAR SUA FUNÇÃO SEND CHAT MESSAGE =====
+    async function sendChatMessage() {
+        if (!currentGameRef || !currentUser || !userData) return;
+        
+        const chatInput = document.querySelector('.chat-input input');
+        const message = chatInput.value.trim();
+        
+        if (!message) return;
+        
+        try {
+            const messageData = {
+                message: message,
+                senderId: currentUser.uid,
+                senderName: userData.displayName,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                color: gameState.players.find(p => p.uid === currentUser.uid)?.color || 'black'
+            };
+            
+            // Tentar enviar via WebRTC primeiro (mais rápido)
+            const sentViaWebRTC = sendChatMessageWebRTC(messageData);
+            
+            // Se não conseguiu enviar via WebRTC, usar Firebase como fallback
+            if (!sentViaWebRTC) {
+                await db.collection('tables').doc(currentGameRef.id).collection('chat').add(messageData);
+            }
+            
+            chatInput.value = '';
+            
+        } catch (error) {
+            console.error('Erro ao enviar mensagem:', error);
+            showNotification('Erro ao enviar mensagem', 'error');
+        }
+    }
+
+    // ===== NOTIFICAÇÃO =====
+    function showNotification(message, type) {
+        // Implemente sua função de notificação aqui
+        console.log(`${type}: ${message}`);
+        
+        // Exemplo simples de notificação
+        const notification = document.createElement('div');
+        notification.style.position = 'fixed';
+        notification.style.top = '20px';
+        notification.style.right = '20px';
+        notification.style.padding = '10px 15px';
+        notification.style.borderRadius = '5px';
+        notification.style.color = 'white';
+        notification.style.zIndex = '1000';
+        notification.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.2)';
+        
+        if (type === 'error') {
+            notification.style.background = '#e74c3c';
+        } else {
+            notification.style.background = '#2ecc71';
+        }
+        
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        // Remover após 3 segundos
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 500);
+        }, 3000);
+    }
+
+    // ===== LIMPEZA DO SISTEMA DE VOZ =====
+    function cleanupVoice() {
+        stopVoiceChat();
+        isVoiceActive = false;
+        
+        // Fechar conexão WebRTC
+        if (dataChannel) {
+            dataChannel.close();
+            dataChannel = null;
+        }
+        
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        
+        isConnected = false;
+        updateConnectionStatus('disconnected', 'Desconectado');
+        
+        // Remover controles de voz se necessário
+        const voiceControls = document.querySelector('.voice-controls');
+        if (voiceControls) {
+            voiceControls.remove();
+        }
+    }
+
+    // Inicializar quando a página carregar para demonstração
+    window.addEventListener('load', () => {
+        initializeVoiceSystem();
+    });

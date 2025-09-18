@@ -5682,139 +5682,161 @@ input:checked + .slider:before {
 
 
   
-/* ESTILOS PARA O SISTEMA DE VOZ */
-.voice-chat-container {
-    background: rgba(0, 0, 0, 0.8);
-    border-radius: 10px;
-    padding: 15px;
-    margin-bottom: 15px;
-    border: 1px solid #34495e;
-}
-
-.voice-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-}
-
-.voice-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: bold;
-    color: #3498db;
-}
-
-.voice-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-}
-
-.status-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #e74c3c;
-}
-
-.status-indicator.connected {
-    background: #2ecc71;
-    animation: pulse 1.5s infinite;
-}
-
-.voice-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.voice-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 15px;
-    background: #2c3e50;
-    border: none;
-    border-radius: 5px;
-    color: white;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.voice-btn:hover {
-    background: #34495e;
-    transform: translateY(-1px);
-}
-
-.voice-btn.active {
-    background: #e74c3c;
-}
-
-.voice-btn.connected {
-    background: #27ae60;
-}
-
-.voice-settings {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-
-.voice-setting {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.voice-setting label {
-    font-size: 11px;
-    color: #95a5a6;
-    text-transform: uppercase;
-}
-
-.voice-setting input[type="range"] {
-    width: 100%;
-    height: 4px;
-    border-radius: 2px;
-    background: #34495e;
-    outline: none;
-}
-
-.voice-visualizer {
-    margin-top: 10px;
-    height: 3px;
-    background: #2c3e50;
-    border-radius: 2px;
-    overflow: hidden;
-}
-
-.voice-level {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, #3498db, #2ecc71);
-    transition: width 0.1s ease;
-}
-
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.5; }
-    100% { opacity: 1; }
-}
-
-/* RESPONSIVIDADE */
-@media (max-width: 768px) {
-    .voice-settings {
-        grid-template-columns: 1fr;
-    }
-    
-    .voice-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-    }
-}
 
 
+
+   /* Estilos para o sistema de voz */
+        .voice-controls {
+            background: linear-gradient(135deg, #2c3e50, #1a2a6c);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .voice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .voice-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+        
+        .voice-status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            background-color: #e74c3c;
+        }
+        
+        .voice-status.active {
+            background-color: #2ecc71;
+        }
+        
+        .voice-toggle {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .btn-voice {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        .btn-voice:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-voice.active {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        
+        .voice-settings {
+            margin-bottom: 15px;
+        }
+        
+        .voice-setting {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .voice-setting label {
+            width: 100px;
+            font-size: 0.9rem;
+        }
+        
+        .voice-setting input[type="range"] {
+            flex: 1;
+            margin: 0 10px;
+        }
+        
+        .voice-setting span {
+            width: 40px;
+            text-align: right;
+            font-size: 0.9rem;
+        }
+        
+        .voice-visualizer {
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 5px;
+            padding: 10px;
+        }
+        
+        .voice-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .voice-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #2ecc71, #f1c40f);
+            border-radius: 10px;
+            transition: width 0.1s;
+        }
+        
+        .voice-speaking {
+            text-align: center;
+            font-size: 0.9rem;
+            min-height: 20px;
+        }
+        
+        .speaking-indicator {
+            display: inline-block;
+            padding: 3px 10px;
+            background-color: #2ecc71;
+            border-radius: 15px;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected {
+            background-color: #2ecc71;
+        }
+        
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+        
+        .status-connecting {
+            background-color: #f39c12;
+            animation: pulse 1.5s infinite;
+        }

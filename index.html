@@ -435,6 +435,57 @@
 
     <!-- Chat Fixo como era antes -->
     <div class="game-chat">
+         <div class="voice-controls">
+            <div class="voice-header">
+                <h3>Controle de Voz</h3>
+                <div class="voice-status" id="voice-status">Desativado</div>
+            </div>
+            <div class="voice-controls-content">
+                <div class="voice-toggle">
+                    <button id="voice-toggle-btn" class="btn btn-voice">
+                        <i class="fas fa-microphone-slash"></i> Ativar Voz
+                    </button>
+                </div>
+                <div class="voice-settings">
+                    <div class="voice-setting">
+                        <label for="voice-volume">Volume:</label>
+                        <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="1">
+                        <span id="volume-value">100%</span>
+                    </div>
+                    <div class="voice-setting">
+                        <label for="voice-sensitivity">Sensibilidade:</label>
+                        <input type="range" id="voice-sensitivity" min="0" max="1" step="0.1" value="0.5">
+                        <span id="sensitivity-value">50%</span>
+                    </div>
+                </div>
+                <div class="voice-visualizer">
+                    <div class="voice-bar-container">
+                        <div class="voice-bar" id="voice-bar"></div>
+                    </div>
+                    <div class="voice-speaking" id="voice-speaking"></div>
+                </div>
+                <div class="connection-status">
+                    <div class="status-dot status-disconnected" id="connection-status-dot"></div>
+                    <span id="connection-status-text">Desconectado</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Sua área de chat existente -->
+        <div class="game-chat">
+            <div class="chat-messages" id="chat-messages">
+                <!-- Mensagens de chat serão carregadas dinamicamente -->
+            </div>
+            
+            <div class="chat-input">
+                <input type="text" placeholder="Digite uma mensagem..." id="chat-input">
+                <button class="btn btn-icon btn-send">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+
+        
         <div class="chat-messages" id="chat-messages">
             <!-- Mensagens de chat serão carregadas dinamicamente -->
         </div>
