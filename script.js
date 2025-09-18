@@ -8997,137 +8997,12 @@ function renderChatMessage(message, container) {
     container.appendChild(messageEl);
 }
 
-// ===== SISTEMA DE VOZ SIMPLIFICADO E FUNCIONAL =====
+// ===== SISTEMA DE SINCRONIZAÇÃO DE STATUS DE VOZ =====
 
-// Variáveis globais
-let voiceSystem = {
-    isActive: false,
-    peer: null,
-    localStream: null,
-    remoteAudio: null,
-    currentPeerId: null
-};
+let voiceStatusListener = null;
+let opponentVoiceStatus = false;
 
-// ===== INICIALIZAÇÃO DO SISTEMA DE VOZ =====
-function initializeVoiceSystem() {
-    console.log('🎤 Inicializando sistema de voz...');
-    
-    // Adicionar controles de voz ao chat
-    addVoiceControlsToChat();
-    
-    // Configurar event listeners IMEDIATAMENTE
-    setupVoiceEventListeners();
-    
-    // Carregar PeerJS
-    loadPeerJS();
-}
-
-// ===== ADICIONAR CONTROLES DE VOZ =====
-function addVoiceControlsToChat() {
-    const chatContainer = document.querySelector('.game-chat');
-    if (!chatContainer) {
-        console.error('❌ Container do chat não encontrado');
-        return;
-    }
-    
-    // Remover controles existentes
-    const existingControls = document.getElementById('voice-controls');
-    if (existingControls) {
-        existingControls.remove();
-    }
-    
-    // Adicionar novos controles
-    const voiceControls = `
-        <div id="voice-controls" class="voice-controls">
-            <div class="voice-header">
-                <h4><i class="fas fa-microphone"></i> Chat de Voz</h4>
-                <div class="voice-status">
-                    <span class="status-indicator" id="status-indicator"></span>
-                    <span id="status-text">Desconectado</span>
-                </div>
-            </div>
-            
-            <button id="voice-toggle-btn" class="btn voice-btn">
-                <i class="fas fa-microphone"></i>
-                <span>Ativar Voz</span>
-            </button>
-            
-            <div class="voice-settings">
-                <div class="voice-setting">
-                    <label>Volume</label>
-                    <input type="range" id="voice-volume" min="0" max="100" value="80">
-                </div>
-            </div>
-            
-            <div class="voice-info">
-                <span id="opponent-status">Oponente: Sem voz</span>
-            </div>
-        </div>
-    `;
-    
-    chatContainer.insertAdjacentHTML('afterbegin', voiceControls);
-    console.log('✅ Controles de voz adicionados');
-}
-
-// ===== CONFIGURAR EVENT LISTENERS =====
-function setupVoiceEventListeners() {
-    console.log('⚙️ Configurando event listeners...');
-    
-    // Usar event delegation para garantir que o clique funcione
-    document.addEventListener('click', function(event) {
-        if (event.target.id === 'voice-toggle-btn' || 
-            event.target.closest('#voice-toggle-btn')) {
-            console.log('🎯 Botão de voz clicado!');
-            toggleVoice();
-            event.preventDefault();
-            event.stopPropagation();
-        }
-    });
-    
-    // Configurar volume
-    const volumeSlider = document.getElementById('voice-volume');
-    if (volumeSlider) {
-        volumeSlider.addEventListener('input', function(e) {
-            if (voiceSystem.remoteAudio) {
-                voiceSystem.remoteAudio.volume = e.target.value / 100;
-            }
-        });
-    }
-    
-    console.log('✅ Event listeners configurados');
-}
-
-// ===== CARREGAR PEERJS =====
-function loadPeerJS() {
-    if (typeof Peer !== 'undefined') {
-        console.log('✅ PeerJS já carregado');
-        return;
-    }
-    
-    console.log('📦 Carregando PeerJS...');
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
-    script.onload = function() {
-        console.log('✅ PeerJS carregado com sucesso');
-    };
-    script.onerror = function() {
-        console.error('❌ Falha ao carregar PeerJS');
-    };
-    document.head.appendChild(script);
-}
-
-// ===== TOGGLE VOZ - FUNÇÃO PRINCIPAL =====
-async function toggleVoice() {
-    console.log('🎤 toggleVoice() chamado');
-    
-    if (voiceSystem.isActive) {
-        await disableVoice();
-    } else {
-        await enableVoice();
-    }
-}
-
-// ===== ATIVAR VOZ =====
+// ===== ATUALIZAR FUNÇÃO enableVoice =====
 async function enableVoice() {
     console.log('🔊 Ativando voz...');
     
@@ -9147,7 +9022,13 @@ async function enableVoice() {
         // 2. Inicializar PeerJS
         await initializePeer();
         
-        // 3. Conectar com oponente
+        // 3. Salvar status de voz no Firebase
+        await updateVoiceStatusInFirebase(true);
+        
+        // 4. Iniciar listener do status do oponente
+        startVoiceStatusListener();
+        
+        // 5. Conectar com oponente
         await connectToOpponent();
         
         voiceSystem.isActive = true;
@@ -9163,117 +9044,7 @@ async function enableVoice() {
     }
 }
 
-// ===== INICIALIZAR PEER =====
-async function initializePeer() {
-    return new Promise((resolve) => {
-        const peerId = `damas-${currentUser.uid}-${Date.now().toString(36)}`;
-        
-        voiceSystem.peer = new Peer(peerId, {
-            host: '0.peerjs.com',
-            port: 443,
-            path: '/'
-        });
-        
-        voiceSystem.peer.on('open', (id) => {
-            console.log('✅ Peer conectado:', id);
-            voiceSystem.currentPeerId = id;
-            setupPeerListeners();
-            resolve();
-        });
-        
-        voiceSystem.peer.on('error', (error) => {
-            console.error('❌ Erro no Peer:', error);
-            resolve(); // Resolver mesmo com erro
-        });
-    });
-}
-
-// ===== CONECTAR COM OPONENTE =====
-async function connectToOpponent() {
-    if (!gameState || !gameState.players) {
-        console.log('⚠️ Aguardando informações do jogo...');
-        return;
-    }
-    
-    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
-    if (!opponent) {
-        console.log('⚠️ Oponente não encontrado');
-        return;
-    }
-    
-    try {
-        // Buscar peerId do oponente
-        const opponentDoc = await db.collection('users').doc(opponent.uid).get();
-        if (opponentDoc.exists) {
-            const opponentData = opponentDoc.data();
-            if (opponentData.voicePeerId) {
-                console.log('🎯 Oponente encontrado:', opponentData.voicePeerId);
-                
-                // Fazer chamada
-                const call = voiceSystem.peer.call(opponentData.voicePeerId, voiceSystem.localStream);
-                
-                call.on('stream', (remoteStream) => {
-                    console.log('🔊 Áudio do oponente recebido');
-                    playRemoteAudio(remoteStream);
-                    updateOpponentStatus(true);
-                });
-                
-                call.on('error', (error) => {
-                    console.error('❌ Erro na chamada:', error);
-                });
-            }
-        }
-    } catch (error) {
-        console.error('❌ Erro ao conectar com oponente:', error);
-    }
-}
-
-// ===== CONFIGURAR OUVINTES PEER =====
-function setupPeerListeners() {
-    voiceSystem.peer.on('call', async (call) => {
-        console.log('📞 Chamada recebida');
-        
-        try {
-            if (!voiceSystem.localStream) {
-                voiceSystem.localStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-            }
-            
-            call.answer(voiceSystem.localStream);
-            
-            call.on('stream', (remoteStream) => {
-                console.log('🔊 Conexão estabelecida');
-                playRemoteAudio(remoteStream);
-                updateOpponentStatus(true);
-            });
-            
-        } catch (error) {
-            console.error('❌ Erro ao atender chamada:', error);
-        }
-    });
-}
-
-// ===== REPRODUZIR ÁUDIO REMOTO =====
-function playRemoteAudio(remoteStream) {
-    // Parar áudio anterior se existir
-    if (voiceSystem.remoteAudio) {
-        voiceSystem.remoteAudio.pause();
-    }
-    
-    const audio = new Audio();
-    audio.srcObject = remoteStream;
-    audio.autoplay = true;
-    audio.volume = document.getElementById('voice-volume').value / 100;
-    
-    voiceSystem.remoteAudio = audio;
-}
-
-// ===== DESATIVAR VOZ =====
+// ===== ATUALIZAR FUNÇÃO disableVoice =====
 async function disableVoice() {
     console.log('🔇 Desativando voz...');
     
@@ -9295,7 +9066,14 @@ async function disableVoice() {
         voiceSystem.peer = null;
     }
     
+    // Parar listener de status
+    stopVoiceStatusListener();
+    
+    // Atualizar status no Firebase
+    await updateVoiceStatusInFirebase(false);
+    
     voiceSystem.isActive = false;
+    opponentVoiceStatus = false;
     updateVoiceStatus('desconectado');
     updateOpponentStatus(false);
     
@@ -9303,152 +9081,235 @@ async function disableVoice() {
     showNotification('Voz desativada', 'info');
 }
 
-// ===== ATUALIZAR STATUS DA VOZ =====
-function updateVoiceStatus(status) {
-    const statusIndicator = document.getElementById('status-indicator');
-    const statusText = document.getElementById('status-text');
-    const voiceBtn = document.getElementById('voice-toggle-btn');
-    
-    if (!statusIndicator || !statusText || !voiceBtn) return;
-    
-    switch (status) {
-        case 'conectando':
-            statusIndicator.style.backgroundColor = '#f39c12';
-            statusText.textContent = 'Conectando...';
-            voiceBtn.disabled = true;
-            break;
-            
-        case 'conectado':
-            statusIndicator.style.backgroundColor = '#2ecc71';
-            statusText.textContent = 'Conectado';
-            voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i><span>Desativar Voz</span>';
-            voiceBtn.classList.add('active');
-            voiceBtn.disabled = false;
-            break;
-            
-        case 'desconectado':
-            statusIndicator.style.backgroundColor = '#e74c3c';
-            statusText.textContent = 'Desconectado';
-            voiceBtn.innerHTML = '<i class="fas fa-microphone"></i><span>Ativar Voz</span>';
-            voiceBtn.classList.remove('active');
-            voiceBtn.disabled = false;
-            break;
-            
-        case 'erro':
-            statusIndicator.style.backgroundColor = '#e74c3c';
-            statusText.textContent = 'Erro';
-            voiceBtn.disabled = false;
-            break;
+// ===== ATUALIZAR STATUS NO FIREBASE =====
+async function updateVoiceStatusInFirebase(isActive) {
+    try {
+        await db.collection('users').doc(currentUser.uid).update({
+            voiceEnabled: isActive,
+            voicePeerId: isActive ? voiceSystem.currentPeerId : null,
+            lastVoiceUpdate: new Date()
+        });
+        console.log('✅ Status de voz atualizado no Firebase:', isActive);
+    } catch (error) {
+        console.error('❌ Erro ao atualizar status no Firebase:', error);
     }
 }
 
-// ===== ATUALIZAR STATUS DO OPONENTE =====
+// ===== INICIAR LISTENER DE STATUS DO OPONENTE =====
+function startVoiceStatusListener() {
+    if (!gameState || !gameState.players) return;
+    
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    if (!opponent) return;
+    
+    // Parar listener anterior se existir
+    if (voiceStatusListener) {
+        voiceStatusListener();
+    }
+    
+    console.log('👂 Iniciando listener de status de voz do oponente');
+    
+    voiceStatusListener = db.collection('users').doc(opponent.uid)
+        .onSnapshot((doc) => {
+            if (doc.exists) {
+                const opponentData = doc.data();
+                const wasActive = opponentVoiceStatus;
+                opponentVoiceStatus = opponentData.voiceEnabled === true;
+                
+                console.log('📊 Status de voz do oponente:', opponentVoiceStatus);
+                
+                // Atualizar UI apenas se o status mudou
+                if (opponentVoiceStatus !== wasActive) {
+                    updateOpponentStatus(opponentVoiceStatus);
+                    
+                    if (opponentVoiceStatus) {
+                        showNotification('Oponente ativou a voz', 'info');
+                        // Tentar conectar se ambos estiverem com voz ativa
+                        if (voiceSystem.isActive) {
+                            setTimeout(() => connectToOpponent(), 1000);
+                        }
+                    } else {
+                        showNotification('Oponente desativou a voz', 'info');
+                    }
+                }
+            }
+        }, (error) => {
+            console.error('❌ Erro no listener de status:', error);
+        });
+}
+
+// ===== PARAR LISTENER DE STATUS =====
+function stopVoiceStatusListener() {
+    if (voiceStatusListener) {
+        voiceStatusListener();
+        voiceStatusListener = null;
+        console.log('🔇 Listener de status parado');
+    }
+}
+
+// ===== VERIFICAR STATUS DO OPONENTE PERIODICAMENTE =====
+function startVoiceStatusChecker() {
+    setInterval(async () => {
+        if (!voiceSystem.isActive || !gameState || !gameState.players) return;
+        
+        const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+        if (!opponent) return;
+        
+        try {
+            const opponentDoc = await db.collection('users').doc(opponent.uid).get();
+            if (opponentDoc.exists) {
+                const opponentData = opponentDoc.data();
+                const newStatus = opponentData.voiceEnabled === true;
+                
+                if (newStatus !== opponentVoiceStatus) {
+                    opponentVoiceStatus = newStatus;
+                    updateOpponentStatus(opponentVoiceStatus);
+                    console.log('🔄 Status do oponente atualizado:', opponentVoiceStatus);
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ Erro ao verificar status do oponente:', error);
+        }
+    }, 3000); // Verificar a cada 3 segundos
+}
+
+// ===== ATUALIZAR FUNÇÃO connectToOpponent =====
+async function connectToOpponent() {
+    if (!gameState || !gameState.players) {
+        console.log('⚠️ Aguardando informações do jogo...');
+        return;
+    }
+    
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    if (!opponent) {
+        console.log('⚠️ Oponente não encontrado');
+        return;
+    }
+    
+    // Verificar se o oponente está com voz ativa
+    try {
+        const opponentDoc = await db.collection('users').doc(opponent.uid).get();
+        if (opponentDoc.exists) {
+            const opponentData = opponentDoc.data();
+            
+            if (!opponentData.voiceEnabled) {
+                console.log('⚠️ Oponente não está com voz ativa');
+                updateOpponentStatus(false);
+                return;
+            }
+            
+            if (!opponentData.voicePeerId) {
+                console.log('⚠️ Oponente não tem PeerID configurado');
+                return;
+            }
+            
+            console.log('🎯 Tentando conectar com oponente:', opponentData.voicePeerId);
+            
+            // Fazer chamada
+            const call = voiceSystem.peer.call(opponentData.voicePeerId, voiceSystem.localStream);
+            
+            call.on('stream', (remoteStream) => {
+                console.log('🔊 Conexão de voz estabelecida com sucesso');
+                playRemoteAudio(remoteStream);
+                updateOpponentStatus(true);
+                showNotification('Conexão de voz estabelecida', 'success');
+            });
+            
+            call.on('error', (error) => {
+                console.error('❌ Erro na chamada:', error);
+                // Tentar reconectar após um tempo
+                setTimeout(() => connectToOpponent(), 3000);
+            });
+            
+            // Timeout para a chamada
+            setTimeout(() => {
+                if (!voiceSystem.remoteAudio) {
+                    console.log('⏰ Timeout na conexão de voz');
+                    call.close();
+                }
+            }, 10000);
+        }
+    } catch (error) {
+        console.error('❌ Erro ao conectar com oponente:', error);
+    }
+}
+
+// ===== ATUALIZAR FUNÇÃO updateOpponentStatus =====
 function updateOpponentStatus(isActive) {
     const opponentStatus = document.getElementById('opponent-status');
     if (opponentStatus) {
         opponentStatus.textContent = isActive ? 'Oponente: Com voz' : 'Oponente: Sem voz';
         opponentStatus.style.color = isActive ? '#2ecc71' : '#e74c3c';
+        
+        // Adicionar ícone para melhor visualização
+        opponentStatus.innerHTML = isActive 
+            ? '<i class="fas fa-microphone"></i> Oponente: Com voz' 
+            : '<i class="fas fa-microphone-slash"></i> Oponente: Sem voz';
     }
 }
 
-// ===== ESTILOS CSS =====
-const voiceStyles = `
-<style>
-.voice-controls {
-    background: rgba(0, 0, 0, 0.8);
-    padding: 15px;
-    border-radius: 10px;
-    margin-bottom: 15px;
-    border: 1px solid #34495e;
+// ===== MODIFICAR FUNÇÃO initializePeer =====
+async function initializePeer() {
+    return new Promise((resolve) => {
+        const peerId = `damas-${currentUser.uid}-${Date.now().toString(36)}`;
+        
+        voiceSystem.peer = new Peer(peerId, {
+            host: '0.peerjs.com',
+            port: 443,
+            path: '/',
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ]
+            }
+        });
+        
+        voiceSystem.peer.on('open', (id) => {
+            console.log('✅ Peer conectado:', id);
+            voiceSystem.currentPeerId = id;
+            setupPeerListeners();
+            resolve();
+        });
+        
+        voiceSystem.peer.on('error', (error) => {
+            console.error('❌ Erro no Peer:', error);
+            // Não rejeitar a promise, apenas resolver
+            resolve();
+        });
+    });
 }
 
-.voice-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
+// ===== INICIAR VERIFICAÇÃO DE STATUS =====
+document.addEventListener('DOMContentLoaded', function() {
+    startVoiceStatusChecker();
+});
+
+// ===== ATUALIZAR UI AO INICIAR =====
+function updateInitialVoiceStatus() {
+    if (!gameState || !gameState.players) return;
+    
+    const opponent = gameState.players.find(p => p.uid !== currentUser.uid);
+    if (!opponent) return;
+    
+    // Verificar status inicial do oponente
+    db.collection('users').doc(opponent.uid).get()
+        .then((doc) => {
+            if (doc.exists) {
+                const opponentData = doc.data();
+                opponentVoiceStatus = opponentData.voiceEnabled === true;
+                updateOpponentStatus(opponentVoiceStatus);
+            }
+        })
+        .catch((error) => {
+            console.warn('⚠️ Erro ao verificar status inicial:', error);
+        });
 }
 
-.voice-header h4 {
-    color: #3498db;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-}
-
-.voice-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-}
-
-.status-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #e74c3c;
-}
-
-.voice-btn {
-    width: 100%;
-    padding: 10px;
-    background: #2c3e50;
-    border: none;
-    border-radius: 5px;
-    color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 12px;
-    transition: background 0.3s;
-}
-
-.voice-btn:hover {
-    background: #34495e;
-}
-
-.voice-btn.active {
-    background: #e74c3c;
-}
-
-.voice-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.voice-settings {
-    margin-bottom: 12px;
-}
-
-.voice-setting {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.voice-setting label {
-    font-size: 12px;
-    color: #95a5a6;
-}
-
-.voice-setting input[type="range"] {
-    width: 100%;
-}
-
-.voice-info {
-    text-align: center;
-    font-size: 12px;
-    color: #e74c3c;
-}
-</style>
-`;
-
-// ===== INICIALIZAR QUANDO O JOGO COMEÇAR =====
+// ===== MODIFICAR setupVoiceSystem =====
 function setupVoiceSystem() {
     // Adicionar estilos
     document.head.insertAdjacentHTML('beforeend', voiceStyles);
@@ -9456,25 +9317,9 @@ function setupVoiceSystem() {
     // Inicializar sistema de voz
     setTimeout(() => {
         initializeVoiceSystem();
+        updateInitialVoiceStatus();
         console.log('✅ Sistema de voz inicializado');
     }, 2000);
 }
 
-// ===== INTEGRAR COM SEU CÓDIGO =====
-
-// 1. Modificar setupGameListener para incluir voz
-const originalSetupGameListener = setupGameListener;
-setupGameListener = function(tableId) {
-    originalSetupGameListener.call(this, tableId);
-    setupVoiceSystem();
-};
-
-// 2. Modificar joinTable para incluir voz
-const originalJoinTable = joinTable;
-joinTable = async function(tableId) {
-    const result = await originalJoinTable.call(this, tableId);
-    setupVoiceSystem();
-    return result;
-};
-
-console.log('✅ Sistema de voz simplificado carregado');
+console.log('✅ Sistema de sincronização de voz carregado');
