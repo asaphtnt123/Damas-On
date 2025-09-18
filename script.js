@@ -6604,7 +6604,6 @@ function initializeChat() {
         });
     }
 }
-
 // ===== FUNÇÃO SEND CHAT MESSAGE =====
 async function sendChatMessage() {
     if (!currentGameRef || !currentUser || !userData) return;
@@ -6615,13 +6614,21 @@ async function sendChatMessage() {
     if (!message) return;
     
     try {
-        await db.collection('tables').doc(currentGameRef.id).collection('chat').add({
+        const messageData = {
             message: message,
             senderId: currentUser.uid,
             senderName: userData.displayName,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             color: gameState.players.find(p => p.uid === currentUser.uid)?.color || 'black'
-        });
+        };
+        
+        // Tentar enviar via WebRTC primeiro (mais rápido)
+        const sentViaWebRTC = sendChatMessageWebRTC(messageData);
+        
+        // Se não conseguiu enviar via WebRTC, usar Firebase como fallback
+        if (!sentViaWebRTC) {
+            await db.collection('tables').doc(currentGameRef.id).collection('chat').add(messageData);
+        }
         
         chatInput.value = '';
         
@@ -6629,6 +6636,118 @@ async function sendChatMessage() {
         console.error('Erro ao enviar mensagem:', error);
         showNotification('Erro ao enviar mensagem', 'error');
     }
+}
+
+// ===== ENVIAR MENSAGEM DE CHAT VIA WEBRTC =====
+function sendChatMessageWebRTC(messageData) {
+    if (dataChannel && dataChannel.readyState === 'open') {
+        try {
+            // Enviar mensagem via WebRTC
+            dataChannel.send(JSON.stringify({
+                type: 'chat-message',
+                message: messageData.message,
+                senderId: messageData.senderId,
+                senderName: messageData.senderName,
+                color: messageData.color,
+                timestamp: new Date().toISOString() // Usar timestamp local
+            }));
+            
+            // Renderizar a mensagem localmente imediatamente
+            renderChatMessageLocally(messageData);
+            
+            return true;
+        } catch (error) {
+            console.error('Erro ao enviar mensagem via WebRTC:', error);
+            return false;
+        }
+    }
+    return false;
+}
+
+// ===== RENDERIZAR MENSAGEM LOCALMENTE =====
+function renderChatMessageLocally(messageData) {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return;
+    
+    // Criar elemento de mensagem
+    const messageEl = document.createElement('div');
+    messageEl.className = `chat-message ${messageData.senderId === currentUser.uid ? 'own-message' : 'other-message'}`;
+    
+    const time = new Date().toLocaleTimeString();
+    
+    messageEl.innerHTML = `
+        <div class="message-content">
+            <div class="message-sender">${messageData.senderName}</div>
+            <div class="message-text">${escapeHtml(messageData.message)}</div>
+            <div class="message-time">${time}</div>
+        </div>
+    `;
+    
+    // Adicionar cor baseada no jogador
+    if (messageData.color) {
+        messageEl.style.borderLeft = `3px solid ${messageData.color === 'black' ? '#000' : '#e74c3c'}`;
+    }
+    
+    chatMessages.appendChild(messageEl);
+    scrollChatToBottom();
+}
+
+// ===== MODIFICAR A FUNÇÃO handleDataChannelMessage =====
+function handleDataChannelMessage(data) {
+    switch(data.type) {
+        case 'voice-activity':
+            // Atualizar UI para mostrar que o oponente está falando
+            const voiceSpeaking = document.getElementById('voice-speaking');
+            if (voiceSpeaking && data.speaking) {
+                voiceSpeaking.innerHTML = `<span class="speaking-indicator">${data.playerName} está falando...</span>`;
+            } else if (voiceSpeaking) {
+                voiceSpeaking.innerHTML = '';
+            }
+            break;
+            
+        case 'chat-message':
+            // Adicionar mensagem ao chat
+            renderChatMessage({
+                message: data.message,
+                senderId: data.senderId,
+                senderName: data.senderName,
+                timestamp: new Date(data.timestamp),
+                color: data.color
+            }, document.getElementById('chat-messages'));
+            scrollChatToBottom();
+            break;
+    }
+}
+
+// ===== MODIFICAR A FUNÇÃO renderChatMessage EXISTENTE =====
+function renderChatMessage(message, container) {
+    // Verificar se a mensagem já foi renderizada (para evitar duplicatas)
+    const existingMessages = container.querySelectorAll('.message-text');
+    for (const msg of existingMessages) {
+        if (msg.textContent === message.message) {
+            return; // Mensagem já existe, não renderizar novamente
+        }
+    }
+    
+    const messageEl = document.createElement('div');
+    messageEl.className = `chat-message ${message.senderId === currentUser.uid ? 'own-message' : 'other-message'}`;
+    
+    const time = message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : 'Agora';
+    
+    messageEl.innerHTML = `
+        <div class="message-content">
+            <div class="message-sender">${message.senderName}</div>
+            <div class="message-text">${escapeHtml(message.message)}</div>
+            <div class="message-time">${time}</div>
+        </div>
+    `;
+    
+    // Adicionar cor baseada no jogador
+    if (message.color) {
+        messageEl.style.borderLeft = `3px solid ${message.color === 'black' ? '#000' : '#e74c3c'}`;
+    }
+    
+    container.appendChild(messageEl);
 }
 
 // ===== FUNÇÃO SETUP CHAT LISTENER =====
