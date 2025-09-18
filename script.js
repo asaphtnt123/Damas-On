@@ -9070,3 +9070,401 @@ function initializeGameWithSound() {
             // Adicionar este sistema ao seu jogo existente
             console.log('Sistema de voz carregado com sucesso!');
         });
+
+
+        // ===== SISTEMA DE VOZ =====
+let voiceStream = null;
+let voiceRecorder = null;
+let audioContext = null;
+let audioAnalyser = null;
+let isVoiceActive = false;
+let voiceVolume = 0;
+let voiceSensitivity = 0.5;
+
+// ===== INICIALIZAÇÃO DO SISTEMA DE VOZ =====
+function initializeVoiceSystem() {
+    createVoiceControls();
+    setupVoiceEventListeners();
+}
+
+// ===== CRIAÇÃO DOS CONTROLES DE VOZ =====
+function createVoiceControls() {
+    const gameChat = document.querySelector('.game-chat');
+    if (!gameChat) return;
+    
+    const voiceControls = document.createElement('div');
+    voiceControls.className = 'voice-controls';
+    voiceControls.innerHTML = `
+        <div class="voice-header">
+            <h3>Controle de Voz</h3>
+            <div class="voice-status" id="voice-status">Desativado</div>
+        </div>
+        <div class="voice-controls-content">
+            <div class="voice-toggle">
+                <button id="voice-toggle-btn" class="btn btn-voice">
+                    <i class="fas fa-microphone-slash"></i> Ativar Voz
+                </button>
+            </div>
+            <div class="voice-settings">
+                <div class="voice-setting">
+                    <label for="voice-volume">Volume:</label>
+                    <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="1">
+                    <span id="volume-value">100%</span>
+                </div>
+                <div class="voice-setting">
+                    <label for="voice-sensitivity">Sensibilidade:</label>
+                    <input type="range" id="voice-sensitivity" min="0" max="1" step="0.1" value="0.5">
+                    <span id="sensitivity-value">50%</span>
+                </div>
+            </div>
+            <div class="voice-visualizer">
+                <div class="voice-bar-container">
+                    <div class="voice-bar" id="voice-bar"></div>
+                </div>
+                <div class="voice-speaking" id="voice-speaking"></div>
+            </div>
+        </div>
+    `;
+    
+    // Adiciona os controles de voz antes do chat
+    gameChat.parentNode.insertBefore(voiceControls, gameChat);
+    
+    // Adiciona estilos para os controles de voz
+    addVoiceStyles();
+}
+
+// ===== ADICIONA ESTILOS PARA OS CONTROLES DE VOZ =====
+function addVoiceStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .voice-controls {
+            background: linear-gradient(135deg, #2c3e50, #1a2a6c);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .voice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .voice-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+        
+        .voice-status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            background-color: #e74c3c;
+        }
+        
+        .voice-status.active {
+            background-color: #2ecc71;
+        }
+        
+        .voice-toggle {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .btn-voice {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        .btn-voice:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-voice.active {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        
+        .voice-settings {
+            margin-bottom: 15px;
+        }
+        
+        .voice-setting {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .voice-setting label {
+            width: 100px;
+            font-size: 0.9rem;
+        }
+        
+        .voice-setting input[type="range"] {
+            flex: 1;
+            margin: 0 10px;
+        }
+        
+        .voice-setting span {
+            width: 40px;
+            text-align: right;
+            font-size: 0.9rem;
+        }
+        
+        .voice-visualizer {
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 5px;
+            padding: 10px;
+        }
+        
+        .voice-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .voice-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #2ecc71, #f1c40f);
+            border-radius: 10px;
+            transition: width 0.1s;
+        }
+        
+        .voice-speaking {
+            text-align: center;
+            font-size: 0.9rem;
+            min-height: 20px;
+        }
+        
+        .speaking-indicator {
+            display: inline-block;
+            padding: 3px 10px;
+            background-color: #2ecc71;
+            border-radius: 15px;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    `;
+    
+    document.head.appendChild(style);
+}
+
+// ===== CONFIGURAÇÃO DOS EVENT LISTENERS DE VOZ =====
+function setupVoiceEventListeners() {
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+    const voiceVolume = document.getElementById('voice-volume');
+    const voiceSensitivity = document.getElementById('voice-sensitivity');
+    
+    if (voiceToggleBtn) {
+        voiceToggleBtn.addEventListener('click', toggleVoiceChat);
+    }
+    
+    if (voiceVolume) {
+        voiceVolume.addEventListener('input', updateVoiceVolume);
+    }
+    
+    if (voiceSensitivity) {
+        voiceSensitivity.addEventListener('input', updateVoiceSensitivity);
+    }
+}
+
+// ===== ALTERNAR CHAT DE VOZ =====
+async function toggleVoiceChat() {
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+    const voiceStatus = document.getElementById('voice-status');
+    
+    if (!isVoiceActive) {
+        // Ativar voz
+        try {
+            await startVoiceChat();
+            isVoiceActive = true;
+            voiceToggleBtn.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
+            voiceToggleBtn.classList.add('active');
+            voiceStatus.textContent = 'Ativado';
+            voiceStatus.classList.add('active');
+        } catch (error) {
+            console.error('Erro ao ativar voz:', error);
+            showNotification('Erro ao ativar voz. Verifique as permissões do microfone.', 'error');
+        }
+    } else {
+        // Desativar voz
+        stopVoiceChat();
+        isVoiceActive = false;
+        voiceToggleBtn.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
+        voiceToggleBtn.classList.remove('active');
+        voiceStatus.textContent = 'Desativado';
+        voiceStatus.classList.remove('active');
+        
+        // Limpar indicador de fala
+        const voiceSpeaking = document.getElementById('voice-speaking');
+        if (voiceSpeaking) {
+            voiceSpeaking.innerHTML = '';
+        }
+    }
+}
+
+// ===== INICIAR CHAT DE VOZ =====
+async function startVoiceChat() {
+    try {
+        // Solicitar acesso ao microfone
+        voiceStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100
+            } 
+        });
+        
+        // Configurar áudio context para análise
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(voiceStream);
+        
+        // Configurar analisador de áudio
+        audioAnalyser = audioContext.createAnalyser();
+        audioAnalyser.fftSize = 256;
+        source.connect(audioAnalyser);
+        
+        // Iniciar análise de áudio
+        analyzeVoice();
+        
+        // Aqui você conectaria com seu sistema de comunicação em tempo real
+        // Por exemplo, usando WebRTC para transmitir áudio para o oponente
+        console.log('Chat de voz ativado');
+        
+    } catch (error) {
+        console.error('Erro ao acessar microfone:', error);
+        throw error;
+    }
+}
+
+// ===== PARAR CHAT DE VOZ =====
+function stopVoiceChat() {
+    if (voiceStream) {
+        voiceStream.getTracks().forEach(track => track.stop());
+        voiceStream = null;
+    }
+    
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+    
+    audioAnalyser = null;
+    console.log('Chat de voz desativado');
+}
+
+// ===== ANALISAR VOZ =====
+function analyzeVoice() {
+    if (!audioAnalyser) return;
+    
+    const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+    const voiceBar = document.getElementById('voice-bar');
+    const voiceSpeaking = document.getElementById('voice-speaking');
+    
+    const analyze = () => {
+        if (!audioAnalyser) return;
+        
+        audioAnalyser.getByteFrequencyData(dataArray);
+        
+        // Calcular volume médio
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+        }
+        voiceVolume = sum / dataArray.length / 256; // Normalizar para 0-1
+        
+        // Atualizar barra de visualização
+        if (voiceBar) {
+            voiceBar.style.width = `${Math.min(voiceVolume * 100 * 2, 100)}%`;
+        }
+        
+        // Verificar se alguém está falando (baseado na sensibilidade)
+        if (voiceVolume > voiceSensitivity) {
+            // Mostrar quem está falando
+            if (voiceSpeaking) {
+                const playerName = userData?.displayName || 'Jogador';
+                voiceSpeaking.innerHTML = `<span class="speaking-indicator">${playerName} está falando...</span>`;
+            }
+            
+            // Aqui você enviaria o áudio para o oponente em tempo real
+            // usando sua solução de WebRTC ou WebSockets
+        } else {
+            if (voiceSpeaking) {
+                voiceSpeaking.innerHTML = '';
+            }
+        }
+        
+        if (isVoiceActive) {
+            requestAnimationFrame(analyze);
+        }
+    };
+    
+    analyze();
+}
+
+// ===== ATUALIZAR VOLUME =====
+function updateVoiceVolume() {
+    const volumeSlider = document.getElementById('voice-volume');
+    const volumeValue = document.getElementById('volume-value');
+    
+    if (volumeSlider && volumeValue) {
+        const volume = parseFloat(volumeSlider.value);
+        volumeValue.textContent = `${Math.round(volume * 100)}%`;
+        
+        // Aqui você ajustaria o volume de saída do áudio recebido
+        // do oponente, se estiver usando WebRTC
+    }
+}
+
+// ===== ATUALIZAR SENSIBILIDADE =====
+function updateVoiceSensitivity() {
+    const sensitivitySlider = document.getElementById('voice-sensitivity');
+    const sensitivityValue = document.getElementById('sensitivity-value');
+    
+    if (sensitivitySlider && sensitivityValue) {
+        voiceSensitivity = parseFloat(sensitivitySlider.value);
+        sensitivityValue.textContent = `${Math.round(voiceSensitivity * 100)}%`;
+    }
+}
+
+// ===== NOTIFICAÇÃO =====
+function showNotification(message, type) {
+    // Implemente sua função de notificação aqui
+    console.log(`${type}: ${message}`);
+}
+
+// ===== INICIALIZAR SISTEMA DE VOZ QUANDO O JOGO COMEÇAR =====
+// Chame esta função quando o jogo for iniciado
+initializeVoiceSystem();
+
+// ===== LIMPEZA DO SISTEMA DE VOZ =====
+function cleanupVoice() {
+    stopVoiceChat();
+    isVoiceActive = false;
+    
+    // Remover controles de voz se necessário
+    const voiceControls = document.querySelector('.voice-controls');
+    if (voiceControls) {
+        voiceControls.remove();
+    }
+}
