@@ -9019,6 +9019,7 @@ let isConnected = false;
 let isMuted = false;
 let isMakingOffer = false;
 let ignoreOffer = false;
+let polite = false; // Para controle de politeness
 
 // Configuração dos servidores STUN/TURN
 const rtcConfiguration = {
@@ -9047,6 +9048,7 @@ function initializeVoiceSystem() {
 function setupWebRTC() {
     // Determinar quem é o caller baseado na lógica do jogo
     isCaller = determineIfCaller();
+    polite = !isCaller; // O não-caller é "polite" (cede em conflitos)
     
     updateConnectionStatus('connecting', 'Conectando...');
     
@@ -9430,7 +9432,7 @@ async function startVoiceChat() {
             
             // Iniciar negociação se for o caller
             if (isCaller) {
-                negotiateConnection();
+                setTimeout(() => negotiateConnection(), 500);
             }
         }
         
@@ -9557,7 +9559,7 @@ function createDataChannel() {
     }
 }
 
-// ===== CONFIGURAR DATA CHANNEL =====
+// ===== CONFIGURAR DATA CHannel =====
 function setupDataChannel(channel) {
     dataChannel = channel;
     
@@ -9636,13 +9638,22 @@ async function handleOffer(offer) {
     try {
         const offerCollision = (isMakingOffer || peerConnection.signalingState !== "stable");
         
-        ignoreOffer = !isCaller && offerCollision;
+        ignoreOffer = !polite && offerCollision;
         if (ignoreOffer) {
             console.log('Offer ignorado devido a colisão');
             return;
         }
         
-        await peerConnection.setRemoteDescription(offer);
+        // Se somos "polite", precisamos rollback se houver colisão
+        if (polite && offerCollision) {
+            await Promise.all([
+                peerConnection.setLocalDescription({type: "rollback"}),
+                peerConnection.setRemoteDescription(offer)
+            ]);
+        } else {
+            await peerConnection.setRemoteDescription(offer);
+        }
+        
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         
@@ -9659,7 +9670,12 @@ async function handleAnswer(answer) {
     
     try {
         // Verificar se estamos no estado correto para processar answer
-        if (peerConnection.signalingState !== "have-local-offer") {
+        const readyForAnswer = (
+            peerConnection.signalingState === "have-local-offer" ||
+            peerConnection.signalingState === "have-remote-offer"
+        );
+        
+        if (!readyForAnswer) {
             console.warn('Ignorando answer - estado incorreto:', peerConnection.signalingState);
             return;
         }
@@ -9668,6 +9684,13 @@ async function handleAnswer(answer) {
         console.log('Answer processado com sucesso');
     } catch (error) {
         console.error('Erro ao lidar com answer:', error);
+        
+        // Se falhar, tentar fazer rollback e recriar a conexão
+        if (error.toString().includes("m-lines") || error.toString().includes("order")) {
+            console.log('Detectado erro de ordem m-line, recriando conexão...');
+            cleanupVoice();
+            setTimeout(() => initializeVoiceSystem(), 1000);
+        }
     }
 }
 
@@ -9695,13 +9718,19 @@ async function negotiateConnection() {
     if (!peerConnection) return;
     
     try {
-        const offer = await peerConnection.createOffer();
-        
-        // Verificar se já temos uma offer pendente
+        // Não negociar se já estamos em meio a uma negociação
         if (peerConnection.signalingState !== "stable") {
-            console.log('Negociação já em andamento, ignorando nova offer');
+            console.log('Negociação já em andamento, ignorando nova oferta');
             return;
         }
+        
+        const offer = await peerConnection.createOffer();
+        
+        // Usar offerOptions para evitar problemas com ordem de m-lines
+        const offerOptions = {
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: false
+        };
         
         await peerConnection.setLocalDescription(offer);
         
@@ -9709,6 +9738,13 @@ async function negotiateConnection() {
         sendSignalingData({ type: 'offer', offer: offer });
     } catch (error) {
         console.error('Erro durante negociação:', error);
+        
+        // Se for erro de ordem m-line, recriar a conexão
+        if (error.toString().includes("m-lines") || error.toString().includes("order")) {
+            console.log('Erro de ordem m-line detectado, recriando conexão...');
+            cleanupVoice();
+            setTimeout(() => initializeVoiceSystem(), 1000);
+        }
     }
 }
 
@@ -9812,7 +9848,7 @@ function updateVoiceVolume() {
     }
 }
 
-// ===== ATUALIZAR SENSIBILIDEA =====
+// ===== ATUALIZAR SENSIBILIDADE =====
 function updateVoiceSensitivity() {
     const sensitivitySlider = document.getElementById('voice-sensitivity');
     const sensitivityValue = document.getElementById('sensitivity-value');
