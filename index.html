@@ -28,7 +28,10 @@
             <button id="btn-profile" class="nav-btn">
                 <i class="fas fa-user"></i>
             </button>
-
+  <!-- Botão para abrir/fechar o painel de voz -->
+    <button class="voice-toggle-btn" id="voice-toggle-btn">
+        <i class="fas fa-microphone"></i>
+    </button>
 
         </div>
     </nav>
@@ -648,6 +651,59 @@
 </div>
 
 
+   <!-- Overlay para fechar o painel ao clicar fora -->
+    <div class="panel-overlay" id="panel-overlay"></div>
+    
+    <!-- Painel de voz -->
+    <div class="voice-panel" id="voice-panel">
+        <div class="voice-header">
+            <h2>Chat de Voz</h2>
+            <button class="close-panel" id="close-panel">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="voice-controls">
+            <div class="control-group">
+                <label for="voice-volume">Volume de Saída</label>
+                <input type="range" id="voice-volume" min="0" max="1" step="0.1" value="1">
+                <div class="value-display">
+                    <span>0%</span>
+                    <span id="volume-value">100%</span>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label for="voice-sensitivity">Sensibilidade do Microfone</label>
+                <input type="range" id="voice-sensitivity" min="0" max="1" step="0.1" value="0.5">
+                <div class="value-display">
+                    <span>Baixa</span>
+                    <span id="sensitivity-value">Média</span>
+                </div>
+            </div>
+            
+            <button class="btn-voice-action" id="btn-voice-action">
+                <i class="fas fa-microphone-slash"></i> Ativar Voz
+            </button>
+            
+            <div class="voice-visualizer">
+                <div class="voice-bar-container">
+                    <div class="voice-bar" id="voice-bar"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="users-list">
+            <h3>Jogadores Online</h3>
+            <div id="users-container">
+                <!-- Lista de usuários será preenchida via JavaScript -->
+            </div>
+        </div>
+        
+        <div class="voice-footer">
+            Sistema de Voz Damas-On | Conectando jogadores
+        </div>
+    </div>
 
     <script src="script.js"></script>
 
