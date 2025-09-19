@@ -9002,7 +9002,6 @@ function initializeGameWithSound() {
     }
 }
 
-
 // ===== SISTEMA DE VOZ COM WEBRTC =====
 let voiceStream = null;
 let audioContext = null;
@@ -9017,16 +9016,17 @@ let dataChannel = null;
 let isCaller = false;
 let remoteStream = null;
 let isConnected = false;
-let isRecording = false;
 let isMuted = false;
-let isDeafened = false;
+let isMakingOffer = false;
+let ignoreOffer = false;
 
 // Configuração dos servidores STUN/TURN
 const rtcConfiguration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
-    ]
+    ],
+    iceCandidatePoolSize: 10
 };
 
 // ===== INICIALIZAÇÃO DO SISTEMA DE VOZ =====
@@ -9496,6 +9496,7 @@ function createPeerConnection() {
         
         // Lidar com conexão de estado alterado
         peerConnection.onconnectionstatechange = () => {
+            console.log('Estado da conexão:', peerConnection.connectionState);
             switch(peerConnection.connectionState) {
                 case 'connected':
                     updateConnectionStatus('connected', 'Conectado');
@@ -9510,9 +9511,22 @@ function createPeerConnection() {
             }
         };
         
+        // Lidar com negociação necessária
+        peerConnection.onnegotiationneeded = async () => {
+            try {
+                isMakingOffer = true;
+                await negotiateConnection();
+            } catch (err) {
+                console.error('Erro na negociação:', err);
+            } finally {
+                isMakingOffer = false;
+            }
+        };
+        
         // Lidar com stream remoto
         peerConnection.ontrack = (event) => {
             remoteStream = event.streams[0];
+            console.log('Stream remoto recebido');
             // Aqui você poderia conectar o stream remoto a um elemento de áudio
             // const audioElement = document.createElement('audio');
             // audioElement.srcObject = remoteStream;
@@ -9587,7 +9601,7 @@ function handleDataChannelMessage(data) {
                 message: data.message,
                 senderId: data.senderId,
                 senderName: data.senderName,
-                timestamp: new Date(),
+                timestamp: new Date(data.timestamp),
                 color: data.color
             }, document.getElementById('chat-messages'));
             scrollChatToBottom();
@@ -9620,6 +9634,14 @@ async function handleOffer(offer) {
     }
     
     try {
+        const offerCollision = (isMakingOffer || peerConnection.signalingState !== "stable");
+        
+        ignoreOffer = !isCaller && offerCollision;
+        if (ignoreOffer) {
+            console.log('Offer ignorado devido a colisão');
+            return;
+        }
+        
         await peerConnection.setRemoteDescription(offer);
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
@@ -9636,7 +9658,14 @@ async function handleAnswer(answer) {
     if (!peerConnection) return;
     
     try {
+        // Verificar se estamos no estado correto para processar answer
+        if (peerConnection.signalingState !== "have-local-offer") {
+            console.warn('Ignorando answer - estado incorreto:', peerConnection.signalingState);
+            return;
+        }
+        
         await peerConnection.setRemoteDescription(answer);
+        console.log('Answer processado com sucesso');
     } catch (error) {
         console.error('Erro ao lidar com answer:', error);
     }
@@ -9647,7 +9676,15 @@ async function handleNewICECandidate(candidate) {
     if (!peerConnection) return;
     
     try {
+        // Verificar se a conexão está no estado correto
+        if (peerConnection.remoteDescription === null) {
+            console.log('Adiando candidato ICE até que remoteDescription seja definido');
+            // Você pode armazenar candidatos pendentes aqui e adicioná-los depois
+            return;
+        }
+        
         await peerConnection.addIceCandidate(candidate);
+        console.log('Candidato ICE adicionado com sucesso');
     } catch (error) {
         console.error('Erro ao adicionar ICE candidate:', error);
     }
@@ -9659,6 +9696,13 @@ async function negotiateConnection() {
     
     try {
         const offer = await peerConnection.createOffer();
+        
+        // Verificar se já temos uma offer pendente
+        if (peerConnection.signalingState !== "stable") {
+            console.log('Negociação já em andamento, ignorando nova offer');
+            return;
+        }
+        
         await peerConnection.setLocalDescription(offer);
         
         // Enviar offer para o oponente
@@ -9765,15 +9809,10 @@ function updateVoiceVolume() {
         const volume = parseFloat(volumeSlider.value);
         volumeValue.textContent = `${Math.round(volume * 100)}%`;
         voiceVolume = volume;
-        
-        // Ajustar volume do áudio recebido (se estiver usando elemento de áudio)
-        // if (remoteAudioElement) {
-        //     remoteAudioElement.volume = volume;
-        // }
     }
 }
 
-// ===== ATUALIZAR SENSIBILIDADE =====
+// ===== ATUALIZAR SENSIBILIDEA =====
 function updateVoiceSensitivity() {
     const sensitivitySlider = document.getElementById('voice-sensitivity');
     const sensitivityValue = document.getElementById('sensitivity-value');
