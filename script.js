@@ -329,7 +329,6 @@ function initializeApp() {
     console.log('🚀 Inicializando aplicação Damas Online...');
      // 1. Inicializar sistema de som
     createSoundControls();
-    initializeGameWithSound();
 initializeVoiceSystem();
     
     // 1. Sistemas de autenticação e UI
@@ -8622,7 +8621,8 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
-  // ===== VARIÁVEIS GLOBAIS =====
+
+    // ===== VARIÁVEIS GLOBAIS =====
     let voiceStream = null;
     let audioContext = null;
     let audioAnalyser = null;
