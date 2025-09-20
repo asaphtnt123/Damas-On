@@ -8622,9 +8622,7 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
-
-
-   // ===== VARIÁVEIS GLOBAIS =====
+  // ===== VARIÁVEIS GLOBAIS =====
     let voiceStream = null;
     let audioContext = null;
     let audioAnalyser = null;
@@ -8654,6 +8652,35 @@ async function checkPendingChallenges() {
         { id: 'user3', name: 'Você', status: 'online', speaking: false }
     ];
     
+    // ===== FUNÇÃO createSoundControls QUE ESTAVA FALTANDO =====
+    function createSoundControls() {
+        // Esta função cria os controles de som no painel de voz
+        // Como já temos os controles no HTML, vamos apenas configurá-los
+        
+        console.log("Controles de som criados com sucesso!");
+        
+        // Configurar os event listeners para os controles
+        const volumeSlider = document.getElementById('voice-volume');
+        const sensitivitySlider = document.getElementById('voice-sensitivity');
+        const voiceActionBtn = document.getElementById('btn-voice-action');
+        
+        if (volumeSlider) {
+            volumeSlider.addEventListener('input', updateVoiceVolume);
+        }
+        
+        if (sensitivitySlider) {
+            sensitivitySlider.addEventListener('input', updateVoiceSensitivity);
+        }
+        
+        if (voiceActionBtn) {
+            voiceActionBtn.addEventListener('click', toggleVoiceChat);
+        }
+        
+        // Inicializar os valores exibidos
+        updateVoiceVolume();
+        updateVoiceSensitivity();
+    }
+    
     // ===== INICIALIZAÇÃO =====
     document.addEventListener('DOMContentLoaded', function() {
         initializeVoiceSystem();
@@ -8665,6 +8692,9 @@ async function checkPendingChallenges() {
     function initializeVoiceSystem() {
         // Configurar event listeners
         setupEventListeners();
+        
+        // Criar controles de som
+        createSoundControls();
         
         // Verificar suporte a WebRTC
         if (!navigator.mediaDevices || !window.AudioContext) {
@@ -8762,13 +8792,6 @@ async function checkPendingChallenges() {
         
         // Overlay para fechar ao clicar fora
         document.getElementById('panel-overlay').addEventListener('click', toggleVoicePanel);
-        
-        // Botão de ativar/desativar voz
-        document.getElementById('btn-voice-action').addEventListener('click', toggleVoiceChat);
-        
-        // Controles de volume e sensibilidade
-        document.getElementById('voice-volume').addEventListener('input', updateVoiceVolume);
-        document.getElementById('voice-sensitivity').addEventListener('input', updateVoiceSensitivity);
     }
     
     // ===== ALTERNAR VISIBILIDADE DO PAINEL =====
