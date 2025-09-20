@@ -8621,7 +8621,6 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
-
     // ===== VARIÁVEIS GLOBAIS =====
     let voiceStream = null;
     let audioContext = null;
@@ -8651,36 +8650,25 @@ async function checkPendingChallenges() {
         { id: 'user2', name: 'Jogador2', status: 'online', speaking: false },
         { id: 'user3', name: 'Você', status: 'online', speaking: false }
     ];
-    
-    // ===== FUNÇÃO createSoundControls QUE ESTAVA FALTANDO =====
-    function createSoundControls() {
-        // Esta função cria os controles de som no painel de voz
-        // Como já temos os controles no HTML, vamos apenas configurá-los
+
+    // ===== AUDIO MANAGER (CORREÇÃO DO ERRO) =====
+    const audioManager = {
+        playNotification: function() {
+            // Tocar um som de notificação
+            try {
+                console.log("Tocando som de notificação");
+                // Em uma implementação real, você teria um arquivo de áudio real
+            } catch (error) {
+                console.error("Erro ao reproduzir som de notificação:", error);
+            }
+        },
         
-        console.log("Controles de som criados com sucesso!");
-        
-        // Configurar os event listeners para os controles
-        const volumeSlider = document.getElementById('voice-volume');
-        const sensitivitySlider = document.getElementById('voice-sensitivity');
-        const voiceActionBtn = document.getElementById('btn-voice-action');
-        
-        if (volumeSlider) {
-            volumeSlider.addEventListener('input', updateVoiceVolume);
+        playSound: function(name, volume = 0.5) {
+            // Tocar diferentes tipos de sons
+            console.log(`Reproduzindo som: ${name} com volume: ${volume}`);
         }
-        
-        if (sensitivitySlider) {
-            sensitivitySlider.addEventListener('input', updateVoiceSensitivity);
-        }
-        
-        if (voiceActionBtn) {
-            voiceActionBtn.addEventListener('click', toggleVoiceChat);
-        }
-        
-        // Inicializar os valores exibidos
-        updateVoiceVolume();
-        updateVoiceSensitivity();
-    }
-    
+    };
+
     // ===== INICIALIZAÇÃO =====
     document.addEventListener('DOMContentLoaded', function() {
         initializeVoiceSystem();
@@ -8745,9 +8733,6 @@ async function checkPendingChallenges() {
             peerConnection.ontrack = (event) => {
                 console.log('Stream remoto recebido:', event.streams[0]);
                 // Aqui você conectaria o stream remoto a um elemento de áudio
-                // const audioElement = document.createElement('audio');
-                // audioElement.srcObject = event.streams[0];
-                // audioElement.play();
             };
             
         } catch (error) {
@@ -8792,6 +8777,32 @@ async function checkPendingChallenges() {
         
         // Overlay para fechar ao clicar fora
         document.getElementById('panel-overlay').addEventListener('click', toggleVoicePanel);
+    }
+    
+    // ===== FUNÇÃO createSoundControls =====
+    function createSoundControls() {
+        // Configurar os event listeners para os controles
+        const volumeSlider = document.getElementById('voice-volume');
+        const sensitivitySlider = document.getElementById('voice-sensitivity');
+        const voiceActionBtn = document.getElementById('btn-voice-action');
+        
+        if (volumeSlider) {
+            volumeSlider.addEventListener('input', updateVoiceVolume);
+        }
+        
+        if (sensitivitySlider) {
+            sensitivitySlider.addEventListener('input', updateVoiceSensitivity);
+        }
+        
+        if (voiceActionBtn) {
+            voiceActionBtn.addEventListener('click', toggleVoiceChat);
+        }
+        
+        // Inicializar os valores exibidos
+        updateVoiceVolume();
+        updateVoiceSensitivity();
+        
+        console.log("Controles de som criados com sucesso!");
     }
     
     // ===== ALTERNAR VISIBILIDADE DO PAINEL =====
@@ -8891,11 +8902,24 @@ async function checkPendingChallenges() {
         if (!peerConnection) return;
         
         try {
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
+            // Usar offerOptions para evitar problemas com ordem de m-lines
+            const offerOptions = {
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: false
+            };
+            
+            const offer = await peerConnection.createOffer(offerOptions);
+            
+            // Corrigir o problema do setup attribute
+            const updatedOffer = {
+                type: offer.type,
+                sdp: offer.sdp.replace(/a=setup:actpass/g, 'a=setup:active')
+            };
+            
+            await peerConnection.setLocalDescription(updatedOffer);
             
             // Em uma implementação real, você enviaria a oferta para o outro jogador
-            console.log('Oferta WebRTC criada:', offer);
+            console.log('Oferta WebRTC criada:', updatedOffer);
             
             // Simular resposta após um delay
             setTimeout(async () => {
@@ -8903,11 +8927,22 @@ async function checkPendingChallenges() {
                 // Em uma implementação real, você receberia isso do outro jogador
                 const answer = {
                     type: 'answer',
-                    sdp: offer.sdp // Simplificação para demonstração
+                    sdp: updatedOffer.sdp.replace(/a=setup:active/g, 'a=setup:passive')
                 };
                 
-                await peerConnection.setRemoteDescription(answer);
-                console.log('Conexão WebRTC estabelecida');
+                try {
+                    await peerConnection.setRemoteDescription(answer);
+                    console.log('Conexão WebRTC estabelecida');
+                } catch (error) {
+                    console.error('Erro ao definir descrição remota:', error);
+                    // Tentar abordagem alternativa em caso de erro
+                    try {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                        console.log('Conexão WebRTC estabelecida (método alternativo)');
+                    } catch (fallbackError) {
+                        console.error('Erro no método alternativo:', fallbackError);
+                    }
+                }
                 
             }, 1000);
             
@@ -9091,6 +9126,9 @@ async function checkPendingChallenges() {
         // Implementação básica de notificação
         console.log(`${type}: ${message}`);
         
+        // Tocar som de notificação
+        audioManager.playNotification();
+        
         // Você pode implementar um sistema de notificação mais elaborado aqui
         const notification = document.createElement('div');
         notification.style.position = 'fixed';
@@ -9123,8 +9161,27 @@ async function checkPendingChallenges() {
         }, 3000);
     }
     
+    // ===== SIMULAR NOTIFICAÇÃO DE DESAFIO =====
+    function showChallengeNotification(challengeData) {
+        // Esta função simula a notificação de desafio que estava causando o erro
+        console.log("Mostrando notificação de desafio:", challengeData);
+        audioManager.playNotification();
+        
+        // Aqui você mostraria a notificação de desafio na UI
+        showNotification(`Novo desafio de ${challengeData.from}`, 'info');
+    }
+    
     // Iniciar simulação de outros usuários (apenas para demonstração)
     simulateOtherUsers();
 
     // Simular que o usuário atual é o caller (iniciador da chamada)
     isCaller = true;
+
+    // Simular uma notificação de desafio (para testar a correção do erro)
+    setTimeout(() => {
+        showChallengeNotification({
+            from: 'Jogador2',
+            to: 'user3',
+            message: 'Jogador2 te desafiou para uma partida!'
+        });
+    }, 3000);
