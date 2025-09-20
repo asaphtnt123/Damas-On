@@ -8624,384 +8624,7 @@ async function checkPendingChallenges() {
 }
 
 
-
-// ===== SISTEMA DE SONS =====
-const gameSounds = {
-    // Sons de movimento
-    move: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-chess-piece-move-1564.mp3',
-        volume: 0.3
-    },
-    capture: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-jump-coin-216.mp3', 
-        volume: 0.4
-    },
-    multipleCapture: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3',
-        volume: 0.5
-    },
-    
-    // Sons de jogo
-    kingPromotion: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-arcade-notification-270.mp3',
-        volume: 0.6
-    },
-    gameStart: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-game-show-intro-331.mp3',
-        volume: 0.5
-    },
-    gameEnd: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.mp3',
-        volume: 0.5
-    },
-    victory: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3',
-        volume: 0.6
-    },
-    defeat: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-arcade-retro-game-over-213.mp3',
-        volume: 0.4
-    },
-    
-    // Sons de interface
-    click: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-select-click-1109.mp3',
-        volume: 0.2
-    },
-    notification: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-software-interface-start-2574.mp3',
-        volume: 0.3
-    },
-    challenge: {
-        url: 'https://assets.mixkit.co/sfx/preview/mixkit-magic-sparkles-3001.mp3',
-        volume: 0.4
-    },
-    
-    // Música ambiente
-    backgroundMusic: {
-        url: 'https://assets.mixkit.co/music/preview/mixkit-strategic-chess-583.mp3',
-        volume: 0.1,
-        loop: true
-    },
-    intenseMusic: {
-        url: 'https://assets.mixkit.co/music/preview/mixkit-game-show-suspense-waiting-667.mp3',
-        volume: 0.15,
-        loop: true
-    }
-};
-
-// Cache de áudios
-const audioCache = new Map();
-let backgroundAudio = null;
-let currentMusic = null;
-
-// ===== SISTEMA DE SONS PROGRAMÁTICOS =====
-class AudioManager {
-    constructor() {
-        this.enabled = true;
-        this.musicEnabled = true;
-        this.sfxEnabled = true;
-        this.audioContext = null;
-        this.init();
-    }
-
-    // Inicializar sistema de áudio
-    init() {
-        try {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            console.log('✅ Sistema de áudio inicializado');
-        } catch (error) {
-            console.error('❌ Erro ao inicializar áudio:', error);
-            this.enabled = false;
-        }
-        
-        // Carregar preferências
-        this.loadPreferences();
-    }
-
-    // Criar som programático
-    createSound(frequency, duration, type = 'sine', volume = 0.3) {
-        if (!this.enabled || !this.sfxEnabled || !this.audioContext) return;
-        
-        try {
-            const oscillator = this.audioContext.createOscillator();
-            const gainNode = this.audioContext.createGain();
-            
-            oscillator.type = type;
-            oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-            
-            gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
-            
-            oscillator.start();
-            oscillator.stop(this.audioContext.currentTime + duration);
-            
-        } catch (error) {
-            console.error('❌ Erro ao criar som:', error);
-        }
-    }
-
-    // Sons específicos do jogo
-    playMoveSound() {
-        this.createSound(400, 0.1, 'sine', 0.2);
-    }
-
-    playCaptureSound() {
-        this.createSound(800, 0.2, 'square', 0.4);
-    }
-
-    playMultipleCaptureSound() {
-        this.createSound(1200, 0.3, 'sine', 0.5);
-        setTimeout(() => this.createSound(1000, 0.2, 'sine', 0.4), 100);
-    }
-
-    playKingPromotionSound() {
-        this.createSound(600, 0.1, 'sine', 0.4);
-        setTimeout(() => this.createSound(800, 0.1, 'sine', 0.4), 100);
-        setTimeout(() => this.createSound(1000, 0.2, 'sine', 0.5), 200);
-    }
-
-    playClickSound() {
-        this.createSound(300, 0.05, 'sine', 0.2);
-    }
-
-    playNotificationSound() {
-        this.createSound(500, 0.15, 'triangle', 0.3);
-        setTimeout(() => this.createSound(600, 0.1, 'triangle', 0.2), 150);
-    }
-
-    playChallengeSound() {
-        this.createSound(700, 0.1, 'sine', 0.4);
-        setTimeout(() => this.createSound(900, 0.1, 'sine', 0.3), 100);
-        setTimeout(() => this.createSound(1100, 0.2, 'sine', 0.4), 200);
-    }
-
-    playGameStartSound() {
-        this.createSound(400, 0.1, 'sine', 0.3);
-        setTimeout(() => this.createSound(600, 0.1, 'sine', 0.3), 100);
-        setTimeout(() => this.createSound(800, 0.2, 'sine', 0.4), 200);
-    }
-
-    playVictorySound() {
-        [400, 600, 800, 1000, 1200].forEach((freq, index) => {
-            setTimeout(() => this.createSound(freq, 0.2, 'sine', 0.4), index * 100);
-        });
-    }
-
-    playDefeatSound() {
-        [600, 500, 400, 300].forEach((freq, index) => {
-            setTimeout(() => this.createSound(freq, 0.3, 'sawtooth', 0.3), index * 150);
-        });
-    }
-
-    // Música de fundo simples
-    playBackgroundMusic() {
-        if (!this.musicEnabled) return;
-        
-        // Música simples usando setInterval
-        let noteIndex = 0;
-        const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
-        
-        this.musicInterval = setInterval(() => {
-            if (this.musicEnabled) {
-                this.createSound(notes[noteIndex % notes.length], 0.3, 'sine', 0.1);
-                noteIndex++;
-            }
-        }, 500);
-    }
-
-    stopBackgroundMusic() {
-        if (this.musicInterval) {
-            clearInterval(this.musicInterval);
-            this.musicInterval = null;
-        }
-    }
-
-    // Controles
-    toggleSound(enabled) {
-        this.sfxEnabled = enabled;
-        localStorage.setItem('sfxEnabled', enabled);
-    }
-
-    toggleMusic(enabled) {
-        this.musicEnabled = enabled;
-        localStorage.setItem('musicEnabled', enabled);
-        
-        if (enabled) {
-            this.playBackgroundMusic();
-        } else {
-            this.stopBackgroundMusic();
-        }
-    }
-
-    loadPreferences() {
-        const sfx = localStorage.getItem('sfxEnabled');
-        const music = localStorage.getItem('musicEnabled');
-        
-        if (sfx !== null) this.sfxEnabled = sfx === 'true';
-        if (music !== null) this.musicEnabled = music === 'true';
-    }
-}
-
-
-// Instância global do gerenciador de áudio
-const audioManager = new AudioManager();
-
-// ===== CONTROLES DE SOM SIMPLIFICADOS =====
-function createSoundControls() {
-    // Verificar se já existe
-    if (document.getElementById('sound-controls')) return;
-    
-    const controlsHTML = `
-        <div id="sound-controls" class="sound-controls">
-            <button id="btn-sound-toggle" class="sound-btn" title="Efeitos sonoros">
-                <i class="fas fa-volume-up"></i>
-            </button>
-            <button id="btn-music-toggle" class="sound-btn" title="Música">
-                <i class="fas fa-music"></i>
-            </button>
-        </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', controlsHTML);
-    
-    // Configurar event listeners
-    document.getElementById('btn-sound-toggle').addEventListener('click', () => {
-        audioManager.toggleSound(!audioManager.sfxEnabled);
-        updateSoundButtons();
-        audioManager.playClickSound(); // Feedback
-    });
-    
-    document.getElementById('btn-music-toggle').addEventListener('click', () => {
-        audioManager.toggleMusic(!audioManager.musicEnabled);
-        updateSoundButtons();
-        audioManager.playClickSound(); // Feedback
-    });
-    
-    // Carregar preferências e atualizar botões
-    audioManager.loadPreferences();
-    updateSoundButtons();
-    
-    // Iniciar música se habilitada
-    if (audioManager.musicEnabled) {
-        audioManager.playBackgroundMusic();
-    }
-}
-function updateSoundButtons() {
-    const soundBtn = document.getElementById('btn-sound-toggle');
-    const musicBtn = document.getElementById('btn-music-toggle');
-    
-    if (soundBtn) {
-        soundBtn.classList.toggle('muted', !audioManager.sfxEnabled);
-        soundBtn.innerHTML = audioManager.sfxEnabled ? 
-            '<i class="fas fa-volume-up"></i>' : 
-            '<i class="fas fa-volume-mute"></i>';
-    }
-    
-    if (musicBtn) {
-        musicBtn.classList.toggle('muted', !audioManager.musicEnabled);
-        musicBtn.innerHTML = '<i class="fas fa-music"></i>';
-    }
-}
-
-
-
-// ===== INTEGRAÇÃO DOS SONS NO JOGO =====
-
-// Sons de movimento
-function playMoveSound() {
-    audioManager.playSound('move');
-}
-
-function playCaptureSound(isMultiple = false) {
-    audioManager.playSound(isMultiple ? 'multipleCapture' : 'capture');
-}
-
-function playKingPromotionSound() {
-    audioManager.playSound('kingPromotion');
-}
-
-// Sons de jogo
-function playGameStartSound() {
-    audioManager.playSound('gameStart');
-    audioManager.playMusic('backgroundMusic');
-}
-
-function playGameEndSound(win = true) {
-    audioManager.playSound(win ? 'victory' : 'defeat');
-    audioManager.stopMusic();
-}
-
-function playIntenseMusic() {
-    audioManager.playMusic('intenseMusic');
-}
-
-// Sons de interface
-function playClickSound() {
-    audioManager.playSound('click');
-}
-
-function playNotificationSound() {
-    audioManager.playSound('notification');
-}
-
-function playChallengeSound() {
-    audioManager.playSound('challenge');
-}
-
-// ===== INTEGRAÇÃO SIMPLIFICADA =====
-function initializeGameWithSound() {
-    console.log('🔊 Inicializando sistema de som...');
-    
-    // Sons de movimento - modificar makeMove diretamente
-    const originalMakeMove = makeMove;
-    makeMove = async function(fromRow, fromCol, toRow, toCol, captures) {
-        const result = await originalMakeMove.call(this, fromRow, fromCol, toRow, toCol, captures);
-        
-        // Tocar som apropriado
-        if (captures && captures.length > 0) {
-            if (captures.length > 1) {
-                audioManager.playMultipleCaptureSound();
-            } else {
-                audioManager.playCaptureSound();
-            }
-        } else {
-            audioManager.playMoveSound();
-        }
-        
-        return result;
-    };
-
-    // Verificar promoção a dama - adicionar à makeMove ou criar função separada
-    const gameStateHandler = {
-        set: function(target, property, value) {
-            target[property] = value;
-            
-            // Verificar se uma peça foi promovida a dama
-            if (property === 'board' && value) {
-                for (let row = 0; row < 8; row++) {
-                    for (let col = 0; col < 8; col++) {
-                        const piece = value[row] && value[row][col];
-                        if (piece && piece.king && 
-                            !(target[property][row] && target[property][row][col] && target[property][row][col].king)) {
-                            audioManager.playKingPromotionSound();
-                        }
-                    }
-                }
-            }
-            return true;
-        }
-    };
-    
-    // Aplicar handler se gameState existir
-    if (gameState) {
-        gameState = new Proxy(gameState, gameStateHandler);
-    }
-}
-  // ===== VARIÁVEIS GLOBAIS =====
+   // ===== VARIÁVEIS GLOBAIS =====
     let voiceStream = null;
     let audioContext = null;
     let audioAnalyser = null;
@@ -9009,19 +8632,33 @@ function initializeGameWithSound() {
     let voiceVolume = 1;
     let voiceSensitivity = 0.5;
     let voicePanelVisible = false;
-    
+
+    // WebRTC variables
+    let peerConnection = null;
+    let dataChannel = null;
+    let isCaller = false;
+    let isConnected = false;
+
+    // Configuração dos servidores STUN/TURN
+    const rtcConfiguration = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    };
+
     // Dados simulados de usuários (substitua pelos dados reais do Firebase)
     const users = [
         { id: 'user1', name: 'Jogador1', status: 'online', speaking: false },
         { id: 'user2', name: 'Jogador2', status: 'online', speaking: false },
-        { id: 'user3', name: 'Jogador3', status: 'online', speaking: false },
-        { id: 'user4', name: 'Você', status: 'online', speaking: false }
+        { id: 'user3', name: 'Você', status: 'online', speaking: false }
     ];
     
     // ===== INICIALIZAÇÃO =====
     document.addEventListener('DOMContentLoaded', function() {
         initializeVoiceSystem();
         renderUsersList();
+        setupWebRTC();
     });
     
     // ===== INICIALIZAR SISTEMA DE VOZ =====
@@ -9034,6 +8671,85 @@ function initializeGameWithSound() {
             showNotification('Seu navegador não suporta o sistema de voz', 'error');
             document.getElementById('btn-voice-action').disabled = true;
         }
+    }
+
+    // ===== CONFIGURAÇÃO INICIAL WEBRTC =====
+    function setupWebRTC() {
+        updateConnectionStatus('disconnected', 'Desconectado');
+        createPeerConnection();
+    }
+
+    // ===== CRIAR PEER CONNECTION =====
+    function createPeerConnection() {
+        try {
+            peerConnection = new RTCPeerConnection(rtcConfiguration);
+            
+            // Lidar com candidatos ICE
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    // Em uma implementação real, você enviaria o candidato para o outro jogador
+                    console.log('Novo candidato ICE:', event.candidate);
+                }
+            };
+            
+            // Lidar com conexão de estado alterado
+            peerConnection.onconnectionstatechange = () => {
+                console.log('Estado da conexão:', peerConnection.connectionState);
+                switch(peerConnection.connectionState) {
+                    case 'connected':
+                        updateConnectionStatus('connected', 'Conectado');
+                        isConnected = true;
+                        break;
+                    case 'disconnected':
+                    case 'failed':
+                        updateConnectionStatus('disconnected', 'Desconectado');
+                        isConnected = false;
+                        break;
+                    case 'connecting':
+                        updateConnectionStatus('connecting', 'Conectando...');
+                        break;
+                }
+            };
+            
+            // Lidar com stream remoto (áudio do oponente)
+            peerConnection.ontrack = (event) => {
+                console.log('Stream remoto recebido:', event.streams[0]);
+                // Aqui você conectaria o stream remoto a um elemento de áudio
+                // const audioElement = document.createElement('audio');
+                // audioElement.srcObject = event.streams[0];
+                // audioElement.play();
+            };
+            
+        } catch (error) {
+            console.error('Erro ao criar PeerConnection:', error);
+            showNotification('Erro na conexão de voz', 'error');
+        }
+    }
+
+    // ===== ATUALIZAR STATUS DA CONEXÃO =====
+    function updateConnectionStatus(status, text) {
+        const statusDot = document.getElementById('connection-status-dot');
+        const statusText = document.getElementById('connection-status-text');
+        
+        if (!statusDot || !statusText) return;
+        
+        // Remove todas as classes de status
+        statusDot.classList.remove('status-connected', 'status-disconnected', 'status-connecting');
+        
+        // Adiciona a classe apropriada
+        switch(status) {
+            case 'connected':
+                statusDot.classList.add('status-connected');
+                break;
+            case 'disconnected':
+                statusDot.classList.add('status-disconnected');
+                break;
+            case 'connecting':
+                statusDot.classList.add('status-connecting');
+                break;
+        }
+        
+        statusText.textContent = text;
     }
     
     // ===== CONFIGURAR EVENT LISTENERS =====
@@ -9087,7 +8803,12 @@ function initializeGameWithSound() {
                 btnVoiceAction.classList.add('active');
                 
                 // Atualizar status do usuário atual
-                updateUserSpeakingStatus('user4', true);
+                updateUserSpeakingStatus('user3', true);
+                
+                // Iniciar negociação WebRTC
+                if (isCaller) {
+                    await negotiateConnection();
+                }
                 
             } catch (error) {
                 console.error('Erro ao ativar voz:', error);
@@ -9101,7 +8822,7 @@ function initializeGameWithSound() {
             btnVoiceAction.classList.remove('active');
             
             // Atualizar status do usuário atual
-            updateUserSpeakingStatus('user4', false);
+            updateUserSpeakingStatus('user3', false);
         }
     }
     
@@ -9116,6 +8837,13 @@ function initializeGameWithSound() {
                     sampleRate: 44100
                 } 
             });
+            
+            // Adicionar stream à conexão PeerConnection
+            if (peerConnection) {
+                voiceStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, voiceStream);
+                });
+            }
             
             // Configurar áudio context para análise
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -9132,6 +8860,36 @@ function initializeGameWithSound() {
         } catch (error) {
             console.error('Erro ao acessar microfone:', error);
             throw error;
+        }
+    }
+
+    // ===== NEGOCIAR CONEXÃO WEBRTC =====
+    async function negotiateConnection() {
+        if (!peerConnection) return;
+        
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            
+            // Em uma implementação real, você enviaria a oferta para o outro jogador
+            console.log('Oferta WebRTC criada:', offer);
+            
+            // Simular resposta após um delay
+            setTimeout(async () => {
+                // Simular recebimento de resposta
+                // Em uma implementação real, você receberia isso do outro jogador
+                const answer = {
+                    type: 'answer',
+                    sdp: offer.sdp // Simplificação para demonstração
+                };
+                
+                await peerConnection.setRemoteDescription(answer);
+                console.log('Conexão WebRTC estabelecida');
+                
+            }, 1000);
+            
+        } catch (error) {
+            console.error('Erro durante negociação WebRTC:', error);
         }
     }
     
@@ -9183,10 +8941,10 @@ function initializeGameWithSound() {
             // Verificar se o usuário está falando (baseado na sensibilidade)
             if (averageVolume > voiceSensitivity) {
                 // Usuário está falando
-                updateUserSpeakingStatus('user4', true);
+                updateUserSpeakingStatus('user3', true);
             } else {
                 // Usuário parou de falar
-                updateUserSpeakingStatus('user4', false);
+                updateUserSpeakingStatus('user3', false);
             }
             
             if (isVoiceActive) {
@@ -9293,7 +9051,7 @@ function initializeGameWithSound() {
         setInterval(() => {
             if (isVoiceActive && Math.random() > 0.7) {
                 const randomUser = users[Math.floor(Math.random() * (users.length - 1))];
-                if (randomUser.id !== 'user4') { // Não simular para o usuário atual
+                if (randomUser.id !== 'user3') { // Não simular para o usuário atual
                     updateUserSpeakingStatus(randomUser.id, true);
                     
                     // Parar de falar após um tempo
@@ -9311,8 +9069,39 @@ function initializeGameWithSound() {
         console.log(`${type}: ${message}`);
         
         // Você pode implementar um sistema de notificação mais elaborado aqui
-        alert(message);
+        const notification = document.createElement('div');
+        notification.style.position = 'fixed';
+        notification.style.bottom = '20px';
+        notification.style.left = '20px';
+        notification.style.padding = '10px 15px';
+        notification.style.borderRadius = '5px';
+        notification.style.color = 'white';
+        notification.style.zIndex = '1000';
+        notification.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.2)';
+        
+        if (type === 'error') {
+            notification.style.background = '#e74c3c';
+        } else {
+            notification.style.background = '#2ecc71';
+        }
+        
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        // Remover após 3 segundos
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    document.body.removeChild(notification);
+                }
+            }, 500);
+        }, 3000);
     }
     
     // Iniciar simulação de outros usuários (apenas para demonstração)
     simulateOtherUsers();
+
+    // Simular que o usuário atual é o caller (iniciador da chamada)
+    isCaller = true;

@@ -649,9 +649,7 @@
         Conectado - Falando...
     </div>
 </div>
-
-
-   <!-- Overlay para fechar o painel ao clicar fora -->
+  <!-- Overlay para fechar o painel ao clicar fora -->
     <div class="panel-overlay" id="panel-overlay"></div>
     
     <!-- Painel de voz -->
@@ -691,6 +689,11 @@
                     <div class="voice-bar" id="voice-bar"></div>
                 </div>
             </div>
+
+            <div class="connection-status">
+                <div class="status-dot status-disconnected" id="connection-status-dot"></div>
+                <span id="connection-status-text">Desconectado</span>
+            </div>
         </div>
         
         <div class="users-list">
@@ -701,7 +704,7 @@
         </div>
         
         <div class="voice-footer">
-            Sistema de Voz Damas-On | Conectando jogadores
+            Sistema de Voz Damas-On | WebRTC
         </div>
     </div>
 

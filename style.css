@@ -5713,8 +5713,37 @@ input:checked + .slider:before {
         .voice-toggle-btn.active {
             background: linear-gradient(135deg, #e74c3c, #c0392b);
         }
+              /* ESTILOS DO SISTEMA DE VOZ */
+        .voice-toggle-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            transition: all 0.3s ease;
+        }
         
-        /* ESTILOS DO PAINEL DE VOZ */
+        .voice-toggle-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            background: linear-gradient(135deg, #2980b9, #3498db);
+        }
+        
+        .voice-toggle-btn.active {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+        }
+        
         .voice-panel {
             position: fixed;
             top: 0;
@@ -5923,6 +5952,35 @@ input:checked + .slider:before {
             100% { opacity: 1; }
         }
         
+        .connection-status {
+            display: flex;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 5px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-connected {
+            background-color: #2ecc71;
+        }
+        
+        .status-connecting {
+            background-color: #f39c12;
+        }
+        
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+        
         .voice-footer {
             padding: 15px 20px;
             background: rgba(0, 0, 0, 0.3);
@@ -5932,7 +5990,6 @@ input:checked + .slider:before {
             color: #999;
         }
         
-        /* Overlay para quando o painel estiver aberto */
         .panel-overlay {
             position: fixed;
             top: 0;
