@@ -5680,9 +5680,7 @@ input:checked + .slider:before {
     color: var(--danger);
 }
 
-
-  
-    /* ESTILOS DO BOTÃO FLUTUANTE */
+ /* ESTILOS DO BOTÃO FLUTUANTE */
         .voice-toggle-btn {
             position: fixed;
             bottom: 20px;
@@ -5788,7 +5786,7 @@ input:checked + .slider:before {
             outline: none;
         }
         
-        .control-group input[type="range"]::-webkit-slizer-thumb {
+        .control-group input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             width: 20px;
             height: 20px;

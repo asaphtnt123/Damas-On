@@ -8621,7 +8621,10 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
-    // ===== VARIÁVEIS GLOBAIS =====
+
+
+
+ // ===== VARIÁVEIS GLOBAIS =====
     let voiceStream = null;
     let audioContext = null;
     let audioAnalyser = null;
@@ -8651,7 +8654,7 @@ async function checkPendingChallenges() {
         { id: 'user3', name: 'Você', status: 'online', speaking: false }
     ];
 
-    // ===== AUDIO MANAGER (CORREÇÃO DO ERRO) =====
+    // ===== AUDIO MANAGER =====
     const audioManager = {
         playNotification: function() {
             // Tocar um som de notificação
@@ -8897,7 +8900,7 @@ async function checkPendingChallenges() {
         }
     }
 
-    // ===== NEGOCIAR CONEXÃO WEBRTC =====
+    // ===== NEGOCIAR CONEXÃO WEBRTC (CORRIGIDO) =====
     async function negotiateConnection() {
         if (!peerConnection) return;
         
@@ -8908,42 +8911,50 @@ async function checkPendingChallenges() {
                 offerToReceiveVideo: false
             };
             
+            // Criar oferta
             const offer = await peerConnection.createOffer(offerOptions);
             
-            // Corrigir o problema do setup attribute
-            const updatedOffer = {
-                type: offer.type,
-                sdp: offer.sdp.replace(/a=setup:actpass/g, 'a=setup:active')
-            };
+            // Definir a descrição local SEM modificar o SDP manualmente
+            await peerConnection.setLocalDescription(offer);
             
-            await peerConnection.setLocalDescription(updatedOffer);
+            console.log('Oferta WebRTC criada:', offer);
             
-            // Em uma implementação real, você enviaria a oferta para o outro jogador
-            console.log('Oferta WebRTC criada:', updatedOffer);
-            
-            // Simular resposta após um delay
+            // Simular resposta após um delay (em produção, isso viria do servidor)
             setTimeout(async () => {
-                // Simular recebimento de resposta
-                // Em uma implementação real, você receberia isso do outro jogador
-                const answer = {
-                    type: 'answer',
-                    sdp: updatedOffer.sdp.replace(/a=setup:active/g, 'a=setup:passive')
-                };
-                
                 try {
+                    // Simular recebimento de resposta
+                    // Em uma implementação real, você receberia isso do outro jogador
+                    const answer = {
+                        type: 'answer',
+                        sdp: offer.sdp // Simplificação para demonstração
+                    };
+                    
+                    // Definir a descrição remota
                     await peerConnection.setRemoteDescription(answer);
                     console.log('Conexão WebRTC estabelecida');
+                    
                 } catch (error) {
                     console.error('Erro ao definir descrição remota:', error);
-                    // Tentar abordagem alternativa em caso de erro
+                    
+                    // Em caso de erro, tentar uma abordagem mais simples
                     try {
-                        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                        console.log('Conexão WebRTC estabelecida (método alternativo)');
+                        // Fechar a conexão atual
+                        peerConnection.close();
+                        
+                        // Criar uma nova conexão
+                        createPeerConnection();
+                        
+                        // Tentar novamente após um curto período
+                        setTimeout(() => {
+                            if (isVoiceActive) {
+                                negotiateConnection();
+                            }
+                        }, 1000);
+                        
                     } catch (fallbackError) {
                         console.error('Erro no método alternativo:', fallbackError);
                     }
                 }
-                
             }, 1000);
             
         } catch (error) {
