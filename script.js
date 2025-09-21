@@ -8621,7 +8621,6 @@ async function checkPendingChallenges() {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
 }
-<script>
 // ===== VARIÁVEIS GLOBAIS =====
 let voiceStream = null;
 let audioContext = null;
@@ -9372,4 +9371,3 @@ setTimeout(() => {
         message: 'Jogador2 te desafiou para uma partida!'
     });
 }, 3000);
-</script>
