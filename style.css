@@ -5679,8 +5679,7 @@ input:checked + .slider:before {
 .modal-close:hover {
     color: var(--danger);
 }
-
- /* ESTILOS DO BOTÃO FLUTUANTE */
+/* ESTILOS DO BOTÃO FLUTUANTE */
         .voice-toggle-btn {
             position: fixed;
             bottom: 20px;

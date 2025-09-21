@@ -649,7 +649,7 @@
         Conectado - Falando...
     </div>
 </div>
-    <!-- Overlay para fechar o painel ao clicar fora -->
+     <!-- Overlay para fechar o painel ao clicar fora -->
     <div class="panel-overlay" id="panel-overlay"></div>
     
     <!-- Painel de voz -->
@@ -697,17 +697,23 @@
         </div>
         
         <div class="users-list">
-            <h3>Jogadores Online</h3>
+            <h3>Jogadores com Voz Ativa</h3>
             <div id="users-container">
                 <!-- Lista de usuários será preenchida via JavaScript -->
+                <div class="user-item">
+                    <div class="user-avatar">C</div>
+                    <div class="user-info">
+                        <div class="user-name">Carregando...</div>
+                        <div class="user-status">Conectando</div>
+                    </div>
+                </div>
             </div>
         </div>
         
         <div class="voice-footer">
-            Sistema de Voz Damas-On | WebRTC
+            Sistema de Voz Damas-On | Conectando jogadores
         </div>
     </div>
-
     <script src="script.js"></script>
 
     <!-- Firebase App (o core do Firebase) -->
