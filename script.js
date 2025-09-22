@@ -8813,7 +8813,11 @@ function setupFirebaseListeners() {
                 snapshot.forEach((doc) => {
                     const user = doc.data();
                     user.id = doc.id;
-                    activeUsers.push(user);
+                    
+                    // Não incluir o usuário atual na lista
+                    if (user.id !== currentUserData.uid) {
+                        activeUsers.push(user);
+                    }
                 });
                 updateUsersList(activeUsers);
             }, (error) => {
@@ -8837,6 +8841,12 @@ function cleanupFirebaseListeners() {
 // ===== ATUALIZAR LISTA DE USUÁRIOS =====
 function updateUsersList(users) {
     const usersContainer = document.getElementById('users-container');
+    
+    if (!usersContainer) {
+        console.error('Container de usuários não encontrado');
+        return;
+    }
+    
     usersContainer.innerHTML = '';
     
     if (users.length === 0) {
@@ -8854,7 +8864,7 @@ function updateUsersList(users) {
     
     users.forEach(user => {
         const userElement = document.createElement('div');
-        userElement.className = `user-item ${user.speaking ? 'active' : ''}`;
+        userElement.className = `user-item ${user.isSpeaking ? 'active' : ''}`;
         userElement.id = `user-${user.id}`;
         
         // Usar displayName do Firebase se disponível
@@ -8865,9 +8875,9 @@ function updateUsersList(users) {
             <div class="user-avatar">${firstLetter}</div>
             <div class="user-info">
                 <div class="user-name">${displayName}</div>
-                <div class="user-status">${user.speaking ? 'Falando...' : 'Online'}</div>
+                <div class="user-status">${user.isSpeaking ? 'Falando...' : 'Online'}</div>
             </div>
-            ${user.speaking ? '<div class="voice-indicator"><i class="fas fa-microphone"></i></div>' : ''}
+            ${user.isSpeaking ? '<div class="voice-indicator"><i class="fas fa-microphone"></i></div>' : ''}
         `;
         
         usersContainer.appendChild(userElement);
@@ -8891,7 +8901,8 @@ async function updateFirebaseVoiceStatus(isActive, isSpeaking = false) {
                 displayName: currentUserData.displayName,
                 isActive: true,
                 isSpeaking: isSpeaking,
-                lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+                lastUpdate: firebase.firestore.FieldValue.serverTimestamp(),
+                uid: currentUserData.uid
             }, { merge: true });
         } else {
             // Remover usuário ou marcar como inativo
@@ -9255,11 +9266,18 @@ function showChallengeNotification(challengeData) {
 // Simular que o usuário atual é o caller (iniciador da chamada)
 isCaller = true;
 
-// Simular uma notificação de desafio (para testar a correção do erro)
-setTimeout(() => {
-    showChallengeNotification({
-        from: 'Jogador2',
-        to: 'user3',
-        message: 'Jogador2 te desafiou para uma partida!'
-    });
-}, 3000);
+// Inicializar a lista de usuários com mensagem padrão
+document.addEventListener('DOMContentLoaded', function() {
+    const usersContainer = document.getElementById('users-container');
+    if (usersContainer) {
+        usersContainer.innerHTML = `
+            <div class="user-item">
+                <div class="user-avatar">!</div>
+                <div class="user-info">
+                    <div class="user-name">Nenhum usuário ativo</div>
+                    <div class="user-status">Aguardando conexões</div>
+                </div>
+            </div>
+        `;
+    }
+});
