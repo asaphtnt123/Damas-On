@@ -8620,584 +8620,646 @@ async function checkPendingChallenges() {
     } catch (error) {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
-}  // ===== VARIÁVEIS GLOBAIS =====
-    let voiceStream = null;
-    let audioContext = null;
-    let audioAnalyser = null;
-    let isVoiceActive = false;
-    let voiceVolume = 1;
-    let voiceSensitivity = 0.5;
-    let voicePanelVisible = false;
+}// ===== VARIÁVEIS GLOBAIS =====
+let voiceStream = null;
+let audioContext = null;
+let audioAnalyser = null;
+let isVoiceActive = false;
+let voiceVolume = 1;
+let voiceSensitivity = 0.5;
+let voicePanelVisible = false;
 
-    // WebRTC variables
-    let peerConnection = null;
-    let dataChannel = null;
-    let isCaller = false;
-    let isConnected = false;
-    let isNegotiating = false;
-    let iceCandidates = [];
+// WebRTC variables
+let peerConnection = null;
+let dataChannel = null;
+let isCaller = false;
+let isConnected = false;
+let isNegotiating = false;
+let iceCandidates = [];
 
-    // Firebase variables
-    let voiceUsersListener = null;
-    let currentUserData = null;
+// Firebase variables
+let voiceUsersListener = null;
+let currentUserData = null;
 
-    // Configuração dos servidores STUN/TURN
-    const rtcConfiguration = {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ],
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
-    };
-
-    // ===== INICIALIZAÇÃO =====
-    document.addEventListener('DOMContentLoaded', function() {
-        initializeVoiceSystem();
-        setupWebRTC();
-    });
-    
-    // ===== INICIALIZAR SISTEMA DE VOZ =====
-    function initializeVoiceSystem() {
-        // Configurar event listeners
-        setupEventListeners();
-        
-        // Criar controles de som
-        createSoundControls();
-        
-        // Verificar suporte a WebRTC
-        if (!navigator.mediaDevices || !window.AudioContext) {
-            showNotification('Seu navegador não suporta o sistema de voz', 'error');
-            document.getElementById('btn-voice-action').disabled = true;
-        }
-        
-        // Obter dados do usuário atual
-        if (typeof userData !== 'undefined' && userData) {
-            currentUserData = userData;
-        } else {
-            // Fallback para dados simulados
-            currentUserData = {
-                uid: 'current-user',
-                displayName: 'Você'
-            };
-        }
-    }
-
-    // ===== CONFIGURAÇÃO INICIAL WEBRTC =====
-    function setupWebRTC() {
-        updateConnectionStatus('disconnected', 'Desconectado');
-        createPeerConnection();
-    }
-
-    // ===== CRIAR PEER CONNECTION =====
-    function createPeerConnection() {
+// ===== AUDIO MANAGER =====
+const audioManager = {
+    playNotification: function() {
+        // Tocar um som de notificação
         try {
-            // Fechar conexão existente se houver
-            if (peerConnection) {
-                peerConnection.close();
-            }
+            console.log("Tocando som de notificação");
+            // Em uma implementação real, você teria um arquivo de áudio real
+            // Simular tocar um som
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
             
-            peerConnection = new RTCPeerConnection(rtcConfiguration);
+            const gainNode = audioContext.createGain();
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
             
-            // Lidar com candidatos ICE
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    console.log('Novo candidato ICE:', event.candidate);
-                    // Armazenar candidatos para processamento posterior
-                    iceCandidates.push(event.candidate);
-                } else {
-                    console.log('Todos os candidatos ICE foram coletados');
-                }
-            };
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
             
-            // Lidar com conexão de estado alterado
-            peerConnection.onconnectionstatechange = () => {
-                console.log('Estado da conexão:', peerConnection.connectionState);
-                switch(peerConnection.connectionState) {
-                    case 'connected':
-                        updateConnectionStatus('connected', 'Conectado');
-                        isConnected = true;
-                        setupFirebaseListeners();
-                        break;
-                    case 'disconnected':
-                    case 'failed':
-                        updateConnectionStatus('disconnected', 'Desconectado');
-                        isConnected = false;
-                        cleanupFirebaseListeners();
-                        break;
-                    case 'connecting':
-                        updateConnectionStatus('connecting', 'Conectando...');
-                        break;
-                    case 'new':
-                        updateConnectionStatus('disconnected', 'Desconectado');
-                        break;
-                }
-            };
-            
-            // Lidar com negotiationneeded
-            peerConnection.onnegotiationneeded = async () => {
-                console.log('Negociação necessária');
-                if (isCaller && !isNegotiating) {
-                    await negotiateConnection();
-                }
-            };
-            
-            // Lidar com stream remoto (áudio do oponente)
-            peerConnection.ontrack = (event) => {
-                console.log('Stream remoto recebido:', event.streams[0]);
-                // Conectar o stream remoto a um elemento de áudio
-                const audioElement = document.createElement('audio');
-                audioElement.srcObject = event.streams[0];
-                audioElement.autoplay = true;
-                audioElement.volume = voiceVolume;
-                audioElement.setAttribute('data-user-id', event.streams[0].id);
-                document.body.appendChild(audioElement);
-            };
-            
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + 0.3);
         } catch (error) {
-            console.error('Erro ao criar PeerConnection:', error);
-            showNotification('Erro na conexão de voz', 'error');
+            console.error("Erro ao reproduzir som de notificação:", error);
         }
+    },
+    
+    playSound: function(name, volume = 0.5) {
+        // Tocar diferentes tipos de sons
+        console.log(`Reproduzindo som: ${name} com volume: ${volume}`);
+        this.playNotification(); // Usar a notificação como fallback
     }
+};
 
-    // ===== CONFIGURAR LISTENERS DO FIREBASE =====
-    function setupFirebaseListeners() {
-        // Verificar se o Firebase está disponível
-        if (typeof db === 'undefined') {
-            console.error('Firebase não está disponível');
-            showNotification('Erro de conexão com o servidor', 'error');
-            return;
-        }
-        
-        // Configurar listener para usuários com voz ativa
-        try {
-            voiceUsersListener = db.collection('voiceUsers')
-                .where('isActive', '==', true)
-                .onSnapshot((snapshot) => {
-                    const activeUsers = [];
-                    snapshot.forEach((doc) => {
-                        const user = doc.data();
-                        user.id = doc.id;
-                        activeUsers.push(user);
-                    });
-                    updateUsersList(activeUsers);
-                }, (error) => {
-                    console.error('Erro ao ouvir usuários de voz:', error);
-                });
-                
-            console.log('Listener do Firebase configurado com sucesso');
-        } catch (error) {
-            console.error('Erro ao configurar listener do Firebase:', error);
-        }
-    }
+// Configuração dos servidores STUN/TURN
+const rtcConfiguration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+    ],
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
+};
 
-    // ===== LIMPAR LISTENERS DO FIREBASE =====
-    function cleanupFirebaseListeners() {
-        if (voiceUsersListener) {
-            voiceUsersListener();
-            voiceUsersListener = null;
-        }
-    }
+// ===== INICIALIZAÇÃO =====
+document.addEventListener('DOMContentLoaded', function() {
+    initializeVoiceSystem();
+    setupWebRTC();
+});
 
-    // ===== ATUALIZAR LISTA DE USUÁRIOS =====
-    function updateUsersList(users) {
-        const usersContainer = document.getElementById('users-container');
-        usersContainer.innerHTML = '';
-        
-        if (users.length === 0) {
-            usersContainer.innerHTML = `
-                <div class="user-item">
-                    <div class="user-avatar">!</div>
-                    <div class="user-info">
-                        <div class="user-name">Nenhum usuário ativo</div>
-                        <div class="user-status">Aguardando conexões</div>
-                    </div>
-                </div>
-            `;
-            return;
-        }
-        
-        users.forEach(user => {
-            const userElement = document.createElement('div');
-            userElement.className = `user-item ${user.speaking ? 'active' : ''}`;
-            userElement.id = `user-${user.id}`;
-            
-            // Usar displayName do Firebase se disponível
-            const displayName = user.displayName || user.name || 'Jogador';
-            const firstLetter = displayName.charAt(0).toUpperCase();
-            
-            userElement.innerHTML = `
-                <div class="user-avatar">${firstLetter}</div>
-                <div class="user-info">
-                    <div class="user-name">${displayName}</div>
-                    <div class="user-status">${user.speaking ? 'Falando...' : 'Online'}</div>
-                </div>
-                ${user.speaking ? '<div class="voice-indicator"><i class="fas fa-microphone"></i></div>' : ''}
-            `;
-            
-            usersContainer.appendChild(userElement);
-        });
-    }
-
-    // ===== ATUALIZAR STATUS NO FIREBASE =====
-    async function updateFirebaseVoiceStatus(isActive, isSpeaking = false) {
-        // Verificar se o Firebase está disponível
-        if (typeof db === 'undefined' || !currentUserData) {
-            console.error('Firebase não está disponível');
-            return;
-        }
-        
-        try {
-            const userRef = db.collection('voiceUsers').doc(currentUserData.uid);
-            
-            if (isActive) {
-                // Atualizar ou criar documento do usuário
-                await userRef.set({
-                    displayName: currentUserData.displayName,
-                    isActive: true,
-                    isSpeaking: isSpeaking,
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            } else {
-                // Remover usuário ou marcar como inativo
-                await userRef.update({
-                    isActive: false,
-                    isSpeaking: false,
-                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
-            
-            console.log('Status de voz atualizado no Firebase');
-        } catch (error) {
-            console.error('Erro ao atualizar status no Firebase:', error);
-        }
-    }
-
-    // ===== ATUALIZAR STATUS DA CONEXÃO =====
-    function updateConnectionStatus(status, text) {
-        const statusDot = document.getElementById('connection-status-dot');
-        const statusText = document.getElementById('connection-status-text');
-        
-        if (!statusDot || !statusText) return;
-        
-        // Remove todas as classes de status
-        statusDot.classList.remove('status-connected', 'status-disconnected', 'status-connecting');
-        
-        // Adiciona a classe apropriada
-        switch(status) {
-            case 'connected':
-                statusDot.classList.add('status-connected');
-                break;
-            case 'disconnected':
-                statusDot.classList.add('status-disconnected');
-                break;
-            case 'connecting':
-                statusDot.classList.add('status-connecting');
-                break;
-        }
-        
-        statusText.textContent = text;
+// ===== INICIALIZAR SISTEMA DE VOZ =====
+function initializeVoiceSystem() {
+    // Configurar event listeners
+    setupEventListeners();
+    
+    // Criar controles de som
+    createSoundControls();
+    
+    // Verificar suporte a WebRTC
+    if (!navigator.mediaDevices || !window.AudioContext) {
+        showNotification('Seu navegador não suporta o sistema de voz', 'error');
+        document.getElementById('btn-voice-action').disabled = true;
     }
     
-    // ===== CONFIGURAR EVENT LISTENERS =====
-    function setupEventListeners() {
-        // Botão de toggle do painel
-        document.getElementById('voice-toggle-btn').addEventListener('click', toggleVoicePanel);
-        
-        // Botão de fechar o painel
-        document.getElementById('close-panel').addEventListener('click', toggleVoicePanel);
-        
-        // Overlay para fechar ao clicar fora
-        document.getElementById('panel-overlay').addEventListener('click', toggleVoicePanel);
+    // Obter dados do usuário atual
+    if (typeof userData !== 'undefined' && userData) {
+        currentUserData = userData;
+    } else {
+        // Fallback para dados simulados
+        currentUserData = {
+            uid: 'current-user',
+            displayName: 'Você'
+        };
     }
-    
-    // ===== FUNÇÃO createSoundControls =====
-    function createSoundControls() {
-        // Configurar os event listeners para os controles
-        const volumeSlider = document.getElementById('voice-volume');
-        const sensitivitySlider = document.getElementById('voice-sensitivity');
-        const voiceActionBtn = document.getElementById('btn-voice-action');
-        
-        if (volumeSlider) {
-            volumeSlider.addEventListener('input', updateVoiceVolume);
-        }
-        
-        if (sensitivitySlider) {
-            sensitivitySlider.addEventListener('input', updateVoiceSensitivity);
-        }
-        
-        if (voiceActionBtn) {
-            voiceActionBtn.addEventListener('click', toggleVoiceChat);
-        }
-        
-        // Inicializar os valores exibidos
-        updateVoiceVolume();
-        updateVoiceSensitivity();
-        
-        console.log("Controles de som criados com sucesso!");
-    }
-    
-    // ===== ALTERNAR VISIBILIDADE DO PAINEL =====
-    function toggleVoicePanel() {
-        const voicePanel = document.getElementById('voice-panel');
-        const overlay = document.getElementById('panel-overlay');
-        const voiceToggleBtn = document.getElementById('voice-toggle-btn');
-        
-        voicePanelVisible = !voicePanelVisible;
-        
-        if (voicePanelVisible) {
-            voicePanel.classList.add('active');
-            overlay.classList.add('active');
-            voiceToggleBtn.classList.add('active');
-        } else {
-            voicePanel.classList.remove('active');
-            overlay.classList.remove('active');
-            voiceToggleBtn.classList.remove('active');
-        }
-    }
-    
-    // ===== ALTERNAR CHAT DE VOZ =====
-    async function toggleVoiceChat() {
-        const btnVoiceAction = document.getElementById('btn-voice-action');
-        
-        if (!isVoiceActive) {
-            // Ativar voz
-            try {
-                await startVoiceChat();
-                isVoiceActive = true;
-                btnVoiceAction.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
-                btnVoiceAction.classList.add('active');
-                
-                // Atualizar status no Firebase
-                updateFirebaseVoiceStatus(true, false);
-                
-            } catch (error) {
-                console.error('Erro ao ativar voz:', error);
-                showNotification('Erro ao ativar voz. Verifique as permissões do microfone.', 'error');
-            }
-        } else {
-            // Desativar voz
-            stopVoiceChat();
-            isVoiceActive = false;
-            btnVoiceAction.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
-            btnVoiceAction.classList.remove('active');
-            
-            // Atualizar status no Firebase
-            updateFirebaseVoiceStatus(false, false);
-        }
-    }
-    
-    // ===== INICIAR CHAT DE VOZ =====
-    async function startVoiceChat() {
-        try {
-            // Solicitar acesso ao microfone
-            voiceStream = await navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 44100
-                } 
-            });
-            
-            // Adicionar stream à conexão PeerConnection
-            if (peerConnection) {
-                voiceStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, voiceStream);
-                });
-            }
-            
-            // Configurar áudio context para análise
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioContext.createMediaStreamSource(voiceStream);
-            
-            // Configurar analisador de áudio
-            audioAnalyser = audioContext.createAnalyser();
-            audioAnalyser.fftSize = 256;
-            source.connect(audioAnalyser);
-            
-            // Iniciar análise de áudio
-            analyzeVoice();
-            
-        } catch (error) {
-            console.error('Erro ao acessar microfone:', error);
-            throw error;
-        }
-    }
+}
 
-    // ===== NEGOCIAR CONEXÃO WEBRTC =====
-    async function negotiateConnection() {
-        if (!peerConnection || isNegotiating) return;
-        
-        try {
-            isNegotiating = true;
-            
-            // Usar offerOptions para evitar problemas
-            const offerOptions = {
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: false
-            };
-            
-            // Criar oferta
-            const offer = await peerConnection.createOffer(offerOptions);
-            
-            // Definir a descrição local
-            await peerConnection.setLocalDescription(offer);
-            console.log('Oferta WebRTC criada:', offer);
-            
-        } catch (error) {
-            console.error('Erro durante negociação WebRTC:', error);
-            isNegotiating = false;
-        }
-    }
-    
-    // ===== PARAR CHAT DE VOZ =====
-    function stopVoiceChat() {
-        if (voiceStream) {
-            voiceStream.getTracks().forEach(track => track.stop());
-            voiceStream = null;
-        }
-        
-        if (audioContext) {
-            audioContext.close();
-            audioContext = null;
-        }
-        
-        audioAnalyser = null;
-        
-        // Fechar conexão WebRTC
+// ===== CONFIGURAÇÃO INICIAL WEBRTC =====
+function setupWebRTC() {
+    updateConnectionStatus('disconnected', 'Desconectado');
+    createPeerConnection();
+}
+
+// ===== CRIAR PEER CONNECTION =====
+function createPeerConnection() {
+    try {
+        // Fechar conexão existente se houver
         if (peerConnection) {
             peerConnection.close();
-            peerConnection = null;
         }
         
-        // Limpar listeners do Firebase
-        cleanupFirebaseListeners();
+        peerConnection = new RTCPeerConnection(rtcConfiguration);
         
-        // Resetar barra de visualização
-        const voiceBar = document.getElementById('voice-bar');
-        if (voiceBar) {
-            voiceBar.style.width = '0%';
-        }
-        
-        // Limpar candidatos ICE
-        iceCandidates = [];
-        isNegotiating = false;
-        isConnected = false;
-        updateConnectionStatus('disconnected', 'Desconectado');
-    }
-    
-    // ===== ANALISAR VOZ =====
-    function analyzeVoice() {
-        if (!audioAnalyser) return;
-        
-        const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
-        const voiceBar = document.getElementById('voice-bar');
-        
-        const analyze = () => {
-            if (!audioAnalyser) return;
-            
-            audioAnalyser.getByteFrequencyData(dataArray);
-            
-            // Calcular volume médio
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i];
-            }
-            const averageVolume = sum / dataArray.length / 256; // Normalizar para 0-1
-            
-            // Atualizar barra de visualização
-            if (voiceBar) {
-                voiceBar.style.width = `${Math.min(averageVolume * 100 * 2, 100)}%`;
-            }
-            
-            // Verificar se o usuário está falando (baseado na sensibilidade)
-            const isSpeaking = averageVolume > voiceSensitivity;
-            
-            // Atualizar status no Firebase
-            if (isVoiceActive && isConnected) {
-                updateFirebaseVoiceStatus(true, isSpeaking);
-            }
-            
-            if (isVoiceActive) {
-                requestAnimationFrame(analyze);
+        // Lidar com candidatos ICE
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('Novo candidato ICE:', event.candidate);
+                // Armazenar candidatos para processamento posterior
+                iceCandidates.push(event.candidate);
+            } else {
+                console.log('Todos os candidatos ICE foram coletados');
             }
         };
         
-        analyze();
+        // Lidar com conexão de estado alterado
+        peerConnection.onconnectionstatechange = () => {
+            console.log('Estado da conexão:', peerConnection.connectionState);
+            switch(peerConnection.connectionState) {
+                case 'connected':
+                    updateConnectionStatus('connected', 'Conectado');
+                    isConnected = true;
+                    setupFirebaseListeners();
+                    break;
+                case 'disconnected':
+                case 'failed':
+                    updateConnectionStatus('disconnected', 'Desconectado');
+                    isConnected = false;
+                    cleanupFirebaseListeners();
+                    break;
+                case 'connecting':
+                    updateConnectionStatus('connecting', 'Conectando...');
+                    break;
+                case 'new':
+                    updateConnectionStatus('disconnected', 'Desconectado');
+                    break;
+            }
+        };
+        
+        // Lidar com negotiationneeded
+        peerConnection.onnegotiationneeded = async () => {
+            console.log('Negociação necessária');
+            if (isCaller && !isNegotiating) {
+                await negotiateConnection();
+            }
+        };
+        
+        // Lidar com stream remoto (áudio do oponente)
+        peerConnection.ontrack = (event) => {
+            console.log('Stream remoto recebido:', event.streams[0]);
+            // Conectar o stream remoto a um elemento de áudio
+            const audioElement = document.createElement('audio');
+            audioElement.srcObject = event.streams[0];
+            audioElement.autoplay = true;
+            audioElement.volume = voiceVolume;
+            audioElement.setAttribute('data-user-id', event.streams[0].id);
+            document.body.appendChild(audioElement);
+        };
+        
+    } catch (error) {
+        console.error('Erro ao criar PeerConnection:', error);
+        showNotification('Erro na conexão de voz', 'error');
+    }
+}
+
+// ===== CONFIGURAR LISTENERS DO FIREBASE =====
+function setupFirebaseListeners() {
+    // Verificar se o Firebase está disponível
+    if (typeof db === 'undefined') {
+        console.error('Firebase não está disponível');
+        showNotification('Erro de conexão com o servidor', 'error');
+        return;
     }
     
-    // ===== ATUALIZAR VOLUME =====
-    function updateVoiceVolume() {
-        const volumeSlider = document.getElementById('voice-volume');
-        const volumeValue = document.getElementById('volume-value');
-        
-        if (volumeSlider && volumeValue) {
-            voiceVolume = parseFloat(volumeSlider.value);
-            volumeValue.textContent = `${Math.round(voiceVolume * 100)}%`;
+    // Configurar listener para usuários com voz ativa
+    try {
+        voiceUsersListener = db.collection('voiceUsers')
+            .where('isActive', '==', true)
+            .onSnapshot((snapshot) => {
+                const activeUsers = [];
+                snapshot.forEach((doc) => {
+                    const user = doc.data();
+                    user.id = doc.id;
+                    activeUsers.push(user);
+                });
+                updateUsersList(activeUsers);
+            }, (error) => {
+                console.error('Erro ao ouvir usuários de voz:', error);
+            });
             
-            // Ajustar volume de todos os elementos de áudio
-            document.querySelectorAll('audio').forEach(audio => {
-                audio.volume = voiceVolume;
+        console.log('Listener do Firebase configurado com sucesso');
+    } catch (error) {
+        console.error('Erro ao configurar listener do Firebase:', error);
+    }
+}
+
+// ===== LIMPAR LISTENERS DO FIREBASE =====
+function cleanupFirebaseListeners() {
+    if (voiceUsersListener) {
+        voiceUsersListener();
+        voiceUsersListener = null;
+    }
+}
+
+// ===== ATUALIZAR LISTA DE USUÁRIOS =====
+function updateUsersList(users) {
+    const usersContainer = document.getElementById('users-container');
+    usersContainer.innerHTML = '';
+    
+    if (users.length === 0) {
+        usersContainer.innerHTML = `
+            <div class="user-item">
+                <div class="user-avatar">!</div>
+                <div class="user-info">
+                    <div class="user-name">Nenhum usuário ativo</div>
+                    <div class="user-status">Aguardando conexões</div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    users.forEach(user => {
+        const userElement = document.createElement('div');
+        userElement.className = `user-item ${user.speaking ? 'active' : ''}`;
+        userElement.id = `user-${user.id}`;
+        
+        // Usar displayName do Firebase se disponível
+        const displayName = user.displayName || user.name || 'Jogador';
+        const firstLetter = displayName.charAt(0).toUpperCase();
+        
+        userElement.innerHTML = `
+            <div class="user-avatar">${firstLetter}</div>
+            <div class="user-info">
+                <div class="user-name">${displayName}</div>
+                <div class="user-status">${user.speaking ? 'Falando...' : 'Online'}</div>
+            </div>
+            ${user.speaking ? '<div class="voice-indicator"><i class="fas fa-microphone"></i></div>' : ''}
+        `;
+        
+        usersContainer.appendChild(userElement);
+    });
+}
+
+// ===== ATUALIZAR STATUS NO FIREBASE =====
+async function updateFirebaseVoiceStatus(isActive, isSpeaking = false) {
+    // Verificar se o Firebase está disponível
+    if (typeof db === 'undefined' || !currentUserData) {
+        console.error('Firebase não está disponível');
+        return;
+    }
+    
+    try {
+        const userRef = db.collection('voiceUsers').doc(currentUserData.uid);
+        
+        if (isActive) {
+            // Atualizar ou criar documento do usuário
+            await userRef.set({
+                displayName: currentUserData.displayName,
+                isActive: true,
+                isSpeaking: isSpeaking,
+                lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        } else {
+            // Remover usuário ou marcar como inativo
+            await userRef.update({
+                isActive: false,
+                isSpeaking: false,
+                lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
             });
         }
+        
+        console.log('Status de voz atualizado no Firebase');
+    } catch (error) {
+        console.error('Erro ao atualizar status no Firebase:', error);
+    }
+}
+
+// ===== ATUALIZAR STATUS DA CONEXÃO =====
+function updateConnectionStatus(status, text) {
+    const statusDot = document.getElementById('connection-status-dot');
+    const statusText = document.getElementById('connection-status-text');
+    
+    if (!statusDot || !statusText) return;
+    
+    // Remove todas as classes de status
+    statusDot.classList.remove('status-connected', 'status-disconnected', 'status-connecting');
+    
+    // Adiciona a classe apropriada
+    switch(status) {
+        case 'connected':
+            statusDot.classList.add('status-connected');
+            break;
+        case 'disconnected':
+            statusDot.classList.add('status-disconnected');
+            break;
+        case 'connecting':
+            statusDot.classList.add('status-connecting');
+            break;
     }
     
-    // ===== ATUALIZAR SENSIBILIDADE =====
-    function updateVoiceSensitivity() {
-        const sensitivitySlider = document.getElementById('voice-sensitivity');
-        const sensitivityValue = document.getElementById('sensitivity-value');
-        
-        if (sensitivitySlider && sensitivityValue) {
-            voiceSensitivity = parseFloat(sensitivitySlider.value);
+    statusText.textContent = text;
+}
+
+// ===== CONFIGURAR EVENT LISTENERS =====
+function setupEventListeners() {
+    // Botão de toggle do painel
+    document.getElementById('voice-toggle-btn').addEventListener('click', toggleVoicePanel);
+    
+    // Botão de fechar o painel
+    document.getElementById('close-panel').addEventListener('click', toggleVoicePanel);
+    
+    // Overlay para fechar ao clicar fora
+    document.getElementById('panel-overlay').addEventListener('click', toggleVoicePanel);
+}
+
+// ===== FUNÇÃO createSoundControls =====
+function createSoundControls() {
+    // Configurar os event listeners para os controles
+    const volumeSlider = document.getElementById('voice-volume');
+    const sensitivitySlider = document.getElementById('voice-sensitivity');
+    const voiceActionBtn = document.getElementById('btn-voice-action');
+    
+    if (volumeSlider) {
+        volumeSlider.addEventListener('input', updateVoiceVolume);
+    }
+    
+    if (sensitivitySlider) {
+        sensitivitySlider.addEventListener('input', updateVoiceSensitivity);
+    }
+    
+    if (voiceActionBtn) {
+        voiceActionBtn.addEventListener('click', toggleVoiceChat);
+    }
+    
+    // Inicializar os valores exibidos
+    updateVoiceVolume();
+    updateVoiceSensitivity();
+    
+    console.log("Controles de som criados com sucesso!");
+}
+
+// ===== ALTERNAR VISIBILIDADE DO PAINEL =====
+function toggleVoicePanel() {
+    const voicePanel = document.getElementById('voice-panel');
+    const overlay = document.getElementById('panel-overlay');
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+    
+    voicePanelVisible = !voicePanelVisible;
+    
+    if (voicePanelVisible) {
+        voicePanel.classList.add('active');
+        overlay.classList.add('active');
+        voiceToggleBtn.classList.add('active');
+    } else {
+        voicePanel.classList.remove('active');
+        overlay.classList.remove('active');
+        voiceToggleBtn.classList.remove('active');
+    }
+}
+
+// ===== ALTERNAR CHAT DE VOZ =====
+async function toggleVoiceChat() {
+    const btnVoiceAction = document.getElementById('btn-voice-action');
+    
+    if (!isVoiceActive) {
+        // Ativar voz
+        try {
+            await startVoiceChat();
+            isVoiceActive = true;
+            btnVoiceAction.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
+            btnVoiceAction.classList.add('active');
             
-            // Atualizar texto descritivo
-            if (voiceSensitivity < 0.3) {
-                sensitivityValue.textContent = 'Baixa';
-            } else if (voiceSensitivity < 0.7) {
-                sensitivityValue.textContent = 'Média';
-            } else {
-                sensitivityValue.textContent = 'Alta';
-            }
+            // Atualizar status no Firebase
+            updateFirebaseVoiceStatus(true, false);
+            
+        } catch (error) {
+            console.error('Erro ao ativar voz:', error);
+            showNotification('Erro ao ativar voz. Verifique as permissões do microfone.', 'error');
         }
+    } else {
+        // Desativar voz
+        stopVoiceChat();
+        isVoiceActive = false;
+        btnVoiceAction.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
+        btnVoiceAction.classList.remove('active');
+        
+        // Atualizar status no Firebase
+        updateFirebaseVoiceStatus(false, false);
     }
+}
 
-    // ===== MOSTRAR NOTIFICAÇÃO =====
-    function showNotification(message, type) {
-        // Implementação básica de notificação
-        console.log(`${type}: ${message}`);
+// ===== INICIAR CHAT DE VOZ =====
+async function startVoiceChat() {
+    try {
+        // Solicitar acesso ao microfone
+        voiceStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100
+            } 
+        });
         
-        // Você pode implementar um sistema de notificação mais elaborado aqui
-        const notification = document.createElement('div');
-        notification.style.position = 'fixed';
-        notification.style.bottom = '20px';
-        notification.style.left = '20px';
-        notification.style.padding = '10px 15px';
-        notification.style.borderRadius = '5px';
-        notification.style.color = 'white';
-        notification.style.zIndex = '1000';
-        notification.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.2)';
+        // Adicionar stream à conexão PeerConnection
+        if (peerConnection) {
+            voiceStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, voiceStream);
+            });
+        }
         
-        if (type === 'error') {
-            notification.style.background = '#e74c3c';
+        // Configurar áudio context para análise
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(voiceStream);
+        
+        // Configurar analisador de áudio
+        audioAnalyser = audioContext.createAnalyser();
+        audioAnalyser.fftSize = 256;
+        source.connect(audioAnalyser);
+        
+        // Iniciar análise de áudio
+        analyzeVoice();
+        
+    } catch (error) {
+        console.error('Erro ao acessar microfone:', error);
+        throw error;
+    }
+}
+
+// ===== NEGOCIAR CONEXÃO WEBRTC =====
+async function negotiateConnection() {
+    if (!peerConnection || isNegotiating) return;
+    
+    try {
+        isNegotiating = true;
+        
+        // Usar offerOptions para evitar problemas
+        const offerOptions = {
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: false
+        };
+        
+        // Criar oferta
+        const offer = await peerConnection.createOffer(offerOptions);
+        
+        // Definir a descrição local
+        await peerConnection.setLocalDescription(offer);
+        console.log('Oferta WebRTC criada:', offer);
+        
+    } catch (error) {
+        console.error('Erro durante negociação WebRTC:', error);
+        isNegotiating = false;
+    }
+}
+
+// ===== PARAR CHAT DE VOZ =====
+function stopVoiceChat() {
+    if (voiceStream) {
+        voiceStream.getTracks().forEach(track => track.stop());
+        voiceStream = null;
+    }
+    
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+    
+    audioAnalyser = null;
+    
+    // Fechar conexão WebRTC
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+    
+    // Limpar listeners do Firebase
+    cleanupFirebaseListeners();
+    
+    // Resetar barra de visualização
+    const voiceBar = document.getElementById('voice-bar');
+    if (voiceBar) {
+        voiceBar.style.width = '0%';
+    }
+    
+    // Limpar candidatos ICE
+    iceCandidates = [];
+    isNegotiating = false;
+    isConnected = false;
+    updateConnectionStatus('disconnected', 'Desconectado');
+}
+
+// ===== ANALISAR VOZ =====
+function analyzeVoice() {
+    if (!audioAnalyser) return;
+    
+    const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
+    const voiceBar = document.getElementById('voice-bar');
+    
+    const analyze = () => {
+        if (!audioAnalyser) return;
+        
+        audioAnalyser.getByteFrequencyData(dataArray);
+        
+        // Calcular volume médio
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+        }
+        const averageVolume = sum / dataArray.length / 256; // Normalizar para 0-1
+        
+        // Atualizar barra de visualização
+        if (voiceBar) {
+            voiceBar.style.width = `${Math.min(averageVolume * 100 * 2, 100)}%`;
+        }
+        
+        // Verificar se o usuário está falando (baseado na sensibilidade)
+        const isSpeaking = averageVolume > voiceSensitivity;
+        
+        // Atualizar status no Firebase
+        if (isVoiceActive && isConnected) {
+            updateFirebaseVoiceStatus(true, isSpeaking);
+        }
+        
+        if (isVoiceActive) {
+            requestAnimationFrame(analyze);
+        }
+    };
+    
+    analyze();
+}
+
+// ===== ATUALIZAR VOLUME =====
+function updateVoiceVolume() {
+    const volumeSlider = document.getElementById('voice-volume');
+    const volumeValue = document.getElementById('volume-value');
+    
+    if (volumeSlider && volumeValue) {
+        voiceVolume = parseFloat(volumeSlider.value);
+        volumeValue.textContent = `${Math.round(voiceVolume * 100)}%`;
+        
+        // Ajustar volume de todos os elementos de áudio
+        document.querySelectorAll('audio').forEach(audio => {
+            audio.volume = voiceVolume;
+        });
+    }
+}
+
+// ===== ATUALIZAR SENSIBILIDADE =====
+function updateVoiceSensitivity() {
+    const sensitivitySlider = document.getElementById('voice-sensitivity');
+    const sensitivityValue = document.getElementById('sensitivity-value');
+    
+    if (sensitivitySlider && sensitivityValue) {
+        voiceSensitivity = parseFloat(sensitivitySlider.value);
+        
+        // Atualizar texto descritivo
+        if (voiceSensitivity < 0.3) {
+            sensitivityValue.textContent = 'Baixa';
+        } else if (voiceSensitivity < 0.7) {
+            sensitivityValue.textContent = 'Média';
         } else {
-            notification.style.background = '#2ecc71';
+            sensitivityValue.textContent = 'Alta';
         }
-        
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        
-        // Remover após 3 segundos
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            notification.style.transition = 'opacity 0.5s';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    document.body.removeChild(notification);
-                }
-            }, 500);
-        }, 3000);
     }
+}
 
-    // Simular que o usuário atual é o caller (iniciador da chamada)
-    isCaller = true;
+// ===== MOSTRAR NOTIFICAÇÃO =====
+function showNotification(message, type) {
+    // Implementação básica de notificação
+    console.log(`${type}: ${message}`);
+    
+    // Tocar som de notificação
+    audioManager.playNotification();
+    
+    // Você pode implementar um sistema de notificação mais elaborado aqui
+    const notification = document.createElement('div');
+    notification.style.position = 'fixed';
+    notification.style.bottom = '20px';
+    notification.style.left = '20px';
+    notification.style.padding = '10px 15px';
+    notification.style.borderRadius = '5px';
+    notification.style.color = 'white';
+    notification.style.zIndex = '1000';
+    notification.style.boxShadow = '0 3px 10px rgba(0, 0, 0, 0.2)';
+    
+    if (type === 'error') {
+        notification.style.background = '#e74c3c';
+    } else {
+        notification.style.background = '#2ecc71';
+    }
+    
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // Remover após 3 segundos
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.5s';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
+        }, 500);
+    }, 3000);
+}
+
+// ===== SIMULAR NOTIFICAÇÃO DE DESAFIO =====
+function showChallengeNotification(challengeData) {
+    // Esta função simula a notificação de desafio
+    console.log("Mostrando notificação de desafio:", challengeData);
+    
+    // Usar audioManager para tocar som de notificação
+    if (typeof audioManager !== 'undefined' && audioManager.playNotification) {
+        audioManager.playNotification();
+    } else {
+        console.log("AudioManager não disponível para tocar som");
+    }
+    
+    // Aqui você mostraria a notificação de desafio na UI
+    showNotification(`Novo desafio de ${challengeData.from}`, 'info');
+}
+
+// Simular que o usuário atual é o caller (iniciador da chamada)
+isCaller = true;
+
+// Simular uma notificação de desafio (para testar a correção do erro)
+setTimeout(() => {
+    showChallengeNotification({
+        from: 'Jogador2',
+        to: 'user3',
+        message: 'Jogador2 te desafiou para uma partida!'
+    });
+}, 3000);
