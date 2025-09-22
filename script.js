@@ -8620,7 +8620,10 @@ async function checkPendingChallenges() {
     } catch (error) {
         console.error('Erro ao verificar desafios pendentes:', error);
     }
-}// ===== VARIÁVEIS GLOBAIS =====
+}
+
+
+// ===== VARIÁVEIS GLOBAIS =====
 let voiceStream = null;
 let audioContext = null;
 let audioAnalyser = null;
@@ -8640,6 +8643,7 @@ let iceCandidates = [];
 // Firebase variables
 let voiceUsersListener = null;
 let currentUserData = null;
+let currentUserId = null; // Nova variável para ID único
 
 // ===== AUDIO MANAGER =====
 const audioManager = {
@@ -8647,8 +8651,6 @@ const audioManager = {
         // Tocar um som de notificação
         try {
             console.log("Tocando som de notificação");
-            // Em uma implementação real, você teria um arquivo de áudio real
-            // Simular tocar um som
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
             oscillator.type = 'sine';
@@ -8669,9 +8671,8 @@ const audioManager = {
     },
     
     playSound: function(name, volume = 0.5) {
-        // Tocar diferentes tipos de sons
         console.log(`Reproduzindo som: ${name} com volume: ${volume}`);
-        this.playNotification(); // Usar a notificação como fallback
+        this.playNotification();
     }
 };
 
@@ -8706,16 +8707,40 @@ function initializeVoiceSystem() {
         document.getElementById('btn-voice-action').disabled = true;
     }
     
+    // Gerar ID único para este usuário/dispositivo
+    generateUniqueUserId();
+    
     // Obter dados do usuário atual
     if (typeof userData !== 'undefined' && userData) {
         currentUserData = userData;
+        // Usar o UID do userData se disponível, senão usar o ID único gerado
+        if (currentUserData.uid) {
+            currentUserId = currentUserData.uid;
+        }
     } else {
         // Fallback para dados simulados
         currentUserData = {
-            uid: 'current-user',
-            displayName: 'Você'
+            displayName: 'Usuário ' + Math.random().toString(36).substring(2, 8)
         };
     }
+    
+    console.log("Usuário atual:", currentUserId, currentUserData.displayName);
+}
+
+// ===== GERAR ID ÚNICO PARA USUÁRIO =====
+function generateUniqueUserId() {
+    // Verificar se já existe um ID no localStorage
+    let storedUserId = localStorage.getItem('voiceUserId');
+    
+    if (storedUserId) {
+        currentUserId = storedUserId;
+    } else {
+        // Gerar novo ID único
+        currentUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem('voiceUserId', currentUserId);
+    }
+    
+    console.log("ID único do usuário:", currentUserId);
 }
 
 // ===== CONFIGURAÇÃO INICIAL WEBRTC =====
@@ -8738,7 +8763,6 @@ function createPeerConnection() {
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 console.log('Novo candidato ICE:', event.candidate);
-                // Armazenar candidatos para processamento posterior
                 iceCandidates.push(event.candidate);
             } else {
                 console.log('Todos os candidatos ICE foram coletados');
@@ -8780,7 +8804,6 @@ function createPeerConnection() {
         // Lidar com stream remoto (áudio do oponente)
         peerConnection.ontrack = (event) => {
             console.log('Stream remoto recebido:', event.streams[0]);
-            // Conectar o stream remoto a um elemento de áudio
             const audioElement = document.createElement('audio');
             audioElement.srcObject = event.streams[0];
             audioElement.autoplay = true;
@@ -8815,7 +8838,7 @@ function setupFirebaseListeners() {
                     user.id = doc.id;
                     
                     // Não incluir o usuário atual na lista
-                    if (user.id !== currentUserData.uid) {
+                    if (user.id !== currentUserId) {
                         activeUsers.push(user);
                     }
                 });
@@ -8867,7 +8890,6 @@ function updateUsersList(users) {
         userElement.className = `user-item ${user.isSpeaking ? 'active' : ''}`;
         userElement.id = `user-${user.id}`;
         
-        // Usar displayName do Firebase se disponível
         const displayName = user.displayName || user.name || 'Jogador';
         const firstLetter = displayName.charAt(0).toUpperCase();
         
@@ -8887,23 +8909,26 @@ function updateUsersList(users) {
 // ===== ATUALIZAR STATUS NO FIREBASE =====
 async function updateFirebaseVoiceStatus(isActive, isSpeaking = false) {
     // Verificar se o Firebase está disponível
-    if (typeof db === 'undefined' || !currentUserData) {
-        console.error('Firebase não está disponível');
+    if (typeof db === 'undefined' || !currentUserId) {
+        console.error('Firebase não está disponível ou ID de usuário não definido');
         return;
     }
     
     try {
-        const userRef = db.collection('voiceUsers').doc(currentUserData.uid);
+        const userRef = db.collection('voiceUsers').doc(currentUserId);
         
         if (isActive) {
-            // Atualizar ou criar documento do usuário
+            // Atualizar ou criar documento do usuário com ID único
             await userRef.set({
-                displayName: currentUserData.displayName,
+                displayName: currentUserData.displayName || 'Usuário Anônimo',
                 isActive: true,
                 isSpeaking: isSpeaking,
                 lastUpdate: firebase.firestore.FieldValue.serverTimestamp(),
-                uid: currentUserData.uid
+                uid: currentUserId,
+                deviceId: navigator.userAgent // Opcional: adicionar info do dispositivo
             }, { merge: true });
+            
+            console.log('Status de voz atualizado no Firebase com ID:', currentUserId);
         } else {
             // Remover usuário ou marcar como inativo
             await userRef.update({
@@ -8911,9 +8936,10 @@ async function updateFirebaseVoiceStatus(isActive, isSpeaking = false) {
                 isSpeaking: false,
                 lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
             });
+            
+            console.log('Voz desativada no Firebase para ID:', currentUserId);
         }
         
-        console.log('Status de voz atualizado no Firebase');
     } catch (error) {
         console.error('Erro ao atualizar status no Firebase:', error);
     }
@@ -8948,13 +8974,13 @@ function updateConnectionStatus(status, text) {
 // ===== CONFIGURAR EVENT LISTENERS =====
 function setupEventListeners() {
     // Botão de toggle do painel
-    document.getElementById('voice-toggle-btn').addEventListener('click', toggleVoicePanel);
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+    const closePanelBtn = document.getElementById('close-panel');
+    const overlay = document.getElementById('panel-overlay');
     
-    // Botão de fechar o painel
-    document.getElementById('close-panel').addEventListener('click', toggleVoicePanel);
-    
-    // Overlay para fechar ao clicar fora
-    document.getElementById('panel-overlay').addEventListener('click', toggleVoicePanel);
+    if (voiceToggleBtn) voiceToggleBtn.addEventListener('click', toggleVoicePanel);
+    if (closePanelBtn) closePanelBtn.addEventListener('click', toggleVoicePanel);
+    if (overlay) overlay.addEventListener('click', toggleVoicePanel);
 }
 
 // ===== FUNÇÃO createSoundControls =====
@@ -8994,11 +9020,11 @@ function toggleVoicePanel() {
     if (voicePanelVisible) {
         voicePanel.classList.add('active');
         overlay.classList.add('active');
-        voiceToggleBtn.classList.add('active');
+        if (voiceToggleBtn) voiceToggleBtn.classList.add('active');
     } else {
         voicePanel.classList.remove('active');
         overlay.classList.remove('active');
-        voiceToggleBtn.classList.remove('active');
+        if (voiceToggleBtn) voiceToggleBtn.classList.remove('active');
     }
 }
 
@@ -9011,8 +9037,10 @@ async function toggleVoiceChat() {
         try {
             await startVoiceChat();
             isVoiceActive = true;
-            btnVoiceAction.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
-            btnVoiceAction.classList.add('active');
+            if (btnVoiceAction) {
+                btnVoiceAction.innerHTML = '<i class="fas fa-microphone"></i> Desativar Voz';
+                btnVoiceAction.classList.add('active');
+            }
             
             // Atualizar status no Firebase
             updateFirebaseVoiceStatus(true, false);
@@ -9025,8 +9053,10 @@ async function toggleVoiceChat() {
         // Desativar voz
         stopVoiceChat();
         isVoiceActive = false;
-        btnVoiceAction.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
-        btnVoiceAction.classList.remove('active');
+        if (btnVoiceAction) {
+            btnVoiceAction.innerHTML = '<i class="fas fa-microphone-slash"></i> Ativar Voz';
+            btnVoiceAction.classList.remove('active');
+        }
         
         // Atualizar status no Firebase
         updateFirebaseVoiceStatus(false, false);
@@ -9077,16 +9107,12 @@ async function negotiateConnection() {
     try {
         isNegotiating = true;
         
-        // Usar offerOptions para evitar problemas
         const offerOptions = {
             offerToReceiveAudio: true,
             offerToReceiveVideo: false
         };
         
-        // Criar oferta
         const offer = await peerConnection.createOffer(offerOptions);
-        
-        // Definir a descrição local
         await peerConnection.setLocalDescription(offer);
         console.log('Oferta WebRTC criada:', offer);
         
@@ -9144,22 +9170,18 @@ function analyzeVoice() {
         
         audioAnalyser.getByteFrequencyData(dataArray);
         
-        // Calcular volume médio
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) {
             sum += dataArray[i];
         }
-        const averageVolume = sum / dataArray.length / 256; // Normalizar para 0-1
+        const averageVolume = sum / dataArray.length / 256;
         
-        // Atualizar barra de visualização
         if (voiceBar) {
             voiceBar.style.width = `${Math.min(averageVolume * 100 * 2, 100)}%`;
         }
         
-        // Verificar se o usuário está falando (baseado na sensibilidade)
         const isSpeaking = averageVolume > voiceSensitivity;
         
-        // Atualizar status no Firebase
         if (isVoiceActive && isConnected) {
             updateFirebaseVoiceStatus(true, isSpeaking);
         }
@@ -9181,7 +9203,6 @@ function updateVoiceVolume() {
         voiceVolume = parseFloat(volumeSlider.value);
         volumeValue.textContent = `${Math.round(voiceVolume * 100)}%`;
         
-        // Ajustar volume de todos os elementos de áudio
         document.querySelectorAll('audio').forEach(audio => {
             audio.volume = voiceVolume;
         });
@@ -9196,7 +9217,6 @@ function updateVoiceSensitivity() {
     if (sensitivitySlider && sensitivityValue) {
         voiceSensitivity = parseFloat(sensitivitySlider.value);
         
-        // Atualizar texto descritivo
         if (voiceSensitivity < 0.3) {
             sensitivityValue.textContent = 'Baixa';
         } else if (voiceSensitivity < 0.7) {
@@ -9209,13 +9229,10 @@ function updateVoiceSensitivity() {
 
 // ===== MOSTRAR NOTIFICAÇÃO =====
 function showNotification(message, type) {
-    // Implementação básica de notificação
     console.log(`${type}: ${message}`);
     
-    // Tocar som de notificação
     audioManager.playNotification();
     
-    // Você pode implementar um sistema de notificação mais elaborado aqui
     const notification = document.createElement('div');
     notification.style.position = 'fixed';
     notification.style.bottom = '20px';
@@ -9235,7 +9252,6 @@ function showNotification(message, type) {
     notification.textContent = message;
     document.body.appendChild(notification);
     
-    // Remover após 3 segundos
     setTimeout(() => {
         notification.style.opacity = '0';
         notification.style.transition = 'opacity 0.5s';
@@ -9246,25 +9262,6 @@ function showNotification(message, type) {
         }, 500);
     }, 3000);
 }
-
-// ===== SIMULAR NOTIFICAÇÃO DE DESAFIO =====
-function showChallengeNotification(challengeData) {
-    // Esta função simula a notificação de desafio
-    console.log("Mostrando notificação de desafio:", challengeData);
-    
-    // Usar audioManager para tocar som de notificação
-    if (typeof audioManager !== 'undefined' && audioManager.playNotification) {
-        audioManager.playNotification();
-    } else {
-        console.log("AudioManager não disponível para tocar som");
-    }
-    
-    // Aqui você mostraria a notificação de desafio na UI
-    showNotification(`Novo desafio de ${challengeData.from}`, 'info');
-}
-
-// Simular que o usuário atual é o caller (iniciador da chamada)
-isCaller = true;
 
 // Inicializar a lista de usuários com mensagem padrão
 document.addEventListener('DOMContentLoaded', function() {
@@ -9281,3 +9278,6 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
     }
 });
+
+// Simular que o usuário atual é o caller (iniciador da chamada)
+isCaller = true;
